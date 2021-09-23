@@ -351,7 +351,7 @@ pub fn KernelSignature(comptime ptx_file: [:0]const u8, comptime name: [:0]const
             return k;
         }
 
-        pub fn launch(self: *Self, cuda: *Cuda, gridDim: Dim3, blockDim: Dim3, args: ArgsTuple) !void {
+        pub fn launch(self: *const Self, cuda: *Cuda, gridDim: Dim3, blockDim: Dim3, args: ArgsTuple) !void {
             try cuda.launch(self.f, gridDim, blockDim, args);
         }
     };
@@ -375,10 +375,13 @@ test "safe kernel" {
     cuda.memset(u8, d_greyImage, 0);
 
     const rgba_to_greyscale_safe = try KernelSignature(ptx_file, "rgba_to_greyscale").init(&cuda);
+    std.log.warn("kernel args: {s}", .{@TypeOf(rgba_to_greyscale_safe).ArgsTuple});
     try rgba_to_greyscale_safe.launch(
         &cuda,
         .{ .x = numRows, .y = numCols },
         .{},
-        .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
+        // this is so ugly ! can I do something about it ?
+        // https://github.com/ziglang/zig/issues/8136
+        .{ .@"0" = d_rgbaImage.ptr, .@"1" = d_greyImage.ptr, .@"2" = numRows, .@"3" = numCols },
     );
 }
