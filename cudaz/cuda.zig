@@ -238,27 +238,27 @@ pub const Cuda = struct {
         _ = cu.cuMemsetD8(@ptrToInt(slice.ptr), value, slice.len * @sizeOf(DestType));
     }
 
-    pub fn kernel(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !*cu.CUfunction {
+    pub fn kernel(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !cu.CUfunction {
         // std.fs.accessAbsoluteZ(file, std.fs.File.OpenFlags{ .read = true }) catch @panic("can't open kernel file: " ++ file);
         var module = self.arena.allocator.create(cu.CUmodule) catch unreachable;
 
         try check(cu.cuModuleLoad(module, file));
         std.log.warn("module {s}: {s}", .{ file, module });
 
-        var function = self.arena.allocator.create(cu.CUfunction) catch unreachable;
-        try check(cu.cuModuleGetFunction(function, module.*, name));
+        var function: cu.CUfunction = undefined;
+        try check(cu.cuModuleGetFunction(&function, module.*, name));
         std.log.warn("function {s}.{s}: {}", .{ file, name, function });
         return function;
     }
 
-    pub fn launch(self: *Cuda, f: *cu.CUfunction, gridDim: Dim3, blockDim: Dim3, args: anytype) !void {
+    pub fn launch(self: *Cuda, f: cu.CUfunction, gridDim: Dim3, blockDim: Dim3, args: anytype) !void {
         // Create an array of pointers pointing to the given args.
         const fields: []const TypeInfo.StructField = meta.fields(@TypeOf(args));
         var args_ptrs: [fields.len:0]usize = undefined;
         inline for (fields) |field, i| {
             args_ptrs[i] = @ptrToInt(&@field(args, field.name));
         }
-        const res = cu.cuLaunchKernel(f.*, gridDim.x, gridDim.y, gridDim.z, blockDim.x, blockDim.y, blockDim.z, 0, null, @ptrCast([*c]?*c_void, &args_ptrs), null);
+        const res = cu.cuLaunchKernel(f, gridDim.x, gridDim.y, gridDim.z, blockDim.x, blockDim.y, blockDim.z, 0, null, @ptrCast([*c]?*c_void, &args_ptrs), null);
         try check(res);
     }
 
@@ -330,26 +330,19 @@ test "HW1" {
 }
 
 pub fn KernelSignature(comptime ptx_file: [:0]const u8, comptime name: [:0]const u8) type {
-    // This doesn't work very well, because the kernel signature will use types
-    // that are only available on the private cuda_module.
-    // I think "cu" namespace should contains all kernels.
-    // const cuda_module = loadCudaSrc(file);
-
+    // TODO: I'm not fond of passing .ptx files, I'd prefer if we could only talk about .cu files
     return struct {
         const Self = @This();
         const ArgsTuple = meta.ArgsTuple(@TypeOf(@field(cu, name)));
 
-        f: *cu.CUfunction,
+        f: cu.CUfunction,
         pub fn init(cuda: *Cuda) !Self {
             var k = Self{ .f = undefined };
-            // var ptx_file: [file.len + 9:0]u8 = undefined;
-            // std.mem.copy(u8, ptx_file[0..8], "./cudaz/");
-            // std.mem.copy(u8, ptx_file[8..ptx_file.len], file);
-            // std.mem.copy(u8, ptx_file[ptx_file.len - 3 .. ptx_file.len], "ptx");
-            // std.log.warn("{s} -> {s}", .{ file, ptx_file });
             k.f = try cuda.kernel(ptx_file, name);
             return k;
         }
+
+        // TODO: deinit -> CUDestroy
 
         pub fn launch(self: *const Self, cuda: *Cuda, gridDim: Dim3, blockDim: Dim3, args: ArgsTuple) !void {
             try cuda.launch(self.f, gridDim, blockDim, args);
