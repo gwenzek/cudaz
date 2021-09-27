@@ -32,12 +32,14 @@ pub fn build(b: *Builder) void {
     // kernel.addLibPath("/usr/local/cuda/lib64");
     // kernel.linkSystemLibraryName("cudart");
 
-    const exe = b.addExecutable("main", "cudaz/cuda.zig");
+    const exe = b.addExecutable("main", "cudaz/atomic_example.zig");
     exe.linkLibC();
     exe.addLibPath("/usr/local/cuda/lib64");
     exe.linkSystemLibraryName("cuda");
     exe.addIncludeDir("/usr/local/cuda/include/");
-    exe.addCSourceFile("cudaz/kernel.c", &[_][]const u8{});
+    exe.addIncludeDir("cudaz");
+    exe.addPackagePath("cuda", "cudaz/cuda.zig");
+    // exe.addCSourceFile("cudaz/kernel.h", &[_][]const u8{});
     // exe.addObject(kernel);
     exe.setTarget(target);
     exe.setBuildMode(mode);
@@ -53,4 +55,8 @@ pub fn build(b: *Builder) void {
     // tests.addObject(kernel);
 
     b.step("test", "Tests").dependOn(&tests.step);
+
+    // TODO try zig build -ofmt=c (with master branch)
+    // maybe we could write a kernel in Zig instead of cuda,
+    // which will maybe simplify the type matching
 }

@@ -3,8 +3,9 @@ const meta = std.meta;
 const testing = std.testing;
 const TypeInfo = std.builtin.TypeInfo;
 
-const cu = @cImport({
+pub const cu = @cImport({
     @cInclude("cuda.h");
+    // @cInclude("cuda_runtime.h");
     @cInclude("cuda_globals.h");
     @cInclude("kernel.cu");
 });
@@ -238,6 +239,18 @@ pub const Cuda = struct {
         _ = cu.cuMemsetD8(@ptrToInt(slice.ptr), value, slice.len * @sizeOf(DestType));
     }
 
+    pub fn memcpyHtoD(self: *Cuda, comptime DestType: type, target: []DestType, slice: []const DestType) void {
+        std.debug.assert(slice.len == target.len);
+        _ = cu.cuMemcpyHtoD(@ptrToInt(target.ptr), @ptrToInt(slice.ptr), slice.len * @sizeOf(DestType));
+    }
+    pub fn memcpyDtoH(self: *Cuda, comptime DestType: type, target: []DestType, slice: []DestType) void {
+        _ = cu.cuMemcpyDtoH(
+            @ptrCast(*c_void, target.ptr),
+            @ptrToInt(slice.ptr),
+            slice.len * @sizeOf(DestType),
+        );
+    }
+
     pub fn kernel(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !cu.CUfunction {
         // std.fs.accessAbsoluteZ(file, std.fs.File.OpenFlags{ .read = true }) catch @panic("can't open kernel file: " ++ file);
         var module = self.arena.allocator.create(cu.CUmodule) catch unreachable;
@@ -269,6 +282,39 @@ pub const Cuda = struct {
         writer: anytype,
     ) !void {
         try std.fmt.format(writer, "Cuda(device={})", .{self.device});
+    }
+};
+
+pub const GpuTimer = struct {
+    _start: cu.CUevent,
+    _stop: cu.CUevent,
+    stream: cu.CUstream,
+
+    pub fn init(cuda: *Cuda) GpuTimer {
+        var timer = GpuTimer{ ._start = undefined, ._stop = undefined, .stream = cuda.stream };
+        _ = cu.cuEventCreate(&timer._start, 0);
+        _ = cu.cuEventCreate(&timer._stop, 0);
+        return timer;
+    }
+
+    pub fn deinit(self: *GpuTimer) GpuTimer {
+        _ = cu.cuEventDestroy(&self._start);
+        _ = cu.cuEventDestroy(&self._stop);
+    }
+
+    pub fn start(self: *GpuTimer) void {
+        check(cu.cuEventRecord(self._start, self.stream)) catch unreachable;
+    }
+
+    pub fn stop(self: *GpuTimer) void {
+        check(cu.cuEventRecord(self._stop, self.stream)) catch unreachable;
+    }
+
+    pub fn elapsed(self: *GpuTimer) f32 {
+        var _elapsed: f32 = undefined;
+        _ = cu.cuEventSynchronize(self._stop);
+        _ = cu.cuEventElapsedTime(&_elapsed, self._start, self._stop);
+        return _elapsed;
     }
 };
 
@@ -329,23 +375,33 @@ test "HW1" {
     );
 }
 
+pub fn ArgsStruct(comptime Function: type) type {
+    const ArgsTuple = meta.ArgsTuple(Function);
+    var info = @typeInfo(ArgsTuple);
+    info.Struct.is_tuple = false;
+    return @Type(info);
+}
+
 pub fn KernelSignature(comptime ptx_file: [:0]const u8, comptime name: [:0]const u8) type {
     // TODO: I'm not fond of passing .ptx files, I'd prefer if we could only talk about .cu files
     return struct {
         const Self = @This();
-        const ArgsTuple = meta.ArgsTuple(@TypeOf(@field(cu, name)));
+        // const Args = comptime ArgsStruct(@TypeOf(@field(cu, name)));
+        const Args = meta.ArgsTuple(@TypeOf(@field(cu, name)));
 
         f: cu.CUfunction,
+        cuda: *Cuda,
+
         pub fn init(cuda: *Cuda) !Self {
-            var k = Self{ .f = undefined };
+            var k = Self{ .f = undefined, .cuda = cuda };
             k.f = try cuda.kernel(ptx_file, name);
             return k;
         }
 
         // TODO: deinit -> CUDestroy
 
-        pub fn launch(self: *const Self, cuda: *Cuda, gridDim: Dim3, blockDim: Dim3, args: ArgsTuple) !void {
-            try cuda.launch(self.f, gridDim, blockDim, args);
+        pub fn launch(self: *const Self, gridDim: Dim3, blockDim: Dim3, args: Args) !void {
+            try self.cuda.launch(self.f, gridDim, blockDim, args);
         }
     };
 }
@@ -368,9 +424,8 @@ test "safe kernel" {
     cuda.memset(u8, d_greyImage, 0);
 
     const rgba_to_greyscale_safe = try KernelSignature(ptx_file, "rgba_to_greyscale").init(&cuda);
-    std.log.warn("kernel args: {s}", .{@TypeOf(rgba_to_greyscale_safe).ArgsTuple});
+    std.log.warn("kernel args: {s}", .{@TypeOf(rgba_to_greyscale_safe).Args});
     try rgba_to_greyscale_safe.launch(
-        &cuda,
         .{ .x = numRows, .y = numCols },
         .{},
         // this is so ugly ! can I do something about it ?

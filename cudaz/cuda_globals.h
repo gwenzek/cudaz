@@ -5,6 +5,12 @@
 // checking on the kernel function call.
 
 #include "builtin_types.h"
+// #define __global__ ""
 
+dim3 blockDim;
 dim3 blockIdx;
-dim3 gridIdx;
+
+dim3 threadDim;
+dim3 threadIdx;
+
+int atomicAdd(int* a, int b) {a += b;}
