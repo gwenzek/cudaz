@@ -9,6 +9,7 @@ fn addCudaz(exe: *std.build.LibExeObjStep, comptime cuda_dir: []const u8) void {
     exe.addIncludeDir(cuda_dir ++ "/include");
     exe.addIncludeDir("cudaz");
     exe.addPackagePath("cuda", "cudaz/cuda.zig");
+    // TODO: compile C-header and Cuda kernels here
 }
 
 pub fn build(b: *Builder) void {
@@ -28,17 +29,14 @@ pub fn build(b: *Builder) void {
     // kernel.addLibPath("/usr/local/cuda/lib64");
     // kernel.linkSystemLibraryName("cudart");
 
-    const exe = b.addExecutable("main", "cudaz/atomic_example.zig");
+    const exe = b.addExecutable("atomic_example", "samples/atomic_example.zig");
     addCudaz(exe, "/usr/local/cuda");
-    // exe.addObject(kernel);
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();
 
     const tests = b.addTest("cudaz/cuda.zig");
     addCudaz(tests, "/usr/local/cuda");
-    // tests.addCSourceFile("cudaz/kernel.h", &[_][]const u8{});
-    // tests.addObject(kernel);
 
     b.step("test", "Tests").dependOn(&tests.step);
 

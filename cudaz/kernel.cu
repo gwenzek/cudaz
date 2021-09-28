@@ -1,4 +1,3 @@
- // TODO add macros ignored by zig
 #ifdef __cplusplus
 extern "C" {
 #endif

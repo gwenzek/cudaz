@@ -3,6 +3,7 @@ const meta = std.meta;
 const testing = std.testing;
 const TypeInfo = std.builtin.TypeInfo;
 
+// TODO: allow to import any cuda kernel (from build.zig)
 pub const cu = @cImport({
     @cInclude("cuda.h");
     // @cInclude("cuda_runtime.h");
@@ -107,9 +108,8 @@ pub const CudaError = error{
 };
 
 pub fn check(result: cu.CUresult) CudaError!void {
-    const z = CudaError;
-    return switch (result) {
-        .CUDA_SUCCESS => .{},
+    var err = switch (result) {
+        .CUDA_SUCCESS => return,
         .CUDA_ERROR_INVALID_VALUE => error.InvalidValue,
         .CUDA_ERROR_OUT_OF_MEMORY => error.OutOfMemory,
         .CUDA_ERROR_NOT_INITIALIZED => error.NotInitialized,
@@ -200,6 +200,14 @@ pub fn check(result: cu.CUresult) CudaError!void {
         // TODO: take inspiration on zig.std.os on how to handle unexpected errors
         // https://github.com/ziglang/zig/blob/c4f97d336528d5b795c6584053f072cf8e28495e/lib/std/os.zig#L4889
     };
+    var err_message: [*c]const u8 = undefined;
+    const error_string_res = cu.cuGetErrorString(result, &err_message);
+    if (error_string_res == .CUDA_SUCCESS) {
+        std.log.err("Cuda error {d}: {s}", .{ err, err_message });
+    } else {
+        std.log.err("Cuda error {d} (no error string)", .{err});
+    }
+    return err;
 }
 
 pub const Cuda = struct {
