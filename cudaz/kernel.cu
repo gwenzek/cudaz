@@ -1,5 +1,7 @@
  // TODO add macros ignored by zig
-// extern "C" {
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 __global__ void rgba_to_greyscale(const uchar4 *const rgbaImage,
                                   unsigned char *const greyImage, int numRows,
@@ -27,24 +29,27 @@ __global__ void rgba_to_greyscale(const uchar4 *const rgbaImage,
 
 #define ARRAY_SIZE  100
 
-__global__ void increment_naive(int *g)
+__global__ void increment_naive(int *g, int array_size)
 {
   // which thread is this?
   int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-  // each thread to increment consecutive elements, wrapping at ARRAY_SIZE
-  i = i % ARRAY_SIZE;
+  // each thread to increment consecutive elements, wrapping at array_size
+  i = i % array_size;
   g[i] = g[i] + 1;
 }
 
-__global__ void increment_atomic(int *g)
+__global__ void increment_atomic(int *g, int array_size)
 {
   // which thread is this?
   int i = blockIdx.x * blockDim.x + threadIdx.x;
 
-  // each thread to increment consecutive elements, wrapping at ARRAY_SIZE
-  i = i % ARRAY_SIZE;
+  // each thread to increment consecutive elements, wrapping at array_size
+  i = i % array_size;
   atomicAdd(& g[i], 1);
 
- }
-// }
+}
+
+#ifdef __cplusplus
+}
+#endif

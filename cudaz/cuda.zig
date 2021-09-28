@@ -228,11 +228,20 @@ pub const Cuda = struct {
         self.arena.deinit();
     }
 
-    pub fn malloc(self: *Cuda, comptime DestType: type, size: usize) []DestType {
+    // TODO: return a device pointer
+    pub fn alloc(self: *Cuda, comptime DestType: type, size: usize) []DestType {
         var int_ptr: cu.CUdeviceptr = undefined;
         _ = cu.cuMemAlloc(&int_ptr, size * @sizeOf(DestType));
         var ptr = @intToPtr([*]DestType, int_ptr);
         return ptr[0..size];
+    }
+
+    pub fn free(self: *Cuda, device_ptr: anytype) void {
+        var raw_ptr: *c_void = if (meta.trait.isSlice(@TypeOf(device_ptr)))
+            @ptrCast(*c_void, device_ptr.ptr)
+        else
+            @ptrCast(*c_void, device_ptr);
+        _ = cu.cuMemFree(@ptrToInt(raw_ptr));
     }
 
     pub fn memset(self: *Cuda, comptime DestType: type, slice: []const DestType, value: u8) void {
@@ -359,9 +368,9 @@ test "HW1" {
     const rgba_to_greyscale = try cuda.kernel("./cudaz/kernel.ptx", "rgba_to_greyscale");
     const numRows: u32 = 10;
     const numCols: u32 = 20;
-    const d_rgbaImage = cuda.malloc([4]u8, numRows * numCols);
+    const d_rgbaImage = cuda.alloc([4]u8, numRows * numCols);
     cuda.memset([4]u8, d_rgbaImage, 0xaa);
-    const d_greyImage = cuda.malloc(u8, numRows * numCols);
+    const d_greyImage = cuda.alloc(u8, numRows * numCols);
     cuda.memset(u8, d_greyImage, 0);
 
     // copy input array to the GPU
@@ -418,9 +427,9 @@ test "safe kernel" {
     const rgba_to_greyscale = try cuda.kernel(ptx_file, "rgba_to_greyscale");
     const numRows: u32 = 10;
     const numCols: u32 = 20;
-    const d_rgbaImage = cuda.malloc(cu.uchar4, numRows * numCols);
+    const d_rgbaImage = cuda.alloc(cu.uchar4, numRows * numCols);
     cuda.memset(cu.uchar4, d_rgbaImage, 0xaa);
-    const d_greyImage = cuda.malloc(u8, numRows * numCols);
+    const d_greyImage = cuda.alloc(u8, numRows * numCols);
     cuda.memset(u8, d_greyImage, 0);
 
     const rgba_to_greyscale_safe = try KernelSignature(ptx_file, "rgba_to_greyscale").init(&cuda);
@@ -432,4 +441,13 @@ test "safe kernel" {
         // https://github.com/ziglang/zig/issues/8136
         .{ .@"0" = d_rgbaImage.ptr, .@"1" = d_greyImage.ptr, .@"2" = numRows, .@"3" = numCols },
     );
+}
+
+test "cuda alloc" {
+    var cuda = try Cuda.init(0);
+    defer cuda.deinit();
+
+    const d_greyImage = cuda.alloc(u8, 128);
+    cuda.memset(u8, d_greyImage, 0);
+    defer cuda.free(d_greyImage);
 }
