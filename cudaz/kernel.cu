@@ -2,7 +2,7 @@
 extern "C" {
 #endif
 
-__global__ void rgba_to_greyscale(const uchar4 *const rgbaImage,
+__global__ void rgba_to_greyscale(const uchar3 *const rgbaImage,
                                   unsigned char *const greyImage, int numRows,
                                   int numCols) {
   // TODO
@@ -17,7 +17,7 @@ __global__ void rgba_to_greyscale(const uchar4 *const rgbaImage,
   // First create a mapping from the 2D block and grid locations
   // to an absolute 2D location in the image, then use that to
   // calculate a 1D offset
-  uchar4 px = rgbaImage[blockIdx.x * numCols + blockIdx.y];
+  uchar3 px = rgbaImage[blockIdx.x * numCols + blockIdx.y];
   float R = px.x;
   float G = px.y;
   float B = px.z;
@@ -25,8 +25,6 @@ __global__ void rgba_to_greyscale(const uchar4 *const rgbaImage,
   greyImage[blockIdx.x * numCols + blockIdx.y] = output;
 }
 
-
-#define ARRAY_SIZE  100
 
 __global__ void increment_naive(int *g, int array_size)
 {

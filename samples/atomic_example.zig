@@ -3,7 +3,6 @@ const log = std.log;
 const cuda_module = @import("cuda");
 const Cuda = cuda_module.Cuda;
 const cu = cuda_module.cu;
-const Dim3 = cuda_module.Dim3;
 
 const ARRAY_SIZE = 100;
 
@@ -56,7 +55,7 @@ fn _time_kernel(
     defer alloc.free(h_array);
     var d_array = cuda.alloc(i32, array_size);
     defer cuda.free(d_array);
-    cuda.memset(i32, d_array, 0);
+    try cuda.memset(i32, d_array, 0);
 
     log.info("*** Will benchmark kernel {s} ***", .{kernel_name});
     log.info("{} total threads in {} blocks writing into {} array elements", .{ num_threads, num_threads / block_width, array_size });
@@ -69,7 +68,7 @@ fn _time_kernel(
     timer.stop();
 
     // copy back the array of sums from GPU and print
-    cuda.memcpyDtoH(i32, h_array, d_array);
+    try cuda.memcpyDtoH(i32, h_array, d_array);
     log.info("array: {any}", .{h_array[0..std.math.min(h_array.len, 100)]});
     log.info("time elapsed: {d:.4} ms", .{timer.elapsed()});
 }

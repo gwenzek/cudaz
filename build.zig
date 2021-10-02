@@ -12,6 +12,21 @@ fn addCudaz(exe: *std.build.LibExeObjStep, comptime cuda_dir: []const u8) void {
     // TODO: compile C-header and Cuda kernels here
 }
 
+// fn addOpenCv(exe: *std.build.LibExeObjStep, comptime opencv_dir: []const u8) void {
+//     // exe.linkLibCpp();
+
+//     exe.addLibPath(opencv_dir ++ "/lib");
+//     exe.linkSystemLibraryName("opencv_core");
+//     exe.linkSystemLibraryName("opencv_imgcodecs");
+//     exe.addCSourceFile("opencv2/core/core.hpp", &[_][]const u8{});
+// }
+
+fn addLibpng(exe: *std.build.LibExeObjStep) void {
+    exe.linkSystemLibraryName("png");
+    exe.addIncludeDir("/usr/include");
+    // exe.addCSourceFile("/usr/include/png.h", &[_][]const u8{});
+}
+
 pub fn build(b: *Builder) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
@@ -29,8 +44,12 @@ pub fn build(b: *Builder) void {
     // kernel.addLibPath("/usr/local/cuda/lib64");
     // kernel.linkSystemLibraryName("cudart");
 
-    const exe = b.addExecutable("atomic_example", "samples/atomic_example.zig");
+    // const exe = b.addExecutable("hw1", "HW1/hw1.zig");
+    const exe = b.addExecutable("atomic_e", "HW1/hw1.zig");
     addCudaz(exe, "/usr/local/cuda");
+    // addOpenCv(exe, "/home/guw/apps/miniconda3/envs/cs344/");
+    exe.addPackagePath("zigimg", "zigimg/zigimg.zig");
+    addLibpng(exe);
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();

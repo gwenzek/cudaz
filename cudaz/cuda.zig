@@ -11,6 +11,8 @@ pub const cu = @cImport({
     @cInclude("kernel.cu");
 });
 
+pub const png = @import("png.zig");
+
 pub const Dim3 = struct {
     x: c_uint = 1,
     y: c_uint = 1,
@@ -237,9 +239,9 @@ pub const Cuda = struct {
     }
 
     // TODO: return a device pointer
-    pub fn alloc(self: *Cuda, comptime DestType: type, size: usize) []DestType {
+    pub fn alloc(self: *Cuda, comptime DestType: type, size: usize) ![]DestType {
         var int_ptr: cu.CUdeviceptr = undefined;
-        _ = cu.cuMemAlloc(&int_ptr, size * @sizeOf(DestType));
+        try check(cu.cuMemAlloc(&int_ptr, size * @sizeOf(DestType)));
         var ptr = @intToPtr([*]DestType, int_ptr);
         return ptr[0..size];
     }
@@ -252,20 +254,35 @@ pub const Cuda = struct {
         _ = cu.cuMemFree(@ptrToInt(raw_ptr));
     }
 
-    pub fn memset(self: *Cuda, comptime DestType: type, slice: []const DestType, value: u8) void {
-        _ = cu.cuMemsetD8(@ptrToInt(slice.ptr), value, slice.len * @sizeOf(DestType));
+    pub fn memset(self: *Cuda, comptime DestType: type, slice: []const DestType, value: DestType) !void {
+        if (@sizeOf(DestType) != 1) @compileError("cuda.memset doesn't support type: " ++ DestType);
+        const byte_value: u8 = std.mem.asBytes(&value)[0];
+        try check(cu.cuMemsetD8(@ptrToInt(slice.ptr), byte_value, slice.len));
     }
 
-    pub fn memcpyHtoD(self: *Cuda, comptime DestType: type, target: []DestType, slice: []const DestType) void {
-        std.debug.assert(slice.len == target.len);
-        _ = cu.cuMemcpyHtoD(@ptrToInt(target.ptr), @ptrToInt(slice.ptr), slice.len * @sizeOf(DestType));
+    pub fn memcpyHtoD(self: *Cuda, comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
+        std.debug.assert(h_source.len == d_target.len);
+        check(cu.cuMemcpyHtoD(
+            @ptrToInt(d_target.ptr),
+            @ptrCast(*const c_void, h_source.ptr),
+            h_source.len * @sizeOf(DestType),
+        )) catch |err| switch (err) {
+            // TODO: leverage adress spaces to make this a comptime check
+            error.InvalidValue => std.log.warn("InvalidValue error while memcpyHtoD! Usage is memcpyHtoD(d_tgt, h_src)", .{}),
+            else => return err,
+        };
     }
-    pub fn memcpyDtoH(self: *Cuda, comptime DestType: type, target: []DestType, slice: []DestType) void {
-        _ = cu.cuMemcpyDtoH(
-            @ptrCast(*c_void, target.ptr),
-            @ptrToInt(slice.ptr),
-            slice.len * @sizeOf(DestType),
-        );
+    pub fn memcpyDtoH(self: *Cuda, comptime DestType: type, h_target: []DestType, d_source: []DestType) !void {
+        std.debug.assert(d_source.len == h_target.len);
+        check(cu.cuMemcpyDtoH(
+            @ptrCast(*c_void, h_target.ptr),
+            @ptrToInt(d_source.ptr),
+            d_source.len * @sizeOf(DestType),
+        )) catch |err| switch (err) {
+            // TODO: leverage adress spaces to make this a comptime check
+            error.InvalidValue => std.log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
+            else => return err,
+        };
     }
 
     pub fn kernel(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !cu.CUfunction {
@@ -273,8 +290,6 @@ pub const Cuda = struct {
         var module = self.arena.allocator.create(cu.CUmodule) catch unreachable;
 
         try check(cu.cuModuleLoad(module, file));
-        std.log.warn("module {s}: {s}", .{ file, module });
-
         var function: cu.CUfunction = undefined;
         try check(cu.cuModuleGetFunction(&function, module.*, name));
         std.log.warn("function {s}.{s}: {}", .{ file, name, function });
