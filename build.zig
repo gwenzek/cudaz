@@ -2,14 +2,23 @@ const std = @import("std");
 
 const Builder = std.build.Builder;
 
-fn addCudaz(exe: *std.build.LibExeObjStep, comptime cuda_dir: []const u8) void {
+fn addCudaz(b: *Builder, exe: *std.build.LibExeObjStep, comptime cuda_dir: []const u8) void {
     exe.linkLibC();
     exe.addLibPath(cuda_dir ++ "/lib64");
     exe.linkSystemLibraryName("cuda");
     exe.addIncludeDir(cuda_dir ++ "/include");
     exe.addIncludeDir("cudaz");
     exe.addPackagePath("cuda", "cudaz/cuda.zig");
-    // TODO: compile C-header and Cuda kernels here
+
+    // TODO: allow to chose where to look at
+    const nvcc = b.addSystemCommand(&[_][]const u8{
+        cuda_dir ++ "/bin/nvcc",
+        "--ptx",
+        "cudaz/kernel.cu",
+        "-o",
+        "cudaz/kernel.ptx",
+    });
+    exe.step.dependOn(&nvcc.step);
 }
 
 // fn addOpenCv(exe: *std.build.LibExeObjStep, comptime opencv_dir: []const u8) void {
@@ -44,9 +53,8 @@ pub fn build(b: *Builder) void {
     // kernel.addLibPath("/usr/local/cuda/lib64");
     // kernel.linkSystemLibraryName("cudart");
 
-    // const exe = b.addExecutable("hw1", "HW1/hw1.zig");
-    const exe = b.addExecutable("atomic_e", "HW1/hw1.zig");
-    addCudaz(exe, "/usr/local/cuda");
+    const exe = b.addExecutable("hw2", "HW1/hw2.zig");
+    addCudaz(b, exe, "/usr/local/cuda");
     // addOpenCv(exe, "/home/guw/apps/miniconda3/envs/cs344/");
     exe.addPackagePath("zigimg", "zigimg/zigimg.zig");
     addLibpng(exe);
@@ -55,7 +63,7 @@ pub fn build(b: *Builder) void {
     exe.install();
 
     const tests = b.addTest("cudaz/cuda.zig");
-    addCudaz(tests, "/usr/local/cuda");
+    addCudaz(b, tests, "/usr/local/cuda");
 
     b.step("test", "Tests").dependOn(&tests.step);
 

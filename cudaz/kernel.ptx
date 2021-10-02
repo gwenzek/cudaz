@@ -20,7 +20,7 @@
 )
 {
 	.reg .b16 	%rs<4>;
-	.reg .f32 	%f<9>;
+	.reg .f32 	%f<7>;
 	.reg .b32 	%r<6>;
 	.reg .b64 	%rd<9>;
 
@@ -42,12 +42,10 @@
 	cvt.rn.f32.u16 	%f1, %rs1;
 	cvt.rn.f32.u16 	%f2, %rs2;
 	cvt.rn.f32.u16 	%f3, %rs3;
-	mul.rn.f32 	%f4, %f1, 0f3E991687;
-	mul.rn.f32 	%f5, %f2, 0f3F1645A2;
-	add.rn.f32 	%f6, %f4, %f5;
-	mul.rn.f32 	%f7, %f3, 0f3DE978D5;
-	add.rn.f32 	%f8, %f6, %f7;
-	cvt.rzi.u32.f32 	%r5, %f8;
+	mul.f32 	%f4, %f2, 0f3F1645A2;
+	fma.rn.f32 	%f5, %f1, 0f3E991687, %f4;
+	fma.rn.f32 	%f6, %f3, 0f3DE978D5, %f5;
+	cvt.rzi.u32.f32 	%r5, %f6;
 	add.s64 	%rd8, %rd3, %rd5;
 	st.global.u8 	[%rd8], %r5;
 	ret;
