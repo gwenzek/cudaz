@@ -62,10 +62,16 @@ pub fn build(b: *Builder) void {
     exe.setBuildMode(mode);
     exe.install();
 
-    const tests = b.addTest("cudaz/cuda.zig");
-    addCudaz(b, tests, "/usr/local/cuda");
+    var tests = b.step("test", "Tests");
+    const test_cuda = b.addTest("cudaz/cuda.zig");
+    addCudaz(b, test_cuda, "/usr/local/cuda");
+    // tests.dependOn(&test_cuda.step);
 
-    b.step("test", "Tests").dependOn(&tests.step);
+    const test_png = b.addTest("HW1/png.zig");
+    addCudaz(b, test_png, "/usr/local/cuda");
+    test_png.addPackagePath("zigimg", "zigimg/zigimg.zig");
+    addLibpng(test_png);
+    tests.dependOn(&test_png.step);
 
     // TODO try zig build -ofmt=c (with master branch)
     // maybe we could write a kernel in Zig instead of cuda,

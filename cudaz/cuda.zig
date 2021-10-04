@@ -17,6 +17,38 @@ pub const Dim3 = struct {
     x: c_uint = 1,
     y: c_uint = 1,
     z: c_uint = 1,
+
+    pub fn init(x: usize, y: usize, z: usize) Dim3 {
+        return .{
+            .x = @intCast(c_uint, x),
+            .y = @intCast(c_uint, y),
+            .z = @intCast(c_uint, z),
+        };
+    }
+};
+
+/// Represents how kernel are execut
+pub const Grid = struct {
+    blockDim: Dim3,
+    threadDim: Dim3,
+
+    pub fn init2D(rows: usize, cols: usize, block_size: usize) Grid {
+        var s = block_size;
+        if (block_size == 0) {
+            // This correspond to having one thread per pixel.
+            // This is likely to crash at runtime, unless for very small images.
+            // Because there is a max number of threads supported by each GPU.
+            s = std.math.max(rows, cols);
+        }
+        return Grid{
+            .blockDim = Dim3.init(
+                std.math.divCeil(usize, cols, s) catch unreachable,
+                std.math.divCeil(usize, rows, s) catch unreachable,
+                1,
+            ),
+            .threadDim = Dim3.init(s, s, 1),
+        };
+    }
 };
 
 pub const CudaError = error{
@@ -255,9 +287,15 @@ pub const Cuda = struct {
     }
 
     pub fn memset(self: *Cuda, comptime DestType: type, slice: []const DestType, value: DestType) !void {
-        if (@sizeOf(DestType) != 1) @compileError("cuda.memset doesn't support type: " ++ DestType);
+        if (@sizeOf(DestType) != 1) @compileError("cuda.memset doesn't support type: " ++ @typeName(DestType));
         const byte_value: u8 = std.mem.asBytes(&value)[0];
         try check(cu.cuMemsetD8(@ptrToInt(slice.ptr), byte_value, slice.len));
+    }
+
+    pub fn allocAndCopy(self: *Cuda, comptime DestType: type, h_source: []const DestType) ![]DestType {
+        var ptr = try self.alloc(DestType, h_source.len);
+        try self.memcpyHtoD(DestType, ptr, h_source);
+        return ptr;
     }
 
     pub fn memcpyHtoD(self: *Cuda, comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
@@ -296,15 +334,31 @@ pub const Cuda = struct {
         return function;
     }
 
-    pub fn launch(self: *Cuda, f: cu.CUfunction, gridDim: Dim3, blockDim: Dim3, args: anytype) !void {
+    pub fn launch(self: *Cuda, f: cu.CUfunction, grid: Grid, args: anytype) !void {
         // Create an array of pointers pointing to the given args.
         const fields: []const TypeInfo.StructField = meta.fields(@TypeOf(args));
         var args_ptrs: [fields.len:0]usize = undefined;
         inline for (fields) |field, i| {
             args_ptrs[i] = @ptrToInt(&@field(args, field.name));
         }
-        const res = cu.cuLaunchKernel(f, gridDim.x, gridDim.y, gridDim.z, blockDim.x, blockDim.y, blockDim.z, 0, null, @ptrCast([*c]?*c_void, &args_ptrs), null);
+        const res = cu.cuLaunchKernel(
+            f,
+            grid.blockDim.x,
+            grid.blockDim.y,
+            grid.blockDim.z,
+            grid.threadDim.x,
+            grid.threadDim.y,
+            grid.threadDim.z,
+            0,
+            null,
+            @ptrCast([*c]?*c_void, &args_ptrs),
+            null,
+        );
         try check(res);
+    }
+
+    pub fn synchronize(self: *Cuda) !void {
+        try check(cu.cuStreamSynchronize(self.stream));
     }
 
     pub fn format(
@@ -391,13 +445,13 @@ test "HW1" {
     const rgba_to_greyscale = try cuda.kernel("./cudaz/kernel.ptx", "rgba_to_greyscale");
     const numRows: u32 = 10;
     const numCols: u32 = 20;
-    const d_rgbaImage = cuda.alloc([4]u8, numRows * numCols);
-    cuda.memset([4]u8, d_rgbaImage, 0xaa);
-    const d_greyImage = cuda.alloc(u8, numRows * numCols);
-    cuda.memset(u8, d_greyImage, 0);
+    const d_rgbaImage = try cuda.alloc([4]u8, numRows * numCols);
+    // try cuda.memset([4]u8, d_rgbaImage, [4]u8{ 0xaa, 0, 0, 255 });
+    const d_greyImage = try cuda.alloc(u8, numRows * numCols);
+    try cuda.memset(u8, d_greyImage, 0);
 
     // copy input array to the GPU
-    // checkCudaErrors(cudaMemcpy(*d_rgbaImage, *inputImage, sizeof(uchar4) * numPixels, cudaMemcpyHostToDevice));
+    // checkCudaErrors(cudaMemcpy(*d_rgbaImage, *inputImage, sizeof(uchar3) * numPixels, cudaMemcpyHostToDevice));
 
     try cuda.launch(
         rgba_to_greyscale,
@@ -432,8 +486,8 @@ pub fn KernelSignature(comptime ptx_file: [:0]const u8, comptime name: [:0]const
 
         // TODO: deinit -> CUDestroy
 
-        pub fn launch(self: *const Self, gridDim: Dim3, blockDim: Dim3, args: Args) !void {
-            try self.cuda.launch(self.f, gridDim, blockDim, args);
+        pub fn launch(self: *const Self, grid: Grid, args: Args) !void {
+            try self.cuda.launch(self.f, grid, args);
         }
     };
 }
@@ -450,10 +504,10 @@ test "safe kernel" {
     const rgba_to_greyscale = try cuda.kernel(ptx_file, "rgba_to_greyscale");
     const numRows: u32 = 10;
     const numCols: u32 = 20;
-    const d_rgbaImage = cuda.alloc(cu.uchar4, numRows * numCols);
-    cuda.memset(cu.uchar4, d_rgbaImage, 0xaa);
-    const d_greyImage = cuda.alloc(u8, numRows * numCols);
-    cuda.memset(u8, d_greyImage, 0);
+    var d_rgbaImage = try cuda.alloc(cu.uchar3, numRows * numCols);
+    // cuda.memset(cu.uchar3, d_rgbaImage, 0xaa);
+    const d_greyImage = try cuda.alloc(u8, numRows * numCols);
+    try cuda.memset(u8, d_greyImage, 0);
 
     const rgba_to_greyscale_safe = try KernelSignature(ptx_file, "rgba_to_greyscale").init(&cuda);
     std.log.warn("kernel args: {s}", .{@TypeOf(rgba_to_greyscale_safe).Args});
@@ -470,7 +524,7 @@ test "cuda alloc" {
     var cuda = try Cuda.init(0);
     defer cuda.deinit();
 
-    const d_greyImage = cuda.alloc(u8, 128);
-    cuda.memset(u8, d_greyImage, 0);
+    const d_greyImage = try cuda.alloc(u8, 128);
+    try cuda.memset(u8, d_greyImage, 0);
     defer cuda.free(d_greyImage);
 }

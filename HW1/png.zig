@@ -4,17 +4,8 @@ pub const png = @cImport({
     @cInclude("stdio.h");
 });
 const zigimg = @import("zigimg");
-
-pub const PngImg = struct {
-    width: i32,
-    height: i32,
-    data: []u8,
-};
-
-pub const PngError = error{
-    bad_header,
-    cant_allocate_write_struct,
-};
+const Image = zigimg.Image;
+const testing = std.testing;
 
 // pub fn readImage(alloc: std.mem.Allocator, filename: []const u8) PngError!PngImg {
 //     var header: [8]u8 = undefined;    // 8 is the maximum size that can be checked
@@ -87,9 +78,8 @@ pub fn writePngToFile(self: zigimg.Image, resolved_path: []const u8) !void {
     // var png_ptr: png.png_structp = undefined;
     // var info_ptr: png.png_infop = undefined;
     //
-    var resolved_pathZ: []u8 = try self.allocator.alloc(u8, resolved_path.len + 1);
-    std.mem.copy(u8, resolved_pathZ, resolved_path);
-    resolved_pathZ[resolved_path.len] = 0;
+    var resolved_pathZ: []u8 = try self.allocator.dupeZ(u8, resolved_path);
+    defer self.allocator.free(resolved_pathZ);
 
     // Initialize write structure
     var fp = png.fopen(resolved_pathZ.ptr, "wb");
@@ -168,7 +158,7 @@ pub fn writePngToFile(self: zigimg.Image, resolved_path: []const u8) !void {
     };
     var row_id: usize = 0;
     while (row_id < self.height) : (row_id += 1) {
-        var pixel_row = pixels[row_id * self.width .. (row_id + 1) * self.width * step];
+        var pixel_row = pixels[row_id * self.width * step .. (row_id + 1) * self.width * step];
         png.png_write_row(png_ptr, @ptrCast([*c]u8, pixel_row.ptr));
     }
 
@@ -176,4 +166,43 @@ pub fn writePngToFile(self: zigimg.Image, resolved_path: []const u8) !void {
     png.png_write_end(png_ptr, null);
     std.log.info("Wrote full image {s}", .{resolved_path});
     return;
+}
+
+pub fn img_eq(output: Image, reference: Image) bool {
+    var out_pxls = output.iterator();
+    var ref_pxls = reference.iterator();
+
+    const num_pixels = reference.pixels.?.len();
+    while (true) {
+        var ref_pxl = ref_pxls.next();
+        if (ref_pxl == null) return true;
+        var out_pxl = out_pxls.next();
+        if (out_pxl == null) return false;
+        var r = ref_pxl.?;
+        var o = out_pxl.?;
+        if (o.R != r.R) return false;
+        if (o.G != r.G) return false;
+        if (o.B != r.B) return false;
+        if (o.A != r.A) return false;
+    }
+    return true;
+}
+
+test "read/write/read" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var base = try Image.fromFilePath(testing.allocator, "HW1/cinque_terre_small.png");
+    defer base.deinit();
+
+    try tmp.dir.writeFile("out.png", "hello");
+    var tmp_img = try tmp.dir.realpathAlloc(testing.allocator, "out.png");
+    std.log.warn("will write image ({}x{}) to {s}", .{ base.width, base.height, tmp_img });
+    defer testing.allocator.free(tmp_img);
+    try writePngToFilePath(base, tmp_img);
+
+    var loaded = try Image.fromFilePath(testing.allocator, tmp_img);
+    defer loaded.deinit();
+    try testing.expectEqualSlices(zigimg.color.Rgb24, base.pixels.?.Rgb24, loaded.pixels.?.Rgb24);
+    try testing.expect(img_eq(base, loaded));
 }

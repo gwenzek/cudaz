@@ -1,4 +1,4 @@
 /cudaz/kernel.o
 /zig-cache/
 /zig-out/
-HW1/hw1_resources/output*
+/HW1/*/output*
