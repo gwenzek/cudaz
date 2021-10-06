@@ -102,11 +102,16 @@ fn benchmark_reduce(
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = &general_purpose_allocator.allocator;
-    const ARRAY_SIZE: i32 = 1 << 20;
+    var cuda = try Cuda.init(0);
 
-    log.info("options: {}", .{cudaz.cudaz_options});
+    try main_reduce(&cuda, gpa);
+    try main_histo(&cuda, gpa);
+}
+
+fn main_reduce(cuda: *Cuda, gpa: *std.mem.Allocator) !void {
+    const array_size: i32 = 1 << 20;
     // generate the input array on the host
-    var h_in = try gpa.alloc(f32, ARRAY_SIZE);
+    var h_in = try gpa.alloc(f32, array_size);
     defer gpa.free(h_in);
     log.debug("h_in = {*}", .{h_in.ptr});
     var prng = std.rand.DefaultPrng.init(0);
@@ -120,16 +125,69 @@ pub fn main() !void {
     log.info("original sum = {}", .{sum});
 
     // allocate GPU memory
-    var cuda = try Cuda.init(0);
     var d_in = try cuda.allocAndCopy(f32, h_in);
     defer cuda.free(d_in);
-    var d_intermediate = try cuda.alloc(f32, ARRAY_SIZE); // overallocated
+    var d_intermediate = try cuda.alloc(f32, array_size); // overallocated
     defer cuda.free(d_intermediate);
     var d_out = try cuda.alloc(f32, 1);
     defer cuda.free(d_out);
 
     // launch the kernel
     // Run shared_reduced first because it doesn't modify d_in
-    _ = try benchmark_reduce(&cuda, 100, d_out, d_intermediate, d_in, true);
-    _ = try benchmark_reduce(&cuda, 100, d_out, d_intermediate, d_in, false);
+    _ = try benchmark_reduce(cuda, 100, d_out, d_intermediate, d_in, true);
+    _ = try benchmark_reduce(cuda, 100, d_out, d_intermediate, d_in, false);
+}
+
+fn log2(i: i32) u5 {
+    var r: u5 = 0;
+    var j = i;
+    while (j > 0) : (j >>= 1) {
+        r += 1;
+    }
+    return r;
+}
+
+fn bit_reverse(w: i32, bits: u5) i32 {
+    var r: i32 = 0;
+    var i: u5 = 0;
+    while (i < bits) : (i += 1) {
+        const bit = (w & (@intCast(i32, 1) << i)) >> i;
+        r |= bit << (bits - i - 1);
+    }
+    return r;
+}
+
+fn main_histo(cuda: *Cuda, gpa: *std.mem.Allocator) !void {
+    const array_size = 65536;
+    const bin_count = 16;
+
+    // generate the input array on the host
+    var cpu_bins = [_]i32{0} ** bin_count;
+    var h_in = try gpa.alloc(i32, array_size);
+    for (h_in) |*value, i| {
+        var item = bit_reverse(@intCast(i32, i), log2(array_size));
+        value.* = item;
+        cpu_bins[@intCast(usize, @mod(item, bin_count))] += 1;
+    }
+    log.info("Cpu bins: {any}", .{cpu_bins});
+    var naive_bins = [_]i32{0} ** bin_count;
+    var simple_bins = [_]i32{0} ** bin_count;
+
+    // allocate GPU memory
+    var d_in = try cuda.allocAndCopy(i32, h_in);
+    var d_bins = try cuda.allocAndCopy(i32, &naive_bins);
+
+    log.info("Running naive histo", .{});
+    const grid = cudaz.Grid{ .blockDim = .{ .x = @divExact(array_size, 64) }, .threadDim = .{ .x = 64 } };
+    const naive_histo = try cudaz.KernelSignature("naive_histo").init(cuda);
+    try naive_histo.launch(grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
+    try cuda.memcpyDtoH(i32, &naive_bins, d_bins);
+    log.info("naive bins: {any}", .{naive_bins});
+
+    log.info("Running simple histo", .{});
+    try cuda.memcpyHtoD(i32, d_bins, &simple_bins);
+    const simple_histo = try cudaz.KernelSignature("simple_histo").init(cuda);
+    try simple_histo.launch(grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
+    try cuda.memcpyDtoH(i32, &simple_bins, d_bins);
+    log.info("simple bins: {any}", .{simple_bins});
 }

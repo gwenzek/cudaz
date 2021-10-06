@@ -4,15 +4,14 @@ const math = std.math;
 const assert = std.debug.assert;
 
 const zigimg = @import("zigimg");
-const cuda_module = @import("cuda");
+const cuda_module = @import("cudaz");
 const Cuda = cuda_module.Cuda;
 const cu = cuda_module.cu;
 
 const png = @import("png.zig");
 const utils = @import("utils.zig");
 
-const resources_dir = "HW1/hw2_resources/";
-const ptx_file = "./cudaz/kernel.ptx";
+const resources_dir = "CS344/hw2_resources/";
 
 const Rgb24 = zigimg.color.Rgb24;
 const Gray8 = zigimg.color.Grayscale8;
@@ -27,7 +26,7 @@ pub fn main() anyerror!void {
     var cuda = try Cuda.init(0);
     defer cuda.deinit();
 
-    const img = try zigimg.Image.fromFilePath(alloc, "HW1/cinque_terre_small.png");
+    const img = try zigimg.Image.fromFilePath(alloc, "CS344/cinque_terre_small.png");
     defer img.deinit();
     assert(img.image_format == .Png);
     var max_show: usize = 10;
@@ -60,9 +59,9 @@ pub fn main() anyerror!void {
     defer cuda.free(d_out);
 
     var timer = cuda_module.GpuTimer.init(&cuda);
-    const separateChannels = try cuda_module.KernelSignature(ptx_file, "separateChannels").init(&cuda);
-    const gaussianBlur = try cuda_module.KernelSignature(ptx_file, "gaussian_blur").init(&cuda);
-    const recombineChannels = try cuda_module.KernelSignature(ptx_file, "recombineChannels").init(&cuda);
+    const separateChannels = try cuda_module.KernelSignature("separateChannels").init(&cuda);
+    const gaussianBlur = try cuda_module.KernelSignature("gaussian_blur").init(&cuda);
+    const recombineChannels = try cuda_module.KernelSignature("recombineChannels").init(&cuda);
 
     var d_filter = try cuda.allocAndCopy(f32, &blurFilter());
     defer cuda.free(d_filter);

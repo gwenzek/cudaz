@@ -59,6 +59,23 @@ __global__ void shmem_reduce_kernel(float * d_out, const float * d_in)
     }
 }
 
+
+__global__ void naive_histo(int *d_bins, const int *d_in, const int BIN_COUNT)
+{
+    int myId = threadIdx.x + blockDim.x * blockIdx.x;
+    int myItem = d_in[myId];
+    int myBin = myItem % BIN_COUNT;
+    d_bins[myBin]++;
+}
+
+__global__ void simple_histo(int *d_bins, const int *d_in, const int BIN_COUNT)
+{
+    int myId = threadIdx.x + blockDim.x * blockIdx.x;
+    int myItem = d_in[myId];
+    int myBin = myItem % BIN_COUNT;
+    atomicAdd(&(d_bins[myBin]), 1);
+}
+
 #ifdef __cplusplus
 }
 #endif

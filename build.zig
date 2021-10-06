@@ -73,13 +73,27 @@ pub fn build(b: *Builder) void {
     // kernel.addLibPath("/usr/local/cuda/lib64");
     // kernel.linkSystemLibraryName("cudart");
 
-    const exe = b.addExecutable("lesson3", "CS344/lesson3.zig");
-    addCudaz(b, exe, "/usr/local/cuda", "CS344/lesson3.cu");
-    exe.addPackagePath("zigimg", "zigimg/zigimg.zig");
-    addLibpng(exe);
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
-    exe.install();
+    const hw2 = b.addExecutable("hw2", "CS344/hw2.zig");
+    addCudaz(b, hw2, "/usr/local/cuda", "cudaz/kernel.cu");
+    hw2.addPackagePath("zigimg", "zigimg/zigimg.zig");
+    addLibpng(hw2);
+    hw2.setTarget(target);
+    hw2.setBuildMode(mode);
+    hw2.install();
+
+    const lesson3 = b.addExecutable("lesson3", "CS344/lesson3.zig");
+    addCudaz(b, lesson3, "/usr/local/cuda", "CS344/lesson3.cu");
+    lesson3.setTarget(target);
+    lesson3.setBuildMode(mode);
+    lesson3.install();
+
+    const hw3 = b.addExecutable("hw3", "CS344/hw3.zig");
+    addCudaz(b, hw3, "/usr/local/cuda", "CS344/hw3.cu");
+    hw3.addPackagePath("zigimg", "zigimg/zigimg.zig");
+    addLibpng(hw3);
+    hw3.setTarget(target);
+    hw3.setBuildMode(mode);
+    hw3.install();
 
     var tests = b.step("test", "Tests");
     const test_cuda = b.addTest("cudaz/cuda.zig");
@@ -87,7 +101,6 @@ pub fn build(b: *Builder) void {
     tests.dependOn(&test_cuda.step);
 
     const test_png = b.addTest("CS344/png.zig");
-
     test_png.addPackagePath("zigimg", "zigimg/zigimg.zig");
     addLibpng(test_png);
     tests.dependOn(&test_png.step);
@@ -105,7 +118,12 @@ pub fn build(b: *Builder) void {
     // kernel_zig.install();
 
     const run_step = b.step("run", "Run the example");
-    const run_cmd = exe.run();
-    run_cmd.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_cmd.step);
+
+    const run_hw2 = hw2.run();
+    run_hw2.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_hw2.step);
+
+    const run_lesson3 = lesson3.run();
+    run_lesson3.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_lesson3.step);
 }
