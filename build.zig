@@ -13,6 +13,9 @@ fn addCudaz(b: *Builder, exe: *std.build.LibExeObjStep, comptime cuda_dir: []con
     // TODO: allow to chose where to look at
     const nvcc = b.addSystemCommand(&[_][]const u8{
         cuda_dir ++ "/bin/nvcc",
+        // In Zig spirit, promote warnings to errors.
+        "--Werror=all-warnings",
+        "--display-error-number",
         "--ptx",
         "cudaz/kernel.cu",
         "-o",
@@ -20,15 +23,6 @@ fn addCudaz(b: *Builder, exe: *std.build.LibExeObjStep, comptime cuda_dir: []con
     });
     exe.step.dependOn(&nvcc.step);
 }
-
-// fn addOpenCv(exe: *std.build.LibExeObjStep, comptime opencv_dir: []const u8) void {
-//     // exe.linkLibCpp();
-
-//     exe.addLibPath(opencv_dir ++ "/lib");
-//     exe.linkSystemLibraryName("opencv_core");
-//     exe.linkSystemLibraryName("opencv_imgcodecs");
-//     exe.addCSourceFile("opencv2/core/core.hpp", &[_][]const u8{});
-// }
 
 fn addLibpng(exe: *std.build.LibExeObjStep) void {
     exe.linkSystemLibraryName("png");
@@ -53,9 +47,8 @@ pub fn build(b: *Builder) void {
     // kernel.addLibPath("/usr/local/cuda/lib64");
     // kernel.linkSystemLibraryName("cudart");
 
-    const exe = b.addExecutable("hw2", "HW1/hw2.zig");
+    const exe = b.addExecutable("lesson3", "CS344/lesson3.zig");
     addCudaz(b, exe, "/usr/local/cuda");
-    // addOpenCv(exe, "/home/guw/apps/miniconda3/envs/cs344/");
     exe.addPackagePath("zigimg", "zigimg/zigimg.zig");
     addLibpng(exe);
     exe.setTarget(target);
@@ -65,17 +58,25 @@ pub fn build(b: *Builder) void {
     var tests = b.step("test", "Tests");
     const test_cuda = b.addTest("cudaz/cuda.zig");
     addCudaz(b, test_cuda, "/usr/local/cuda");
-    // tests.dependOn(&test_cuda.step);
+    tests.dependOn(&test_cuda.step);
 
-    const test_png = b.addTest("HW1/png.zig");
+    const test_png = b.addTest("CS344/png.zig");
     addCudaz(b, test_png, "/usr/local/cuda");
     test_png.addPackagePath("zigimg", "zigimg/zigimg.zig");
     addLibpng(test_png);
     tests.dependOn(&test_png.step);
 
-    // TODO try zig build -ofmt=c (with master branch)
+    // TODO (Jan 2022): try zig build -ofmt=c (with master branch)
     // maybe we could write a kernel in Zig instead of cuda,
     // which will maybe simplify the type matching
+    // const kernel_zig = b.addStaticLibrary("kernel_zig", "cudaz/kernel.zig");
+    // kernel_zig.linkLibC();
+    // kernel_zig.addLibPath("/usr/local/cuda/lib64");
+    // kernel_zig.linkSystemLibraryName("cuda");
+    // kernel_zig.addIncludeDir("/usr/local/cuda/include");
+    // kernel_zig.setTarget(target);
+    // kernel_zig.setBuildMode(mode);
+    // kernel_zig.install();
 
     const run_step = b.step("run", "Run the example");
     const run_cmd = exe.run();

@@ -153,7 +153,7 @@ fn all_tests(alloc: *std.mem.Allocator) !void {
 }
 
 fn test_gaussianBlur(alloc: *std.mem.Allocator) !void {
-    const blur_kernel_size = blurKernelWidth * blurKernelWidth;
+    // const blur_kernel_size = blurKernelWidth * blurKernelWidth;
     var cols: c_uint = 50;
     var rows: c_uint = 100;
     var img: []u8 = try alloc.alloc(u8, @intCast(usize, rows * cols));
@@ -173,7 +173,7 @@ fn test_gaussianBlur(alloc: *std.mem.Allocator) !void {
 }
 
 fn recombine(
-    img: Image,
+    img: zigimg.Image,
     red: []const Gray8,
     green: []const Gray8,
     blue: []const Gray8,

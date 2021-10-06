@@ -66,15 +66,13 @@ pub fn writePngToFilePath(self: zigimg.Image, file_path: []const u8) !void {
         return error.NoPixelData;
     }
 
-    const cwd = std.fs.cwd();
-
     var resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{file_path});
     defer self.allocator.free(resolved_path);
     try writePngToFile(self, resolved_path);
 }
 
 pub fn writePngToFile(self: zigimg.Image, resolved_path: []const u8) !void {
-    var code: i32 = 0;
+    // var code: i32 = 0;
     // var png_ptr: png.png_structp = undefined;
     // var info_ptr: png.png_infop = undefined;
     //
@@ -172,7 +170,6 @@ pub fn img_eq(output: Image, reference: Image) bool {
     var out_pxls = output.iterator();
     var ref_pxls = reference.iterator();
 
-    const num_pixels = reference.pixels.?.len();
     while (true) {
         var ref_pxl = ref_pxls.next();
         if (ref_pxl == null) return true;
@@ -192,7 +189,7 @@ test "read/write/read" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var base = try Image.fromFilePath(testing.allocator, "HW1/cinque_terre_small.png");
+    var base = try Image.fromFilePath(testing.allocator, "CS344/cinque_terre_small.png");
     defer base.deinit();
 
     try tmp.dir.writeFile("out.png", "hello");
