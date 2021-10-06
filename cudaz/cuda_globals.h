@@ -5,7 +5,13 @@
 // checking on the kernel function call.
 
 #include "builtin_types.h"
-// #define __global__ ""
+#define __global__
+
+// In cuda shared memory buffers are declared as extern array
+// But this confuses Zig, because it can't find the extern definition.
+// Declare them as pointers so that Zig doesn't try to find the size.
+#define SHARED(NAME, TYPE) extern TYPE *NAME;
+#define extern
 
 dim3 blockDim;
 dim3 blockIdx;
@@ -14,3 +20,5 @@ dim3 threadDim;
 dim3 threadIdx;
 
 int atomicAdd(int* a, int b) {a += b;}
+
+void __syncthreads() {}

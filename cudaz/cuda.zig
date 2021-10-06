@@ -11,8 +11,6 @@ pub const cu = @cImport({
     @cInclude("kernel.cu");
 });
 
-pub const png = @import("png.zig");
-
 pub const Dim3 = struct {
     x: c_uint = 1,
     y: c_uint = 1,
@@ -29,8 +27,8 @@ pub const Dim3 = struct {
 
 /// Represents how kernel are execut
 pub const Grid = struct {
-    blockDim: Dim3,
-    threadDim: Dim3,
+    blockDim: Dim3 = .{},
+    threadDim: Dim3 = .{},
 
     pub fn init2D(rows: usize, cols: usize, block_size: usize) Grid {
         var s = block_size;
@@ -256,10 +254,7 @@ pub const Cuda = struct {
         try check(cu.cuInit(0));
         try check(cu.cuDeviceGet(&cuda.device, device));
         try check(cu.cuCtxCreate(&cuda.ctx, 0, cuda.device));
-        try check(cu.cuStreamCreate(
-            &cuda.stream,
-            @enumToInt(cu.CUstream_flags_enum.CU_STREAM_DEFAULT),
-        ));
+        try check(cu.cuStreamCreate(&cuda.stream, cu.CU_STREAM_DEFAULT));
         return cuda;
     }
 
@@ -272,13 +267,16 @@ pub const Cuda = struct {
 
     // TODO: return a device pointer
     pub fn alloc(self: *Cuda, comptime DestType: type, size: usize) ![]DestType {
+        _ = self;
         var int_ptr: cu.CUdeviceptr = undefined;
         try check(cu.cuMemAlloc(&int_ptr, size * @sizeOf(DestType)));
         var ptr = @intToPtr([*]DestType, int_ptr);
         return ptr[0..size];
     }
 
+    // TODO:
     pub fn free(self: *Cuda, device_ptr: anytype) void {
+        _ = self;
         var raw_ptr: *c_void = if (meta.trait.isSlice(@TypeOf(device_ptr)))
             @ptrCast(*c_void, device_ptr.ptr)
         else
@@ -286,10 +284,24 @@ pub const Cuda = struct {
         _ = cu.cuMemFree(@ptrToInt(raw_ptr));
     }
 
-    pub fn memset(self: *Cuda, comptime DestType: type, slice: []const DestType, value: DestType) !void {
-        if (@sizeOf(DestType) != 1) @compileError("cuda.memset doesn't support type: " ++ @typeName(DestType));
-        const byte_value: u8 = std.mem.asBytes(&value)[0];
-        try check(cu.cuMemsetD8(@ptrToInt(slice.ptr), byte_value, slice.len));
+    pub fn memset(self: *Cuda, comptime DestType: type, slice: []DestType, value: DestType) !void {
+        _ = self;
+        var d_ptr = @ptrToInt(slice.ptr);
+        var n = slice.len;
+        var memset_res = switch (@sizeOf(DestType)) {
+            1 => cu.cuMemsetD8(d_ptr, @bitCast(u8, value), n),
+            2 => cu.cuMemsetD16(d_ptr, @bitCast(u16, value), n),
+            4 => cu.cuMemsetD32(d_ptr, @bitCast(u32, value), n),
+            else => @compileError("cuda.memset doesn't support type: " ++ @typeName(DestType)),
+        };
+        try check(memset_res);
+    }
+
+    pub fn memsetD8(self: *Cuda, comptime DestType: type, slice: []DestType, value: u8) !void {
+        _ = self;
+        var d_ptr = @ptrToInt(slice.ptr);
+        var n = slice.len * @sizeOf(DestType);
+        try check(cu.cuMemsetD8(d_ptr, value, n));
     }
 
     pub fn allocAndCopy(self: *Cuda, comptime DestType: type, h_source: []const DestType) ![]DestType {
@@ -299,6 +311,7 @@ pub const Cuda = struct {
     }
 
     pub fn memcpyHtoD(self: *Cuda, comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
+        _ = self;
         std.debug.assert(h_source.len == d_target.len);
         check(cu.cuMemcpyHtoD(
             @ptrToInt(d_target.ptr),
@@ -311,6 +324,7 @@ pub const Cuda = struct {
         };
     }
     pub fn memcpyDtoH(self: *Cuda, comptime DestType: type, h_target: []DestType, d_source: []DestType) !void {
+        _ = self;
         std.debug.assert(d_source.len == h_target.len);
         check(cu.cuMemcpyDtoH(
             @ptrCast(*c_void, h_target.ptr),
@@ -335,6 +349,10 @@ pub const Cuda = struct {
     }
 
     pub fn launch(self: *Cuda, f: cu.CUfunction, grid: Grid, args: anytype) !void {
+        try self.launchWithSharedMem(f, grid, 0, args);
+    }
+
+    pub fn launchWithSharedMem(self: *Cuda, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
         // Create an array of pointers pointing to the given args.
         const fields: []const TypeInfo.StructField = meta.fields(@TypeOf(args));
         var args_ptrs: [fields.len:0]usize = undefined;
@@ -349,8 +367,8 @@ pub const Cuda = struct {
             grid.threadDim.x,
             grid.threadDim.y,
             grid.threadDim.z,
-            0,
-            null,
+            @intCast(c_uint, shared_mem),
+            self.stream,
             @ptrCast([*c]?*c_void, &args_ptrs),
             null,
         );
@@ -358,6 +376,7 @@ pub const Cuda = struct {
     }
 
     pub fn synchronize(self: *Cuda) !void {
+        // TODO: add a debug_sync to catch error in debug code
         try check(cu.cuStreamSynchronize(self.stream));
     }
 
@@ -367,7 +386,9 @@ pub const Cuda = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try std.fmt.format(writer, "Cuda(device={})", .{self.device});
+        _ = fmt;
+        _ = options;
+        try std.fmt.format(writer, "Cuda(device={}, stream={*})", .{ self.device, self.stream });
     }
 };
 
@@ -383,9 +404,9 @@ pub const GpuTimer = struct {
         return timer;
     }
 
-    pub fn deinit(self: *GpuTimer) GpuTimer {
-        _ = cu.cuEventDestroy(&self._start);
-        _ = cu.cuEventDestroy(&self._stop);
+    pub fn deinit(self: *GpuTimer) void {
+        _ = cu.cuEventDestroy(self._start);
+        _ = cu.cuEventDestroy(self._stop);
     }
 
     pub fn start(self: *GpuTimer) void {
@@ -403,17 +424,6 @@ pub const GpuTimer = struct {
         return _elapsed;
     }
 };
-
-fn your_rgba_to_greyscale(h_rgbaImage: *[4]u8, d_rgbaImage: *[4]u8, d_greyImage: *u8, numRows: c_int, numCols: c_int) void {
-    // You must fill in the correct sizes for the blockSize and gridSize
-    // currently only one block with one thread is being launched
-    const gridDim = Dim3{ numRows, numCols, 1 };
-    var args = .{ d_rgbaImage, d_greyImage, numRows, numCols };
-    // launchKernel(rgba_to_greyscale, gridDim, .{}, &args);
-
-    cudaDeviceSynchronize();
-    checkCudaErrors(cudaGetLastError());
-}
 
 pub fn main() anyerror!void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -455,8 +465,7 @@ test "HW1" {
 
     try cuda.launch(
         rgba_to_greyscale,
-        .{ .x = numRows, .y = numCols },
-        .{},
+        .{ .blockDim = Dim3.init(numRows, numCols, 1) },
         .{ d_rgbaImage, d_greyImage, numRows, numCols },
     );
 }
@@ -489,6 +498,12 @@ pub fn KernelSignature(comptime ptx_file: [:0]const u8, comptime name: [:0]const
         pub fn launch(self: *const Self, grid: Grid, args: Args) !void {
             try self.cuda.launch(self.f, grid, args);
         }
+
+        pub fn launchWithSharedMem(self: *const Self, grid: Grid, shared_mem: usize, args: Args) !void {
+            // TODO: this seems error prone, could we make the type of the shared buffer
+            // part of the function signature ?
+            try self.cuda.launchWithSharedMem(self.f, grid, shared_mem, args);
+        }
     };
 }
 
@@ -501,7 +516,7 @@ test "safe kernel" {
     defer cuda.deinit();
     std.log.warn("cuda: {}", .{cuda});
     const ptx_file = "./cudaz/kernel.ptx";
-    const rgba_to_greyscale = try cuda.kernel(ptx_file, "rgba_to_greyscale");
+    _ = try cuda.kernel(ptx_file, "rgba_to_greyscale");
     const numRows: u32 = 10;
     const numCols: u32 = 20;
     var d_rgbaImage = try cuda.alloc(cu.uchar3, numRows * numCols);
@@ -512,8 +527,7 @@ test "safe kernel" {
     const rgba_to_greyscale_safe = try KernelSignature(ptx_file, "rgba_to_greyscale").init(&cuda);
     std.log.warn("kernel args: {s}", .{@TypeOf(rgba_to_greyscale_safe).Args});
     try rgba_to_greyscale_safe.launch(
-        .{ .x = numRows, .y = numCols },
-        .{},
+        .{ .blockDim = Dim3.init(numCols, numRows, 1) },
         // this is so ugly ! can I do something about it ?
         // https://github.com/ziglang/zig/issues/8136
         .{ .@"0" = d_rgbaImage.ptr, .@"1" = d_greyImage.ptr, .@"2" = numRows, .@"3" = numCols },
