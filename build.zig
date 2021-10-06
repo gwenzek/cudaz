@@ -2,29 +2,55 @@ const std = @import("std");
 
 const Builder = std.build.Builder;
 
-fn addCudaz(b: *Builder, exe: *std.build.LibExeObjStep, comptime cuda_dir: []const u8) void {
-    exe.linkLibC();
-    exe.addLibPath(cuda_dir ++ "/lib64");
-    exe.linkSystemLibraryName("cuda");
-    exe.addIncludeDir(cuda_dir ++ "/include");
-    exe.addIncludeDir("cudaz");
-    exe.addPackagePath("cuda", "cudaz/cuda.zig");
+fn addCudaz(
+    b: *Builder,
+    exe: *std.build.LibExeObjStep,
+    comptime cuda_dir: []const u8,
+    comptime kernel_path: [:0]const u8,
+) void {
+    const kernel_ptx_path = kernel_path ++ ".ptx";
+    const kernel_dir = std.fs.path.dirname(kernel_path).?;
 
-    // TODO: allow to chose where to look at
+    // Use nvcc to compile the .cu file
     const nvcc = b.addSystemCommand(&[_][]const u8{
         cuda_dir ++ "/bin/nvcc",
         // In Zig spirit, promote warnings to errors.
         "--Werror=all-warnings",
         "--display-error-number",
         "--ptx",
-        "cudaz/kernel.cu",
+        kernel_path,
         "-o",
-        "cudaz/kernel.ptx",
+        kernel_ptx_path,
     });
     exe.step.dependOn(&nvcc.step);
+
+    // Add libc and cuda headers / lib, and our own .cu files
+    exe.linkLibC();
+    exe.addLibPath(cuda_dir ++ "/lib64");
+    exe.linkSystemLibraryName("cuda");
+    exe.addIncludeDir(cuda_dir ++ "/include");
+    exe.addIncludeDir("cudaz");
+    exe.addIncludeDir(kernel_dir);
+
+    // Add cudaz package with the kernel paths.
+    const cudaz_options = b.addOptions();
+    cudaz_options.addOption([:0]const u8, "kernel_path", kernel_path);
+    cudaz_options.addOption([]const u8, "kernel_name", std.fs.path.basename(kernel_path));
+    cudaz_options.addOption([:0]const u8, "kernel_ptx_path", kernel_ptx_path);
+    cudaz_options.addOption([]const u8, "kernel_dir", kernel_dir);
+
+    const cudaz_pkg = std.build.Pkg{
+        .name = "cudaz",
+        .path = .{ .path = "cudaz/cuda.zig" },
+        .dependencies = &[_]std.build.Pkg{
+            .{ .name = "cudaz_options", .path = cudaz_options.getSource() },
+        },
+    };
+    exe.addPackage(cudaz_pkg);
 }
 
 fn addLibpng(exe: *std.build.LibExeObjStep) void {
+    exe.linkLibC();
     exe.linkSystemLibraryName("png");
     exe.addIncludeDir("/usr/include");
     // exe.addCSourceFile("/usr/include/png.h", &[_][]const u8{});
@@ -48,7 +74,7 @@ pub fn build(b: *Builder) void {
     // kernel.linkSystemLibraryName("cudart");
 
     const exe = b.addExecutable("lesson3", "CS344/lesson3.zig");
-    addCudaz(b, exe, "/usr/local/cuda");
+    addCudaz(b, exe, "/usr/local/cuda", "CS344/lesson3.cu");
     exe.addPackagePath("zigimg", "zigimg/zigimg.zig");
     addLibpng(exe);
     exe.setTarget(target);
@@ -57,11 +83,11 @@ pub fn build(b: *Builder) void {
 
     var tests = b.step("test", "Tests");
     const test_cuda = b.addTest("cudaz/cuda.zig");
-    addCudaz(b, test_cuda, "/usr/local/cuda");
+    addCudaz(b, test_cuda, "/usr/local/cuda", "cudaz/kernel.cu");
     tests.dependOn(&test_cuda.step);
 
     const test_png = b.addTest("CS344/png.zig");
-    addCudaz(b, test_png, "/usr/local/cuda");
+
     test_png.addPackagePath("zigimg", "zigimg/zigimg.zig");
     addLibpng(test_png);
     tests.dependOn(&test_png.step);

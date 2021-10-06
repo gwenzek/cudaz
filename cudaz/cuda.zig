@@ -3,12 +3,12 @@ const meta = std.meta;
 const testing = std.testing;
 const TypeInfo = std.builtin.TypeInfo;
 
-// TODO: allow to import any cuda kernel (from build.zig)
+pub const cudaz_options = @import("cudaz_options");
+
 pub const cu = @cImport({
     @cInclude("cuda.h");
-    // @cInclude("cuda_runtime.h");
     @cInclude("cuda_globals.h");
-    @cInclude("kernel.cu");
+    @cInclude(cudaz_options.kernel_name);
 });
 
 pub const Dim3 = struct {
@@ -141,100 +141,100 @@ pub const CudaError = error{
 
 pub fn check(result: cu.CUresult) CudaError!void {
     var err = switch (result) {
-        .CUDA_SUCCESS => return,
-        .CUDA_ERROR_INVALID_VALUE => error.InvalidValue,
-        .CUDA_ERROR_OUT_OF_MEMORY => error.OutOfMemory,
-        .CUDA_ERROR_NOT_INITIALIZED => error.NotInitialized,
-        .CUDA_ERROR_DEINITIALIZED => error.Deinitialized,
-        .CUDA_ERROR_PROFILER_DISABLED => error.ProfilerDisabled,
-        .CUDA_ERROR_PROFILER_NOT_INITIALIZED => error.ProfilerNotInitialized,
-        .CUDA_ERROR_PROFILER_ALREADY_STARTED => error.ProfilerAlreadyStarted,
-        .CUDA_ERROR_PROFILER_ALREADY_STOPPED => error.ProfilerAlreadyStopped,
-        .CUDA_ERROR_STUB_LIBRARY => error.StubLibrary,
-        .CUDA_ERROR_NO_DEVICE => error.NoDevice,
-        .CUDA_ERROR_INVALID_DEVICE => error.InvalidDevice,
-        .CUDA_ERROR_DEVICE_NOT_LICENSED => error.DeviceNotLicensed,
-        .CUDA_ERROR_INVALID_IMAGE => error.InvalidImage,
-        .CUDA_ERROR_INVALID_CONTEXT => error.InvalidContext,
-        .CUDA_ERROR_CONTEXT_ALREADY_CURRENT => error.ContextAlreadyCurrent,
-        .CUDA_ERROR_MAP_FAILED => error.MapFailed,
-        .CUDA_ERROR_UNMAP_FAILED => error.UnmapFailed,
-        .CUDA_ERROR_ARRAY_IS_MAPPED => error.ArrayIsMapped,
-        .CUDA_ERROR_ALREADY_MAPPED => error.AlreadyMapped,
-        .CUDA_ERROR_NO_BINARY_FOR_GPU => error.NoBinaryForGpu,
-        .CUDA_ERROR_ALREADY_ACQUIRED => error.AlreadyAcquired,
-        .CUDA_ERROR_NOT_MAPPED => error.NotMapped,
-        .CUDA_ERROR_NOT_MAPPED_AS_ARRAY => error.NotMappedAsArray,
-        .CUDA_ERROR_NOT_MAPPED_AS_POINTER => error.NotMappedAsPointer,
-        .CUDA_ERROR_ECC_UNCORRECTABLE => error.EccUncorrectable,
-        .CUDA_ERROR_UNSUPPORTED_LIMIT => error.UnsupportedLimit,
-        .CUDA_ERROR_CONTEXT_ALREADY_IN_USE => error.ContextAlreadyInUse,
-        .CUDA_ERROR_PEER_ACCESS_UNSUPPORTED => error.PeerAccessUnsupported,
-        .CUDA_ERROR_INVALID_PTX => error.InvalidPtx,
-        .CUDA_ERROR_INVALID_GRAPHICS_CONTEXT => error.InvalidGraphicsContext,
-        .CUDA_ERROR_NVLINK_UNCORRECTABLE => error.NvlinkUncorrectable,
-        .CUDA_ERROR_JIT_COMPILER_NOT_FOUND => error.JitCompilerNotFound,
-        .CUDA_ERROR_UNSUPPORTED_PTX_VERSION => error.UnsupportedPtxVersion,
-        .CUDA_ERROR_JIT_COMPILATION_DISABLED => error.JitCompilationDisabled,
-        .CUDA_ERROR_UNSUPPORTED_EXEC_AFFINITY => error.UnsupportedExecAffinity,
-        .CUDA_ERROR_INVALID_SOURCE => error.InvalidSource,
-        .CUDA_ERROR_FILE_NOT_FOUND => error.FileNotFound,
-        .CUDA_ERROR_SHARED_OBJECT_SYMBOL_NOT_FOUND => error.SharedObjectSymbolNotFound,
-        .CUDA_ERROR_SHARED_OBJECT_INIT_FAILED => error.SharedObjectInitFailed,
-        .CUDA_ERROR_OPERATING_SYSTEM => error.OperatingSystem,
-        .CUDA_ERROR_INVALID_HANDLE => error.InvalidHandle,
-        .CUDA_ERROR_ILLEGAL_STATE => error.IllegalState,
-        .CUDA_ERROR_NOT_FOUND => error.NotFound,
-        .CUDA_ERROR_NOT_READY => error.NotReady,
-        .CUDA_ERROR_ILLEGAL_ADDRESS => error.IllegalAddress,
-        .CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES => error.LaunchOutOfResources,
-        .CUDA_ERROR_LAUNCH_TIMEOUT => error.LaunchTimeout,
-        .CUDA_ERROR_LAUNCH_INCOMPATIBLE_TEXTURING => error.LaunchIncompatibleTexturing,
-        .CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => error.PeerAccessAlreadyEnabled,
-        .CUDA_ERROR_PEER_ACCESS_NOT_ENABLED => error.PeerAccessNotEnabled,
-        .CUDA_ERROR_PRIMARY_CONTEXT_ACTIVE => error.PrimaryContextActive,
-        .CUDA_ERROR_CONTEXT_IS_DESTROYED => error.ContextIsDestroyed,
-        .CUDA_ERROR_ASSERT => error.Assert,
-        .CUDA_ERROR_TOO_MANY_PEERS => error.TooManyPeers,
-        .CUDA_ERROR_HOST_MEMORY_ALREADY_REGISTERED => error.HostMemoryAlreadyRegistered,
-        .CUDA_ERROR_HOST_MEMORY_NOT_REGISTERED => error.HostMemoryNotRegistered,
-        .CUDA_ERROR_HARDWARE_STACK_ERROR => error.HardwareStackError,
-        .CUDA_ERROR_ILLEGAL_INSTRUCTION => error.IllegalInstruction,
-        .CUDA_ERROR_MISALIGNED_ADDRESS => error.MisalignedAddress,
-        .CUDA_ERROR_INVALID_ADDRESS_SPACE => error.InvalidAddressSpace,
-        .CUDA_ERROR_INVALID_PC => error.InvalidPc,
-        .CUDA_ERROR_LAUNCH_FAILED => error.LaunchFailed,
-        .CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE => error.CooperativeLaunchTooLarge,
-        .CUDA_ERROR_NOT_PERMITTED => error.NotPermitted,
-        .CUDA_ERROR_NOT_SUPPORTED => error.NotSupported,
-        .CUDA_ERROR_SYSTEM_NOT_READY => error.SystemNotReady,
-        .CUDA_ERROR_SYSTEM_DRIVER_MISMATCH => error.SystemDriverMismatch,
-        .CUDA_ERROR_COMPAT_NOT_SUPPORTED_ON_DEVICE => error.CompatNotSupportedOnDevice,
-        .CUDA_ERROR_MPS_CONNECTION_FAILED => error.MpsConnectionFailed,
-        .CUDA_ERROR_MPS_RPC_FAILURE => error.MpsRpcFailure,
-        .CUDA_ERROR_MPS_SERVER_NOT_READY => error.MpsServerNotReady,
-        .CUDA_ERROR_MPS_MAX_CLIENTS_REACHED => error.MpsMaxClientsReached,
-        .CUDA_ERROR_MPS_MAX_CONNECTIONS_REACHED => error.MpsMaxConnectionsReached,
-        .CUDA_ERROR_STREAM_CAPTURE_UNSUPPORTED => error.StreamCaptureUnsupported,
-        .CUDA_ERROR_STREAM_CAPTURE_INVALIDATED => error.StreamCaptureInvalidated,
-        .CUDA_ERROR_STREAM_CAPTURE_MERGE => error.StreamCaptureMerge,
-        .CUDA_ERROR_STREAM_CAPTURE_UNMATCHED => error.StreamCaptureUnmatched,
-        .CUDA_ERROR_STREAM_CAPTURE_UNJOINED => error.StreamCaptureUnjoined,
-        .CUDA_ERROR_STREAM_CAPTURE_ISOLATION => error.StreamCaptureIsolation,
-        .CUDA_ERROR_STREAM_CAPTURE_IMPLICIT => error.StreamCaptureImplicit,
-        .CUDA_ERROR_CAPTURED_EVENT => error.CapturedEvent,
-        .CUDA_ERROR_STREAM_CAPTURE_WRONG_THREAD => error.StreamCaptureWrongThread,
-        .CUDA_ERROR_TIMEOUT => error.Timeout,
-        .CUDA_ERROR_GRAPH_EXEC_UPDATE_FAILURE => error.GraphExecUpdateFailure,
-        .CUDA_ERROR_EXTERNAL_DEVICE => error.ExternalDevice,
-        .CUDA_ERROR_UNKNOWN => error.Unknown,
+        cu.CUDA_SUCCESS => return,
+        cu.CUDA_ERROR_INVALID_VALUE => error.InvalidValue,
+        cu.CUDA_ERROR_OUT_OF_MEMORY => error.OutOfMemory,
+        cu.CUDA_ERROR_NOT_INITIALIZED => error.NotInitialized,
+        cu.CUDA_ERROR_DEINITIALIZED => error.Deinitialized,
+        cu.CUDA_ERROR_PROFILER_DISABLED => error.ProfilerDisabled,
+        cu.CUDA_ERROR_PROFILER_NOT_INITIALIZED => error.ProfilerNotInitialized,
+        cu.CUDA_ERROR_PROFILER_ALREADY_STARTED => error.ProfilerAlreadyStarted,
+        cu.CUDA_ERROR_PROFILER_ALREADY_STOPPED => error.ProfilerAlreadyStopped,
+        cu.CUDA_ERROR_STUB_LIBRARY => error.StubLibrary,
+        cu.CUDA_ERROR_NO_DEVICE => error.NoDevice,
+        cu.CUDA_ERROR_INVALID_DEVICE => error.InvalidDevice,
+        cu.CUDA_ERROR_DEVICE_NOT_LICENSED => error.DeviceNotLicensed,
+        cu.CUDA_ERROR_INVALID_IMAGE => error.InvalidImage,
+        cu.CUDA_ERROR_INVALID_CONTEXT => error.InvalidContext,
+        cu.CUDA_ERROR_CONTEXT_ALREADY_CURRENT => error.ContextAlreadyCurrent,
+        cu.CUDA_ERROR_MAP_FAILED => error.MapFailed,
+        cu.CUDA_ERROR_UNMAP_FAILED => error.UnmapFailed,
+        cu.CUDA_ERROR_ARRAY_IS_MAPPED => error.ArrayIsMapped,
+        cu.CUDA_ERROR_ALREADY_MAPPED => error.AlreadyMapped,
+        cu.CUDA_ERROR_NO_BINARY_FOR_GPU => error.NoBinaryForGpu,
+        cu.CUDA_ERROR_ALREADY_ACQUIRED => error.AlreadyAcquired,
+        cu.CUDA_ERROR_NOT_MAPPED => error.NotMapped,
+        cu.CUDA_ERROR_NOT_MAPPED_AS_ARRAY => error.NotMappedAsArray,
+        cu.CUDA_ERROR_NOT_MAPPED_AS_POINTER => error.NotMappedAsPointer,
+        cu.CUDA_ERROR_ECC_UNCORRECTABLE => error.EccUncorrectable,
+        cu.CUDA_ERROR_UNSUPPORTED_LIMIT => error.UnsupportedLimit,
+        cu.CUDA_ERROR_CONTEXT_ALREADY_IN_USE => error.ContextAlreadyInUse,
+        cu.CUDA_ERROR_PEER_ACCESS_UNSUPPORTED => error.PeerAccessUnsupported,
+        cu.CUDA_ERROR_INVALID_PTX => error.InvalidPtx,
+        cu.CUDA_ERROR_INVALID_GRAPHICS_CONTEXT => error.InvalidGraphicsContext,
+        cu.CUDA_ERROR_NVLINK_UNCORRECTABLE => error.NvlinkUncorrectable,
+        cu.CUDA_ERROR_JIT_COMPILER_NOT_FOUND => error.JitCompilerNotFound,
+        cu.CUDA_ERROR_UNSUPPORTED_PTX_VERSION => error.UnsupportedPtxVersion,
+        cu.CUDA_ERROR_JIT_COMPILATION_DISABLED => error.JitCompilationDisabled,
+        cu.CUDA_ERROR_UNSUPPORTED_EXEC_AFFINITY => error.UnsupportedExecAffinity,
+        cu.CUDA_ERROR_INVALID_SOURCE => error.InvalidSource,
+        cu.CUDA_ERROR_FILE_NOT_FOUND => error.FileNotFound,
+        cu.CUDA_ERROR_SHARED_OBJECT_SYMBOL_NOT_FOUND => error.SharedObjectSymbolNotFound,
+        cu.CUDA_ERROR_SHARED_OBJECT_INIT_FAILED => error.SharedObjectInitFailed,
+        cu.CUDA_ERROR_OPERATING_SYSTEM => error.OperatingSystem,
+        cu.CUDA_ERROR_INVALID_HANDLE => error.InvalidHandle,
+        cu.CUDA_ERROR_ILLEGAL_STATE => error.IllegalState,
+        cu.CUDA_ERROR_NOT_FOUND => error.NotFound,
+        cu.CUDA_ERROR_NOT_READY => error.NotReady,
+        cu.CUDA_ERROR_ILLEGAL_ADDRESS => error.IllegalAddress,
+        cu.CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES => error.LaunchOutOfResources,
+        cu.CUDA_ERROR_LAUNCH_TIMEOUT => error.LaunchTimeout,
+        cu.CUDA_ERROR_LAUNCH_INCOMPATIBLE_TEXTURING => error.LaunchIncompatibleTexturing,
+        cu.CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => error.PeerAccessAlreadyEnabled,
+        cu.CUDA_ERROR_PEER_ACCESS_NOT_ENABLED => error.PeerAccessNotEnabled,
+        cu.CUDA_ERROR_PRIMARY_CONTEXT_ACTIVE => error.PrimaryContextActive,
+        cu.CUDA_ERROR_CONTEXT_IS_DESTROYED => error.ContextIsDestroyed,
+        cu.CUDA_ERROR_ASSERT => error.Assert,
+        cu.CUDA_ERROR_TOO_MANY_PEERS => error.TooManyPeers,
+        cu.CUDA_ERROR_HOST_MEMORY_ALREADY_REGISTERED => error.HostMemoryAlreadyRegistered,
+        cu.CUDA_ERROR_HOST_MEMORY_NOT_REGISTERED => error.HostMemoryNotRegistered,
+        cu.CUDA_ERROR_HARDWARE_STACK_ERROR => error.HardwareStackError,
+        cu.CUDA_ERROR_ILLEGAL_INSTRUCTION => error.IllegalInstruction,
+        cu.CUDA_ERROR_MISALIGNED_ADDRESS => error.MisalignedAddress,
+        cu.CUDA_ERROR_INVALID_ADDRESS_SPACE => error.InvalidAddressSpace,
+        cu.CUDA_ERROR_INVALID_PC => error.InvalidPc,
+        cu.CUDA_ERROR_LAUNCH_FAILED => error.LaunchFailed,
+        cu.CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE => error.CooperativeLaunchTooLarge,
+        cu.CUDA_ERROR_NOT_PERMITTED => error.NotPermitted,
+        cu.CUDA_ERROR_NOT_SUPPORTED => error.NotSupported,
+        cu.CUDA_ERROR_SYSTEM_NOT_READY => error.SystemNotReady,
+        cu.CUDA_ERROR_SYSTEM_DRIVER_MISMATCH => error.SystemDriverMismatch,
+        cu.CUDA_ERROR_COMPAT_NOT_SUPPORTED_ON_DEVICE => error.CompatNotSupportedOnDevice,
+        cu.CUDA_ERROR_MPS_CONNECTION_FAILED => error.MpsConnectionFailed,
+        cu.CUDA_ERROR_MPS_RPC_FAILURE => error.MpsRpcFailure,
+        cu.CUDA_ERROR_MPS_SERVER_NOT_READY => error.MpsServerNotReady,
+        cu.CUDA_ERROR_MPS_MAX_CLIENTS_REACHED => error.MpsMaxClientsReached,
+        cu.CUDA_ERROR_MPS_MAX_CONNECTIONS_REACHED => error.MpsMaxConnectionsReached,
+        cu.CUDA_ERROR_STREAM_CAPTURE_UNSUPPORTED => error.StreamCaptureUnsupported,
+        cu.CUDA_ERROR_STREAM_CAPTURE_INVALIDATED => error.StreamCaptureInvalidated,
+        cu.CUDA_ERROR_STREAM_CAPTURE_MERGE => error.StreamCaptureMerge,
+        cu.CUDA_ERROR_STREAM_CAPTURE_UNMATCHED => error.StreamCaptureUnmatched,
+        cu.CUDA_ERROR_STREAM_CAPTURE_UNJOINED => error.StreamCaptureUnjoined,
+        cu.CUDA_ERROR_STREAM_CAPTURE_ISOLATION => error.StreamCaptureIsolation,
+        cu.CUDA_ERROR_STREAM_CAPTURE_IMPLICIT => error.StreamCaptureImplicit,
+        cu.CUDA_ERROR_CAPTURED_EVENT => error.CapturedEvent,
+        cu.CUDA_ERROR_STREAM_CAPTURE_WRONG_THREAD => error.StreamCaptureWrongThread,
+        cu.CUDA_ERROR_TIMEOUT => error.Timeout,
+        cu.CUDA_ERROR_GRAPH_EXEC_UPDATE_FAILURE => error.GraphExecUpdateFailure,
+        cu.CUDA_ERROR_EXTERNAL_DEVICE => error.ExternalDevice,
+        cu.CUDA_ERROR_UNKNOWN => error.Unknown,
         else => error.UnexpectedByCudaZig,
         // TODO: take inspiration on zig.std.os on how to handle unexpected errors
         // https://github.com/ziglang/zig/blob/c4f97d336528d5b795c6584053f072cf8e28495e/lib/std/os.zig#L4889
     };
     var err_message: [*c]const u8 = undefined;
     const error_string_res = cu.cuGetErrorString(result, &err_message);
-    if (error_string_res == .CUDA_SUCCESS) {
+    if (error_string_res == cu.CUDA_SUCCESS) {
         std.log.err("Cuda error {d}: {s}", .{ err, err_message });
     } else {
         std.log.err("Cuda error {d} (no error string)", .{err});
@@ -340,11 +340,18 @@ pub const Cuda = struct {
     pub fn kernel(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !cu.CUfunction {
         // std.fs.accessAbsoluteZ(file, std.fs.File.OpenFlags{ .read = true }) catch @panic("can't open kernel file: " ++ file);
         var module = self.arena.allocator.create(cu.CUmodule) catch unreachable;
-
-        try check(cu.cuModuleLoad(module, file));
+        // TODO: save the module so we can destroy it in deinit
+        // TODO: cache module objects (unless Cuda does it for us)
+        check(cu.cuModuleLoad(module, file)) catch |err| switch (err) {
+            error.FileNotFound => {
+                std.log.err("FileNotFound: {s}", .{file});
+                return err;
+            },
+            else => return err,
+        };
         var function: cu.CUfunction = undefined;
         try check(cu.cuModuleGetFunction(&function, module.*, name));
-        std.log.warn("function {s}.{s}: {}", .{ file, name, function });
+        std.log.info("Loaded function {s}:{s} ({})", .{ file, name, function });
         return function;
     }
 
@@ -440,7 +447,7 @@ pub fn main() anyerror!void {
 test "cuda version" {
     std.log.warn("Cuda version: {d}", .{cu.CUDA_VERSION});
     try testing.expect(cu.CUDA_VERSION > 11000);
-    try testing.expectEqual(cu.CUresult.CUDA_SUCCESS, cu.cuInit(0));
+    try testing.expectEqual(cu.cuInit(0), cu.CUDA_SUCCESS);
 }
 
 test "cuda init" {
@@ -452,7 +459,7 @@ test "HW1" {
     var cuda = try Cuda.init(0);
     defer cuda.deinit();
     std.log.warn("cuda: {}", .{cuda});
-    const rgba_to_greyscale = try cuda.kernel("./cudaz/kernel.ptx", "rgba_to_greyscale");
+    const rgba_to_greyscale = try cuda.kernel(cudaz_options.kernel_ptx_path, "rgba_to_greyscale");
     const numRows: u32 = 10;
     const numCols: u32 = 20;
     const d_rgbaImage = try cuda.alloc([4]u8, numRows * numCols);
@@ -477,8 +484,9 @@ pub fn ArgsStruct(comptime Function: type) type {
     return @Type(info);
 }
 
-pub fn KernelSignature(comptime ptx_file: [:0]const u8, comptime name: [:0]const u8) type {
-    // TODO: I'm not fond of passing .ptx files, I'd prefer if we could only talk about .cu files
+/// Create a function with the correct signature for a cuda Kernel.
+/// The kernel must come from the default .cu file
+pub fn KernelSignature(comptime name: [:0]const u8) type {
     return struct {
         const Self = @This();
         // const Args = comptime ArgsStruct(@TypeOf(@field(cu, name)));
@@ -489,7 +497,7 @@ pub fn KernelSignature(comptime ptx_file: [:0]const u8, comptime name: [:0]const
 
         pub fn init(cuda: *Cuda) !Self {
             var k = Self{ .f = undefined, .cuda = cuda };
-            k.f = try cuda.kernel(ptx_file, name);
+            k.f = try cuda.kernel(cudaz_options.kernel_ptx_path, name);
             return k;
         }
 
@@ -515,8 +523,7 @@ test "safe kernel" {
     var cuda = try Cuda.init(0);
     defer cuda.deinit();
     std.log.warn("cuda: {}", .{cuda});
-    const ptx_file = "./cudaz/kernel.ptx";
-    _ = try cuda.kernel(ptx_file, "rgba_to_greyscale");
+    _ = try cuda.kernel(cudaz_options.kernel_ptx_path, "rgba_to_greyscale");
     const numRows: u32 = 10;
     const numCols: u32 = 20;
     var d_rgbaImage = try cuda.alloc(cu.uchar3, numRows * numCols);
@@ -524,7 +531,7 @@ test "safe kernel" {
     const d_greyImage = try cuda.alloc(u8, numRows * numCols);
     try cuda.memset(u8, d_greyImage, 0);
 
-    const rgba_to_greyscale_safe = try KernelSignature(ptx_file, "rgba_to_greyscale").init(&cuda);
+    const rgba_to_greyscale_safe = try KernelSignature("rgba_to_greyscale").init(&cuda);
     std.log.warn("kernel args: {s}", .{@TypeOf(rgba_to_greyscale_safe).Args});
     try rgba_to_greyscale_safe.launch(
         .{ .blockDim = Dim3.init(numCols, numRows, 1) },

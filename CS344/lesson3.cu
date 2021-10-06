@@ -1,0 +1,64 @@
+#ifdef __cplusplus
+// This is only seen by nvcc, not by Zig
+
+// You must use this macro to declare shared buffers
+#define SHARED(NAME, TYPE) extern __shared__ TYPE NAME[];
+
+extern "C" {
+#endif
+
+// Lecture 3: Reduce
+
+__global__ void global_reduce_kernel(float * d_out, float * d_in)
+{
+    int myId = threadIdx.x + blockDim.x * blockIdx.x;
+    int tid  = threadIdx.x;
+
+    // do reduction in global mem
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1)
+    {
+        if (tid < s)
+        {
+            d_in[myId] += d_in[myId + s];
+        }
+        __syncthreads();        // make sure all adds at one stage are done!
+    }
+
+    // only thread 0 writes result for this block back to global mem
+    if (tid == 0)
+    {
+        d_out[blockIdx.x] = d_in[myId];
+    }
+}
+
+__global__ void shmem_reduce_kernel(float * d_out, const float * d_in)
+{
+    // sdata is allocated in the kernel call: 3rd arg to <<<b, t, shmem>>>
+    SHARED(sdata, float);
+    int myId = threadIdx.x + blockDim.x * blockIdx.x;
+    int tid  = threadIdx.x;
+
+    // load shared mem from global mem
+    sdata[tid] = d_in[myId];
+    __syncthreads();            // make sure entire block is loaded!
+
+    // do reduction in shared mem
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1)
+    {
+        if (tid < s)
+        {
+            sdata[tid] += sdata[tid + s];
+        }
+        __syncthreads();        // make sure all adds at one stage are done!
+    }
+
+    // only thread 0 writes result for this block back to global mem
+    if (tid == 0)
+    {
+        d_out[blockIdx.x] = sdata[0];
+    }
+}
+
+#ifdef __cplusplus
+}
+#endif
