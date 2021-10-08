@@ -47,6 +47,8 @@ fn addCudaz(
         },
     };
     exe.addPackage(cudaz_pkg);
+    // TODO: this is only needed for the tests in cuda.zig
+    exe.addOptions("cudaz_options", cudaz_options);
 }
 
 fn addLibpng(exe: *std.build.LibExeObjStep) void {
@@ -105,6 +107,10 @@ pub fn build(b: *Builder) void {
     addLibpng(test_png);
     tests.dependOn(&test_png.step);
 
+    const test_hw3 = b.addTest("CS344/hw3.zig");
+    addCudaz(b, test_hw3, "/usr/local/cuda", "CS344/hw3.cu");
+    tests.dependOn(&test_hw3.step);
+
     // TODO (Jan 2022): try zig build -ofmt=c (with master branch)
     // maybe we could write a kernel in Zig instead of cuda,
     // which will maybe simplify the type matching
@@ -121,9 +127,13 @@ pub fn build(b: *Builder) void {
 
     const run_hw2 = hw2.run();
     run_hw2.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw2.step);
+    // run_step.dependOn(&run_hw2.step);
 
     const run_lesson3 = lesson3.run();
     run_lesson3.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_lesson3.step);
+    // run_step.dependOn(&run_lesson3.step);
+
+    const run_hw3 = hw3.run();
+    run_hw3.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_hw3.step);
 }

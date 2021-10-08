@@ -30,6 +30,19 @@ pub const Grid = struct {
     blockDim: Dim3 = .{},
     threadDim: Dim3 = .{},
 
+    pub fn init1D(len: usize, block_size: usize) Grid {
+        var s = @intCast(c_uint, block_size);
+        if (block_size == 0) {
+            // This correspond to having one thread per item.
+            // This is likely to crash at runtime, unless for very small arrays.
+            // Because there is a max number of threads supported by each GPU.
+            s = @intCast(c_uint, len);
+        }
+        return Grid{
+            .blockDim = .{ .x = @intCast(c_uint, std.math.divCeil(usize, len, s) catch unreachable) },
+            .threadDim = .{ .x = s },
+        };
+    }
     pub fn init2D(rows: usize, cols: usize, block_size: usize) Grid {
         var s = block_size;
         if (block_size == 0) {
@@ -537,7 +550,7 @@ test "safe kernel" {
         .{ .blockDim = Dim3.init(numCols, numRows, 1) },
         // this is so ugly ! can I do something about it ?
         // https://github.com/ziglang/zig/issues/8136
-        .{ .@"0" = d_rgbaImage.ptr, .@"1" = d_greyImage.ptr, .@"2" = numRows, .@"3" = numCols },
+        .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
     );
 }
 
