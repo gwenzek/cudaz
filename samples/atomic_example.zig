@@ -1,8 +1,8 @@
 const std = @import("std");
 const log = std.log;
-const cuda_module = @import("cuda");
-const Cuda = cuda_module.Cuda;
-const cu = cuda_module.cu;
+const cudaz = @import("cuda");
+const Cuda = cudaz.Cuda;
+const cu = cudaz.cu;
 
 const ARRAY_SIZE = 100;
 
@@ -47,8 +47,8 @@ fn _time_kernel(
     block_width: u32,
     comptime array_size: u32,
 ) !void {
-    const kernel = try cuda_module.KernelSignature("./cudaz/kernel.ptx", kernel_name).init(cuda);
-    var timer = cuda_module.GpuTimer.init(cuda);
+    const kernel = try cudaz.Function(kernel_name).init(cuda);
+    var timer = cudaz.GpuTimer.init(cuda);
 
     // declare and allocate memory
     const h_array = try alloc.alloc(i32, array_size);

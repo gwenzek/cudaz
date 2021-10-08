@@ -17,6 +17,8 @@ const Rgb24 = zigimg.color.Rgb24;
 const Gray8 = zigimg.color.Grayscale8;
 
 pub fn main() anyerror!void {
+    log.info("***** HW2 ******", .{});
+
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = &general_purpose_allocator.allocator;
     try all_tests(alloc);
@@ -26,7 +28,7 @@ pub fn main() anyerror!void {
     var cuda = try Cuda.init(0);
     defer cuda.deinit();
 
-    const img = try zigimg.Image.fromFilePath(alloc, "CS344/cinque_terre_small.png");
+    const img = try zigimg.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
     defer img.deinit();
     assert(img.image_format == .Png);
     var max_show: usize = 10;
@@ -59,23 +61,23 @@ pub fn main() anyerror!void {
     defer cuda.free(d_out);
 
     var timer = cuda_module.GpuTimer.init(&cuda);
-    const separateChannels = try cuda_module.KernelSignature("separateChannels").init(&cuda);
-    const gaussianBlur = try cuda_module.KernelSignature("gaussian_blur").init(&cuda);
-    const recombineChannels = try cuda_module.KernelSignature("recombineChannels").init(&cuda);
+    const separateChannels = try cuda_module.Function("separateChannels").init(&cuda);
+    const gaussianBlur = try cuda_module.Function("gaussian_blur").init(&cuda);
+    const recombineChannels = try cuda_module.Function("recombineChannels").init(&cuda);
 
     var d_filter = try cuda.allocAndCopy(f32, &blurFilter());
     defer cuda.free(d_filter);
 
-    var grid2D = cuda_module.Grid.init2D(img.height, img.width, 32);
+    var grid2D = cuda_module.Grid.init2D(img.height, img.width, 32, 32);
     try separateChannels.launch(
         grid2D,
         .{
-            .@"0" = @ptrCast([*c]const cu.uchar3, d_img.ptr),
-            .@"1" = @intCast(c_int, img.height),
-            .@"2" = @intCast(c_int, img.width),
-            .@"3" = @ptrCast([*c]u8, d_red.ptr),
-            .@"4" = @ptrCast([*c]u8, d_green.ptr),
-            .@"5" = @ptrCast([*c]u8, d_blue.ptr),
+            @ptrCast([*c]const cu.uchar3, d_img.ptr),
+            @intCast(c_int, img.height),
+            @intCast(c_int, img.width),
+            @ptrCast([*c]u8, d_red.ptr),
+            @ptrCast([*c]u8, d_green.ptr),
+            @ptrCast([*c]u8, d_blue.ptr),
         },
     );
 
@@ -84,13 +86,12 @@ pub fn main() anyerror!void {
         try gaussianBlur.launch(
             grid2D,
             .{
-                // TODO: `launch` should accept Zig pointer instead of C pointers
-                .@"0" = @ptrCast([*c]const u8, d_src_tgt[0].ptr),
-                .@"1" = @ptrCast([*c]u8, d_src_tgt[1].ptr),
-                .@"2" = @intCast(c_uint, img.height),
-                .@"3" = @intCast(c_uint, img.width),
-                .@"4" = @ptrCast([*c]const f32, d_filter),
-                .@"5" = @intCast(c_int, blurKernelWidth),
+                @ptrCast([*c]const u8, d_src_tgt[0].ptr),
+                @ptrCast([*c]u8, d_src_tgt[1].ptr),
+                @intCast(c_uint, img.height),
+                @intCast(c_uint, img.width),
+                @ptrCast([*c]const f32, d_filter),
+                @intCast(c_int, blurKernelWidth),
             },
         );
     }
@@ -102,12 +103,12 @@ pub fn main() anyerror!void {
     try recombineChannels.launch(
         grid2D,
         .{
-            .@"0" = @ptrCast([*c]const u8, d_red_blured.ptr),
-            .@"1" = @ptrCast([*c]const u8, d_green_blured.ptr),
-            .@"2" = @ptrCast([*c]const u8, d_blue_blured.ptr),
-            .@"3" = @ptrCast([*c]cu.uchar3, d_out.ptr),
-            .@"4" = @intCast(c_int, img.height),
-            .@"5" = @intCast(c_int, img.width),
+            @ptrCast([*c]const u8, d_red_blured.ptr),
+            @ptrCast([*c]const u8, d_green_blured.ptr),
+            @ptrCast([*c]const u8, d_blue_blured.ptr),
+            @ptrCast([*c]cu.uchar3, d_out.ptr),
+            @intCast(c_int, img.height),
+            @intCast(c_int, img.width),
         },
     );
 

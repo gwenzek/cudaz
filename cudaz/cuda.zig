@@ -27,37 +27,32 @@ pub const Dim3 = struct {
 
 /// Represents how kernel are execut
 pub const Grid = struct {
-    blockDim: Dim3 = .{},
-    threadDim: Dim3 = .{},
+    blocks: Dim3 = .{},
+    threads: Dim3 = .{},
 
-    pub fn init1D(len: usize, block_size: usize) Grid {
-        var s = @intCast(c_uint, block_size);
-        if (block_size == 0) {
+    pub fn init1D(len: usize, threads: usize) Grid {
+        var t_x = threads;
+        if (threads == 0) {
             // This correspond to having one thread per item.
             // This is likely to crash at runtime, unless for very small arrays.
             // Because there is a max number of threads supported by each GPU.
-            s = @intCast(c_uint, len);
+            t_x = len;
         }
         return Grid{
-            .blockDim = .{ .x = @intCast(c_uint, std.math.divCeil(usize, len, s) catch unreachable) },
-            .threadDim = .{ .x = s },
+            .blocks = .{ .x = @intCast(c_uint, std.math.divCeil(usize, len, t_x) catch unreachable) },
+            .threads = .{ .x = @intCast(c_uint, t_x) },
         };
     }
-    pub fn init2D(rows: usize, cols: usize, block_size: usize) Grid {
-        var s = block_size;
-        if (block_size == 0) {
-            // This correspond to having one thread per pixel.
-            // This is likely to crash at runtime, unless for very small images.
-            // Because there is a max number of threads supported by each GPU.
-            s = std.math.max(rows, cols);
-        }
+    pub fn init2D(rows: usize, cols: usize, threads_x: usize, threads_y: usize) Grid {
+        var t_x = if (threads_x == 0) rows else threads_x;
+        var t_y = if (threads_y == 0) cols else threads_y;
         return Grid{
-            .blockDim = Dim3.init(
-                std.math.divCeil(usize, cols, s) catch unreachable,
-                std.math.divCeil(usize, rows, s) catch unreachable,
+            .blocks = Dim3.init(
+                std.math.divCeil(usize, cols, t_x) catch unreachable,
+                std.math.divCeil(usize, rows, t_y) catch unreachable,
                 1,
             ),
-            .threadDim = Dim3.init(s, s, 1),
+            .threads = Dim3.init(t_x, t_y, 1),
         };
     }
 };
@@ -323,6 +318,18 @@ pub const Cuda = struct {
         return ptr;
     }
 
+    pub fn allocAndCopyResult(self: *Cuda, comptime DestType: type, allocator: *std.mem.Allocator, d_source: []const DestType) ![]DestType {
+        var h_tgt = try allocator.alloc(DestType, d_source.len);
+        try self.memcpyDtoH(DestType, h_tgt, d_source);
+        return h_tgt;
+    }
+
+    pub fn readResult(self: *Cuda, comptime DestType: type, d_source: []const DestType) !DestType {
+        var h_res: [1]DestType = undefined;
+        try self.memcpyDtoH(DestType, &h_res, d_source);
+        return h_res[0];
+    }
+
     pub fn memcpyHtoD(self: *Cuda, comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
         _ = self;
         std.debug.assert(h_source.len == d_target.len);
@@ -336,7 +343,7 @@ pub const Cuda = struct {
             else => return err,
         };
     }
-    pub fn memcpyDtoH(self: *Cuda, comptime DestType: type, h_target: []DestType, d_source: []DestType) !void {
+    pub fn memcpyDtoH(self: *Cuda, comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
         _ = self;
         std.debug.assert(d_source.len == h_target.len);
         check(cu.cuMemcpyDtoH(
@@ -350,7 +357,7 @@ pub const Cuda = struct {
         };
     }
 
-    pub fn kernel(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !cu.CUfunction {
+    pub fn loadFunction(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !cu.CUfunction {
         // std.fs.accessAbsoluteZ(file, std.fs.File.OpenFlags{ .read = true }) catch @panic("can't open kernel file: " ++ file);
         var module = self.arena.allocator.create(cu.CUmodule) catch unreachable;
         // TODO: save the module so we can destroy it in deinit
@@ -381,12 +388,12 @@ pub const Cuda = struct {
         }
         const res = cu.cuLaunchKernel(
             f,
-            grid.blockDim.x,
-            grid.blockDim.y,
-            grid.blockDim.z,
-            grid.threadDim.x,
-            grid.threadDim.y,
-            grid.threadDim.z,
+            grid.blocks.x,
+            grid.blocks.y,
+            grid.blocks.z,
+            grid.threads.x,
+            grid.threads.y,
+            grid.threads.z,
             @intCast(c_uint, shared_mem),
             self.stream,
             @ptrCast([*c]?*c_void, &args_ptrs),
@@ -472,7 +479,7 @@ test "HW1" {
     var cuda = try Cuda.init(0);
     defer cuda.deinit();
     std.log.warn("cuda: {}", .{cuda});
-    const rgba_to_greyscale = try cuda.kernel(cudaz_options.kernel_ptx_path, "rgba_to_greyscale");
+    const rgba_to_greyscale = try cuda.loadFunction(cudaz_options.kernel_ptx_path, "rgba_to_greyscale");
     const numRows: u32 = 10;
     const numCols: u32 = 20;
     const d_rgbaImage = try cuda.alloc([4]u8, numRows * numCols);
@@ -485,24 +492,16 @@ test "HW1" {
 
     try cuda.launch(
         rgba_to_greyscale,
-        .{ .blockDim = Dim3.init(numRows, numCols, 1) },
+        .{ .blocks = Dim3.init(numRows, numCols, 1) },
         .{ d_rgbaImage, d_greyImage, numRows, numCols },
     );
 }
 
-pub fn ArgsStruct(comptime Function: type) type {
-    const ArgsTuple = meta.ArgsTuple(Function);
-    var info = @typeInfo(ArgsTuple);
-    info.Struct.is_tuple = false;
-    return @Type(info);
-}
-
 /// Create a function with the correct signature for a cuda Kernel.
 /// The kernel must come from the default .cu file
-pub fn KernelSignature(comptime name: [:0]const u8) type {
+pub fn Function(comptime name: [:0]const u8) type {
     return struct {
         const Self = @This();
-        // const Args = comptime ArgsStruct(@TypeOf(@field(cu, name)));
         const Args = meta.ArgsTuple(@TypeOf(@field(cu, name)));
 
         f: cu.CUfunction,
@@ -510,7 +509,7 @@ pub fn KernelSignature(comptime name: [:0]const u8) type {
 
         pub fn init(cuda: *Cuda) !Self {
             var k = Self{ .f = undefined, .cuda = cuda };
-            k.f = try cuda.kernel(cudaz_options.kernel_ptx_path, name);
+            k.f = try cuda.loadFunction(cudaz_options.kernel_ptx_path, name);
             return k;
         }
 
@@ -536,7 +535,7 @@ test "safe kernel" {
     var cuda = try Cuda.init(0);
     defer cuda.deinit();
     std.log.warn("cuda: {}", .{cuda});
-    _ = try cuda.kernel(cudaz_options.kernel_ptx_path, "rgba_to_greyscale");
+    _ = try cuda.loadFunction(cudaz_options.kernel_ptx_path, "rgba_to_greyscale");
     const numRows: u32 = 10;
     const numCols: u32 = 20;
     var d_rgbaImage = try cuda.alloc(cu.uchar3, numRows * numCols);
@@ -544,12 +543,11 @@ test "safe kernel" {
     const d_greyImage = try cuda.alloc(u8, numRows * numCols);
     try cuda.memset(u8, d_greyImage, 0);
 
-    const rgba_to_greyscale_safe = try KernelSignature("rgba_to_greyscale").init(&cuda);
+    const rgba_to_greyscale_safe = try Function("rgba_to_greyscale").init(&cuda);
     std.log.warn("kernel args: {s}", .{@TypeOf(rgba_to_greyscale_safe).Args});
     try rgba_to_greyscale_safe.launch(
-        .{ .blockDim = Dim3.init(numCols, numRows, 1) },
-        // this is so ugly ! can I do something about it ?
-        // https://github.com/ziglang/zig/issues/8136
+        .{ .blocks = Dim3.init(numCols, numRows, 1) },
+        // TODO: we should accept slices
         .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
     );
 }

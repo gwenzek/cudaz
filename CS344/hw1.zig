@@ -3,16 +3,18 @@ const log = std.log;
 const assert = std.debug.assert;
 
 const zigimg = @import("zigimg");
-const cuda_module = @import("cuda");
-const Cuda = cuda_module.Cuda;
-const cu = cuda_module.cu;
+const cudaz = @import("cudaz");
+const Cuda = cudaz.Cuda;
+const cu = cudaz.cu;
 
 const png = @import("png.zig");
 const utils = @import("utils.zig");
 
-const resources_dir = "HW1/hw1_resources/";
+const resources_dir = "CS344/hw1_resources/";
 
 pub fn main() anyerror!void {
+    log.info("***** HW1 ******", .{});
+
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const alloc = &general_purpose_allocator.allocator;
     const args = try std.process.argsAlloc(alloc);
@@ -21,7 +23,7 @@ pub fn main() anyerror!void {
     var cuda = try Cuda.init(0);
     defer cuda.deinit();
 
-    const img = try zigimg.Image.fromFilePath(alloc, "HW1/cinque_terre_small.png");
+    const img = try zigimg.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
     defer img.deinit();
     assert(img.image_format == .Png);
     var max_show: usize = 10;
@@ -40,17 +42,16 @@ pub fn main() anyerror!void {
     defer cuda.free(d_gray);
     try cuda.memset(Gray8, d_gray, Gray8{ .value = 0 });
 
-    var timer = cuda_module.GpuTimer.init(&cuda);
-    const kernel = try cuda_module.KernelSignature("./cudaz/kernel.ptx", "rgba_to_greyscale").init(&cuda);
+    var timer = cudaz.GpuTimer.init(&cuda);
+    const kernel = try cudaz.Function("rgba_to_greyscale").init(&cuda);
     timer.start();
     try kernel.launch(
-        .{ .x = @intCast(c_uint, img.width), .y = @intCast(c_uint, img.height) },
-        .{},
+        cudaz.Grid.init1D(img.height * img.width, 64),
         .{
-            .@"0" = @ptrCast([*c]const cu.uchar3, d_img.ptr),
-            .@"1" = @ptrCast([*c]u8, d_gray.ptr),
-            .@"2" = @intCast(c_int, img.width),
-            .@"3" = @intCast(c_int, img.height),
+            @ptrCast([*c]const cu.uchar3, d_img.ptr),
+            @ptrCast([*c]u8, d_gray.ptr),
+            @intCast(c_int, img.height),
+            @intCast(c_int, img.width),
         },
     );
     timer.stop();

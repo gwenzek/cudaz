@@ -1,9 +1,6 @@
 #ifdef __cplusplus
-// This is only seen by nvcc, not by Zig
-
 extern "C" {
 #endif
-
 __global__ void rgba_to_greyscale(const uchar3 *const rgbaImage,
                                   unsigned char *const greyImage, int numRows,
                                   int numCols) {
@@ -19,36 +16,15 @@ __global__ void rgba_to_greyscale(const uchar3 *const rgbaImage,
   // First create a mapping from the 2D block and grid locations
   // to an absolute 2D location in the image, then use that to
   // calculate a 1D offset
-  uchar3 px = rgbaImage[blockIdx.x * numCols + blockIdx.y];
+  uint myId = blockIdx.x * blockDim.x + threadIdx.x;
+  if (myId >= numRows * numCols) return;
+  uchar3 px = rgbaImage[myId];
   float R = px.x;
   float G = px.y;
   float B = px.z;
   float output = (0.299f * R + 0.587f * G + 0.114f * B);
-  greyImage[blockIdx.x * numCols + blockIdx.y] = output;
+  greyImage[myId] = (unsigned char)output;
 }
-
-
-__global__ void increment_naive(int *g, int array_size)
-{
-  // which thread is this?
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-  // each thread to increment consecutive elements, wrapping at array_size
-  i = i % array_size;
-  g[i] = g[i] + 1;
-}
-
-__global__ void increment_atomic(int *g, int array_size)
-{
-  // which thread is this?
-  int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-  // each thread to increment consecutive elements, wrapping at array_size
-  i = i % array_size;
-  atomicAdd(& g[i], 1);
-
-}
-
 
 #ifdef __cplusplus
 }
