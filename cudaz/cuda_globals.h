@@ -20,5 +20,11 @@ dim3 threadDim;
 dim3 threadIdx;
 
 int atomicAdd(int* a, int b) {a += b;}
+int atomicMin(int* a, int b) {
+  if (b < *a) *a = b;
+}
+int atomicMax(int* a, int b) {
+  if (b > *a) *a = b;
+}
 
 void __syncthreads() {}

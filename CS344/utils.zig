@@ -72,7 +72,7 @@ pub fn eq_and_show_diff(alloc: *std.mem.Allocator, comptime dir: []const u8, out
 
     try png.writePngToFilePath(diff, dir ++ "output_diff.png");
     if (min_val != 0 or max_val != 0) {
-        std.log.warn("Found diffs between two images, avg: {d:.3}, ranging from {d:.1} to {d:.1} pixel value.", .{ avg_diff, 255 * min_val, 255 * max_val });
+        std.log.err("Found diffs between two images, avg: {d:.3}, ranging from {d:.1} to {d:.1} pixel value.", .{ avg_diff, 255 * min_val, 255 * max_val });
         return false;
     }
     return true;

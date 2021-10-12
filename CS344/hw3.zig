@@ -1,6 +1,7 @@
 const std = @import("std");
 const log = std.log;
 const math = std.math;
+const testing = std.testing;
 const assert = std.debug.assert;
 
 const zigimg = @import("zigimg");
@@ -21,21 +22,10 @@ pub fn main() !void {
     defer cuda.deinit();
     log.info("***** HW3 ******", .{});
 
-    // float *d_luminance;
-    // unsigned int *d_cdf;
-
-    // size_t numRows, numCols;
-    // unsigned int numBins;
-
-    // double perPixelError = 0.0;
-    // double globalError = 0.0;
-    // bool useEpsCheck = false;
-
     const img = try zigimg.Image.fromFilePath(allocator, resources_dir ++ "/memorial_exr.png");
     const numRows = img.height;
     const numCols = img.width;
     const rgb = try asFloat32(allocator, img);
-    // std.log.debug("rgb image: {d:.3}", .{rgb});
 
     img.deinit();
 
@@ -66,20 +56,18 @@ pub fn main() !void {
 
     var timer = cudaz.GpuTimer.init(&cuda);
     defer timer.deinit();
-    // float min_logLum, max_logLum;
     timer.start();
-    // TODO
+
     const min_max_lum = try histogram_and_prefixsum(&cuda, d_xyY, d_cdf, numRows, numCols, numBins);
     var lum_min = min_max_lum.x;
     var lum_range = min_max_lum.y - min_max_lum.x;
 
-    assert(lum_range > 0);
     timer.stop();
     try cuda.synchronize();
     std.log.info("Your code ran in: {d:.1} msecs.", .{timer.elapsed() * 1000});
     std.log.info("Found a lum range of: {d:.5}", .{min_max_lum});
-    var h_cdf = try allocator.alloc(f32, numBins);
-    try cuda.memcpyDtoH(f32, h_cdf, d_cdf);
+
+    var h_cdf = try cuda.allocAndCopyResult(f32, allocator, d_cdf);
     std.log.info("Lum cdf: {d:.3}", .{h_cdf});
 
     const tone_map = try cudaz.Function("tone_map").init(&cuda);
@@ -96,16 +84,13 @@ pub fn main() !void {
             @intCast(c_int, numCols),
         },
     );
-    // check results and output the tone-mapped image
-    // postProcess(output_file, numRows, numCols, min_logLum, max_logLum);
     try cuda.memcpyDtoH(cu.float3, rgb, d_rgb);
     var out_img = try fromFloat32(allocator, rgb, numCols, numRows);
     defer out_img.deinit();
     try png.writePngToFilePath(out_img, resources_dir ++ "output.png");
     try utils.validate_output(allocator, resources_dir);
 
-    // TODO? referenceCalculation
-
+    try std.testing.expect(lum_range > 0);
 }
 
 fn asFloat32(allocator: *std.mem.Allocator, img: zigimg.Image) ![]cu.float3 {
@@ -168,6 +153,7 @@ fn histogram_and_prefixsum(
     //      incoming d_cdf pointer which already has been allocated for you)
     var num_pixels = numRows * numCols;
     var min_max_lum = try reduceMinMaxLum(cuda, d_xyY);
+    try cuda.synchronize();
 
     const lum_histo = try cudaz.Function("lum_histo").init(cuda);
     var d_histo = try cuda.alloc(c_uint, numBins);
@@ -187,16 +173,15 @@ fn histogram_and_prefixsum(
     defer cuda.arena.allocator.free(histo);
     try cuda.memcpyDtoH(c_uint, histo, d_histo);
     std.log.info("Lum histo: {any}", .{histo});
+    try cuda.synchronize();
 
     const computeCdf = try cudaz.Function("computeCdf").init(cuda);
     try computeCdf.launch(
         cudaz.Grid.init1D(numBins, numBins),
         .{ d_cdf.ptr, d_histo.ptr, @intCast(c_int, numBins) },
     );
-    // var histo = try cuda.allocator.alloc(c_uint, numBins);
-    // defer cuda.allocator.free(histo);
-    // try cuda.memcpyDtoH(c_uint, histo, d_cdf);
-    // std.log.info("Lum histo: {any}", .{histo});
+    try cuda.synchronize();
+
     return min_max_lum;
 }
 
@@ -204,6 +189,7 @@ fn reduceMinMaxLum(
     cuda: *Cuda,
     d_xyY: []const cu.float3,
 ) !cu.float2 {
+    // TODO: the results seems to change between runs
     const num_pixels = d_xyY.len;
     const reduce_minmax_lum = try cudaz.Function("reduce_minmax_lum").init(cuda);
 
@@ -211,6 +197,7 @@ fn reduceMinMaxLum(
     var d_buff = try cuda.alloc(cu.float2, grid.blocks.x);
     defer cuda.free(d_buff);
     var d_min_max_lum = try cuda.alloc(cu.float2, 1);
+    try cuda.memsetD8(cu.float2, d_min_max_lum, 0xaa);
     defer cuda.free(d_min_max_lum);
 
     try reduce_minmax_lum.launchWithSharedMem(
@@ -224,7 +211,7 @@ fn reduceMinMaxLum(
     const reduce_minmax = try cudaz.Function("reduce_minmax").init(cuda);
     try reduce_minmax.launchWithSharedMem(
         one_block,
-        d_buff.len * @sizeOf(cu.float2),
+        one_block.threads.x * @sizeOf(cu.float2),
         .{ d_buff.ptr, d_min_max_lum.ptr },
     );
     try cuda.synchronize();
@@ -233,77 +220,6 @@ fn reduceMinMaxLum(
     try std.testing.expect(min_max_lum.x < min_max_lum.y);
     return min_max_lum;
 }
-// void postProcess(const std::string &output_file, size_t numRows, size_t numCols,
-//                  float min_log_Y, float max_log_Y) {
-//   const int numPixels = numRows__ * numCols__;
-
-//   const int numThreads = 192;
-
-//   float *d_cdf_normalized;
-
-//   checkCudaErrors(cudaMalloc(&d_cdf_normalized, sizeof(float) * numBins));
-
-//   // first normalize the cdf to a maximum value of 1
-//   // this is how we compress the range of the luminance channel
-//   normalize_cdf<<<(numBins + numThreads - 1) / numThreads, numThreads>>>(
-//       d_cdf__, d_cdf_normalized, numBins);
-
-//   cudaDeviceSynchronize();
-//   checkCudaErrors(cudaGetLastError());
-
-//   // allocate memory for the output RGB channels
-//   float *h_red, *h_green, *h_blue;
-//   float *d_red, *d_green, *d_blue;
-
-//   h_red = new float[numPixels];
-//   h_green = new float[numPixels];
-//   h_blue = new float[numPixels];
-
-//   checkCudaErrors(cudaMalloc(&d_red, sizeof(float) * numPixels));
-//   checkCudaErrors(cudaMalloc(&d_green, sizeof(float) * numPixels));
-//   checkCudaErrors(cudaMalloc(&d_blue, sizeof(float) * numPixels));
-
-//   float log_Y_range = max_log_Y - min_log_Y;
-
-//   const dim3 blockSize(32, 16, 1);
-//   const dim3 gridSize((numCols + blockSize.x - 1) / blockSize.x,
-//                       (numRows + blockSize.y - 1) / blockSize.y);
-//   // next perform the actual tone-mapping
-//   // we map each luminance value to its new value
-//   // and then transform back to RGB space
-//   tonemap<<<gridSize, blockSize>>>(d_x__, d_y__, d_logY__, d_cdf_normalized,
-//                                    d_red, d_green, d_blue, min_log_Y, max_log_Y,
-//                                    log_Y_range, numBins, numRows, numCols);
-
-//   cudaDeviceSynchronize();
-//   checkCudaErrors(cudaGetLastError());
-
-//   checkCudaErrors(cudaMemcpy(h_red, d_red, sizeof(float) * numPixels,
-//                              cudaMemcpyDeviceToHost));
-//   checkCudaErrors(cudaMemcpy(h_green, d_green, sizeof(float) * numPixels,
-//                              cudaMemcpyDeviceToHost));
-//   checkCudaErrors(cudaMemcpy(h_blue, d_blue, sizeof(float) * numPixels,
-//                              cudaMemcpyDeviceToHost));
-
-//   // recombine the image channels
-//   float *imageHDR = new float[numPixels * 3];
-
-//   for (int i = 0; i < numPixels; ++i) {
-//     imageHDR[3 * i + 0] = h_blue[i];
-//     imageHDR[3 * i + 1] = h_green[i];
-//     imageHDR[3 * i + 2] = h_red[i];
-//   }
-
-//   saveImageHDR(imageHDR, numRows, numCols, output_file);
-
-//   delete[] imageHDR;
-//   delete[] h_red;
-//   delete[] h_green;
-//   delete[] h_blue;
-
-//   // cleanup
-//   checkCudaErrors(cudaFree(d_cdf_normalized));
-// }
 
 fn z(_z: f32) cu.float3 {
     return cu.float3{ .x = 0.0, .y = 0.0, .z = _z };
@@ -352,49 +268,74 @@ test "histogram" {
     );
 }
 
-// test "min_max_lum" {
-//     var cuda = try Cuda.init(0);
-//     var img = [_]cu.float3{
-//         z(0.0),
-//         z(0.0),
-//         z(1.0),
-//         z(2.0),
-//         z(3.0),
-//         z(4.0),
-//         z(6.0),
-//         z(7.0),
-//         z(8.0),
-//         z(9.0),
-//         z(3.0),
-//         z(3.0),
-//         z(3.0),
-//         z(9.0),
-//         z(10.0),
-//         z(3.0),
-//     };
-//     const reduce_minmax_lum = try cudaz.Function("reduce_minmax_lum").init(&cuda);
-//     var minmax = [_]cu.float2{.{ .x = 0.0, .y = 0.0 }} ** 8;
-//     var d_img = try cuda.allocAndCopy(cu.float3, &img);
-//     var d_minmax = try cuda.allocAndCopy(cu.float2, &minmax);
-//     try reduce_minmax_lum.launch(
-//         cudaz.Grid.init1D(img.len, minmax.len),
-//         .{
-//             d_img.ptr,
-//             d_minmax.ptr,
-//             0,
-//             9,
-//             @intCast(c_int, minmax.len),
-//             @intCast(c_int, img.len),
-//         },
-//     );
-//     try cuda.memcpyDtoH(c_uint, &minmax, d_minmax);
+const ReduceMinmaxLum = cudaz.Function("reduce_minmax_lum");
 
-//     std.log.warn("minmax: {any}", .{minmax});
-//     try std.testing.expectEqual(
-//         [10]c_uint{ 2, 1, 1, 4, 1, 0, 1, 1, 1, 3 },
-//         minmax,
-//     );
-// }
+fn test_min_max_lum(cuda: *Cuda, f: ReduceMinmaxLum, d_img: []cu.float3, expected: []const cu.float2) !void {
+    var num_blocks = expected.len;
+    var d_minmax = try cuda.alloc(cu.float2, num_blocks);
+    defer cuda.free(d_minmax);
+
+    var grid1D = cudaz.Grid{
+        .blocks = .{ .x = @intCast(c_uint, num_blocks) },
+        .threads = .{ .x = @intCast(c_uint, std.math.divCeil(usize, d_img.len, num_blocks) catch unreachable) },
+    };
+    try f.launchWithSharedMem(
+        grid1D,
+        @sizeOf(cu.float2) * grid1D.threads.x,
+        .{
+            d_img.ptr,
+            d_minmax.ptr,
+            @intCast(c_int, d_img.len),
+        },
+    );
+    var minmax = try cuda.allocAndCopyResult(cu.float2, testing.allocator, d_minmax);
+    defer testing.allocator.free(minmax);
+    std.log.warn("minmax ({}x{}): {any}", .{ grid1D.blocks.x, grid1D.threads.x, minmax });
+    for (expected) |exp, index| {
+        std.testing.expectEqual(exp, minmax[index]) catch |err| {
+            switch (err) {
+                error.TestExpectedEqual => log.err("At index {} expected {d:.0} got {d:.0}", .{ index, exp, minmax[index] }),
+                else => {},
+            }
+            return err;
+        };
+    }
+}
+
+test "min_max_lum" {
+    var cuda = try Cuda.init(0);
+    var img = [_]cu.float3{
+        z(0),
+        z(3),
+        z(0),
+        z(1),
+        z(2),
+        z(4),
+        z(6),
+        z(7),
+        z(8),
+        z(9),
+        z(10),
+        z(3),
+        z(3),
+        z(3),
+        z(9),
+        z(3),
+    };
+    const f = try cudaz.Function("reduce_minmax_lum").init(&cuda);
+    var d_img = try cuda.allocAndCopy(cu.float3, &img);
+
+    try test_min_max_lum(&cuda, f, d_img, &[_]cu.float2{
+        .{ .x = 0, .y = 7 },
+        .{ .x = 3, .y = 10 },
+    });
+    try test_min_max_lum(&cuda, f, d_img, &[_]cu.float2{
+        .{ .x = 0, .y = 3 },
+        .{ .x = 2, .y = 7 },
+        .{ .x = 3, .y = 10 },
+        .{ .x = 3, .y = 9 },
+    });
+}
 
 test "cdf" {
     var cuda = try Cuda.init(0);
@@ -413,7 +354,6 @@ test "cdf" {
     );
     try cuda.memcpyDtoH(f32, &cdf, d_cdf);
 
-    // bins: { 2, 1, 1, 4, 1, 0, 1, 1, 1, 3 }
     var t: f32 = 15.0;
     const tgt_cdf = [10]f32{ 0, 2 / t, 3 / t, 4 / t, 8 / t, 9 / t, 9 / t, 10 / t, 11 / t, 12 / t };
     std.log.warn("tgt_cdf: {d:.3}", .{tgt_cdf});

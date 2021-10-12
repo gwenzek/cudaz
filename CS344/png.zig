@@ -189,7 +189,7 @@ test "read/write/read" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var base = try Image.fromFilePath(testing.allocator, "CS344/cinque_terre_small.png");
+    var base = try Image.fromFilePath(testing.allocator, "CS344/hw1_resources/cinque_terre_small.png");
     defer base.deinit();
 
     try tmp.dir.writeFile("out.png", "hello");

@@ -144,7 +144,7 @@ pub const CudaError = error{
     GraphExecUpdateFailure,
     ExternalDevice,
     Unknown,
-    UnexpectedByCudaZig,
+    UnexpectedByCudaz,
 };
 
 pub fn check(result: cu.CUresult) CudaError!void {
@@ -236,9 +236,7 @@ pub fn check(result: cu.CUresult) CudaError!void {
         cu.CUDA_ERROR_GRAPH_EXEC_UPDATE_FAILURE => error.GraphExecUpdateFailure,
         cu.CUDA_ERROR_EXTERNAL_DEVICE => error.ExternalDevice,
         cu.CUDA_ERROR_UNKNOWN => error.Unknown,
-        else => error.UnexpectedByCudaZig,
-        // TODO: take inspiration on zig.std.os on how to handle unexpected errors
-        // https://github.com/ziglang/zig/blob/c4f97d336528d5b795c6584053f072cf8e28495e/lib/std/os.zig#L4889
+        else => error.UnexpectedByCudaz,
     };
     var err_message: [*c]const u8 = undefined;
     const error_string_res = cu.cuGetErrorString(result, &err_message);
@@ -246,6 +244,9 @@ pub fn check(result: cu.CUresult) CudaError!void {
         std.log.err("Cuda error {d}: {s}", .{ err, err_message });
     } else {
         std.log.err("Cuda error {d} (no error string)", .{err});
+    }
+    if (err == error.UnexpectedByCudaz) {
+        std.log.err("Unknown cuda error {d}. Please open a bug against Cudaz.", .{result});
     }
     return err;
 }
