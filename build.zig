@@ -35,24 +35,17 @@ pub fn build(b: *Builder) void {
     // CS344 lessons and home works
     const hw1 = addHomework(b, tests, "hw1");
     const hw2 = addHomework(b, tests, "hw2");
+    const hw3 = addHomework(b, tests, "hw3");
+    const hw4 = addHomework(b, tests, "hw4");
+    _ = hw1;
+    _ = hw2;
+    _ = hw3;
 
     const lesson3 = b.addExecutable("lesson3", "CS344/lesson3.zig");
     addCudaz(b, lesson3, CUDA_PATH, "CS344/lesson3.cu");
     lesson3.setTarget(target);
     lesson3.setBuildMode(mode);
     lesson3.install();
-
-    const hw3 = b.addExecutable("hw3", "CS344/hw3.zig");
-    addCudaz(b, hw3, CUDA_PATH, "CS344/hw3.cu");
-    hw3.addPackagePath("zigimg", "zigimg/zigimg.zig");
-    addLibpng(hw3);
-    hw3.setTarget(target);
-    hw3.setBuildMode(mode);
-    hw3.install();
-
-    const test_hw3 = b.addTest("CS344/hw3.zig");
-    addCudaz(b, test_hw3, CUDA_PATH, "CS344/hw3.cu");
-    tests.dependOn(&test_hw3.step);
 
     // TODO (Jan 2022): try zig build -ofmt=c (with master branch)
     // maybe we could write a kernel in Zig instead of cuda,
@@ -67,21 +60,25 @@ pub fn build(b: *Builder) void {
     // kernel_zig.install();
 
     const run_step = b.step("run", "Run the example");
-    const run_hw1 = hw1.run();
-    run_hw1.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw1.step);
+    // const run_hw1 = hw1.run();
+    // run_hw1.step.dependOn(b.getInstallStep());
+    // run_step.dependOn(&run_hw1.step);
 
-    const run_hw2 = hw2.run();
-    run_hw2.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw2.step);
+    // const run_hw2 = hw2.run();
+    // run_hw2.step.dependOn(b.getInstallStep());
+    // run_step.dependOn(&run_hw2.step);
 
-    const run_lesson3 = lesson3.run();
-    run_lesson3.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_lesson3.step);
+    // const run_lesson3 = lesson3.run();
+    // run_lesson3.step.dependOn(b.getInstallStep());
+    // run_step.dependOn(&run_lesson3.step);
 
-    const run_hw3 = hw3.run();
-    run_hw3.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw3.step);
+    // const run_hw3 = hw3.run();
+    // run_hw3.step.dependOn(b.getInstallStep());
+    // run_step.dependOn(&run_hw3.step);
+
+    const run_hw4 = hw4.run();
+    run_hw4.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_hw4.step);
 }
 
 /// For a given object:

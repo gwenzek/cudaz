@@ -47,7 +47,7 @@ pub const Grid = struct {
             .threads = .{ .x = @intCast(c_uint, t_x) },
         };
     }
-    pub fn init2D(rows: usize, cols: usize, threads_x: usize, threads_y: usize) Grid {
+    pub fn init2D(cols: usize, rows: usize, threads_x: usize, threads_y: usize) Grid {
         var t_x = if (threads_x == 0) rows else threads_x;
         var t_y = if (threads_y == 0) cols else threads_y;
         return Grid{
@@ -362,7 +362,7 @@ pub const Cuda = struct {
         };
     }
 
-    pub fn loadFunction(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !cu.CUfunction {
+    pub fn loadRawFunction(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !cu.CUfunction {
         // std.fs.accessAbsoluteZ(file, std.fs.File.OpenFlags{ .read = true }) catch @panic("can't open kernel file: " ++ file);
         var module = self.arena.allocator.create(cu.CUmodule) catch unreachable;
         // TODO: save the module so we can destroy it in deinit
@@ -378,6 +378,11 @@ pub const Cuda = struct {
         try check(cu.cuModuleGetFunction(&function, module.*, name));
         std.log.info("Loaded function {s}:{s} ({})", .{ file, name, function });
         return function;
+    }
+
+    pub fn loadFunction(self: *Cuda, comptime name: [:0]const u8) !Function(name) {
+        const f = try Function(name).init(self);
+        return f;
     }
 
     pub fn launch(self: *Cuda, f: cu.CUfunction, grid: Grid, args: anytype) !void {
@@ -425,11 +430,13 @@ pub const Cuda = struct {
 };
 
 /// Time gpu event.
+/// deinit is called when `elapsed` is called.
 /// Note: we don't check errors, timing is considered optional
 pub const GpuTimer = struct {
     _start: cu.CUevent,
     _stop: cu.CUevent,
     stream: cu.CUstream,
+    _elapsed: f32 = std.math.nan_f32,
 
     pub fn init(cuda: *Cuda) GpuTimer {
         var timer = GpuTimer{ ._start = undefined, ._stop = undefined, .stream = cuda.stream };
@@ -439,6 +446,7 @@ pub const GpuTimer = struct {
     }
 
     pub fn deinit(self: *GpuTimer) void {
+        if (!std.math.isNan(self._elapsed)) return;
         _ = cu.cuEventDestroy(self._start);
         _ = cu.cuEventDestroy(self._stop);
     }
@@ -452,9 +460,12 @@ pub const GpuTimer = struct {
     }
 
     pub fn elapsed(self: *GpuTimer) f32 {
-        var _elapsed: f32 = std.math.nan_f32;
+        if (!std.math.isNan(self._elapsed)) return self._elapsed;
+        var _elapsed = std.math.nan_f32;
         _ = cu.cuEventSynchronize(self._stop);
-        _ = cu.cuEventElapsedTime(&_elapsed, self._start, self._stop);
+        _ = cu.cuEventElapsedTime(&self._elapsed, self._start, self._stop);
+        self.deinit();
+        self._elapsed = _elapsed;
         return _elapsed;
     }
 };
@@ -516,9 +527,10 @@ pub fn Function(comptime name: [:0]const u8) type {
         cuda: *Cuda,
 
         pub fn init(cuda: *Cuda) !Self {
-            var k = Self{ .f = undefined, .cuda = cuda };
-            k.f = try cuda.loadFunction(cudaz_options.kernel_ptx_path, name);
-            return k;
+            return Self{
+                .f = try cuda.loadRawFunction(cudaz_options.kernel_ptx_path, name),
+                .cuda = cuda,
+            };
         }
 
         // TODO: deinit -> CUDestroy
