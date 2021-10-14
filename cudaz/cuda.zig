@@ -23,6 +23,10 @@ pub const Dim3 = struct {
             .z = @intCast(c_uint, z),
         };
     }
+
+    pub fn dim3(self: *const Dim3) cu.dim3 {
+        return cu.dim3{ .x = self.x, .y = self.y, .z = self.z };
+    }
 };
 
 /// Represents how kernel are execut
@@ -380,7 +384,7 @@ pub const Cuda = struct {
         try self.launchWithSharedMem(f, grid, 0, args);
     }
 
-    pub fn launchWithSharedMem(self: *Cuda, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
+    pub fn launchWithSharedMem(self: *const Cuda, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
         // Create an array of pointers pointing to the given args.
         const fields: []const TypeInfo.StructField = meta.fields(@TypeOf(args));
         var args_ptrs: [fields.len:0]usize = undefined;
@@ -420,6 +424,8 @@ pub const Cuda = struct {
     }
 };
 
+/// Time gpu event.
+/// Note: we don't check errors, timing is considered optional
 pub const GpuTimer = struct {
     _start: cu.CUevent,
     _stop: cu.CUevent,
@@ -438,15 +444,15 @@ pub const GpuTimer = struct {
     }
 
     pub fn start(self: *GpuTimer) void {
-        check(cu.cuEventRecord(self._start, self.stream)) catch unreachable;
+        _ = cu.cuEventRecord(self._start, self.stream);
     }
 
     pub fn stop(self: *GpuTimer) void {
-        check(cu.cuEventRecord(self._stop, self.stream)) catch unreachable;
+        _ = cu.cuEventRecord(self._stop, self.stream);
     }
 
     pub fn elapsed(self: *GpuTimer) f32 {
-        var _elapsed: f32 = undefined;
+        var _elapsed: f32 = std.math.nan_f32;
         _ = cu.cuEventSynchronize(self._stop);
         _ = cu.cuEventElapsedTime(&_elapsed, self._start, self._stop);
         return _elapsed;
@@ -503,7 +509,8 @@ test "HW1" {
 pub fn Function(comptime name: [:0]const u8) type {
     return struct {
         const Self = @This();
-        const Args = meta.ArgsTuple(@TypeOf(@field(cu, name)));
+        const CpuFn = @field(cu, name);
+        const Args = meta.ArgsTuple(@TypeOf(Self.CpuFn));
 
         f: cu.CUfunction,
         cuda: *Cuda,
@@ -524,6 +531,14 @@ pub fn Function(comptime name: [:0]const u8) type {
             // TODO: this seems error prone, could we make the type of the shared buffer
             // part of the function signature ?
             try self.cuda.launchWithSharedMem(self.f, grid, shared_mem, args);
+        }
+
+        pub fn debugCpuCall(grid: Grid, point: Grid, args: Args) void {
+            cu.blockDim = grid.blocks.dim3();
+            cu.threadDim = grid.threads.dim3();
+            cu.blockIdx = point.blocks.dim3();
+            cu.threadIdx = point.threads.dim3();
+            _ = @call(.{}, CpuFn, args);
         }
     };
 }
@@ -560,4 +575,30 @@ test "cuda alloc" {
     const d_greyImage = try cuda.alloc(u8, 128);
     try cuda.memset(u8, d_greyImage, 0);
     defer cuda.free(d_greyImage);
+}
+
+test "run the kenrnel on CPU" {
+    // This isn't very ergonomic, but it's possible !
+    // Also ironically it can't run in parallel because of the usage of the
+    // globals blockIdx and threadIdx.
+    // I think it could be useful to detect out of bound errors that Cuda
+    // tend to ignore.
+    const rgba_to_greyscale = Function("rgba_to_greyscale");
+    const rgbImage = [_]cu.uchar3{
+        .{ .x = 0x2D, .y = 0x24, .z = 0x1F },
+        .{ .x = 0xEB, .y = 0x82, .z = 0x48 },
+    };
+    var gray = [_]u8{ 0, 0 };
+    rgba_to_greyscale.debugCpuCall(
+        Grid.init1D(2, 1),
+        .{ .blocks = Dim3.init(0, 0, 0), .threads = Dim3.init(0, 0, 0) },
+        .{ &rgbImage, &gray, 1, 2 },
+    );
+    rgba_to_greyscale.debugCpuCall(
+        Grid.init1D(2, 1),
+        .{ .blocks = Dim3.init(0, 0, 0), .threads = Dim3.init(1, 0, 0) },
+        .{ &rgbImage, &gray, 1, 2 },
+    );
+
+    try testing.expectEqual([_]u8{ 38, 154 }, gray);
 }
