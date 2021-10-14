@@ -46,18 +46,13 @@ void rgb_to_xyY(float3* d_rgb,
    instead of copying it back                          */
 
 __global__
-void normalize_cdf(unsigned int *d_input_cdf, float *d_output_cdf,
-                              int n) {
-  const float normalization_constant = 1.f / d_input_cdf[n - 1];
+void normalize_cdf(unsigned int *d_input_cdf, float *d_output_cdf, int n) {
 
-  int global_index_1d = (blockIdx.x * blockDim.x) + threadIdx.x;
+  int myId = (blockIdx.x * blockDim.x) + threadIdx.x;
+  if (myId >= n) return;
 
-  if (global_index_1d < n) {
-    unsigned int input_value = d_input_cdf[global_index_1d];
-    float output_value = input_value * normalization_constant;
-
-    d_output_cdf[global_index_1d] = output_value;
-  }
+  const float normalized = 1.f / d_input_cdf[n - 1];
+  d_output_cdf[myId] = d_input_cdf[myId] * normalized;
 }
 
 /* Copied from Mike's IPython notebook *
@@ -205,6 +200,43 @@ void computeCdf(float* d_cdf, const uint *d_bins, int bin_count)
     float normalized = 1.0 / total;
     d_cdf[myId] = prefix_sum * normalized;
 }
+
+
+__global__
+void blellochCdf(float* d_cdf, uint* d_bins, int n) {
+    // We need synchronization across all threads so only one block
+    if (blockDim.x == 0) return;
+    int tid = threadIdx.x;
+    if (tid >= n) return;
+
+    // Reduce
+    uint step = 1;
+    for (; step < n; step *= 2) {
+        if (tid >= step && (n - 1 - tid) % (step * 2) == 0) {
+            d_bins[tid] += d_bins[tid - step];
+        }
+        __syncthreads();
+    }
+
+    uint total = d_bins[n - 1];
+    if (tid == n - 1) d_bins[tid] = 0;
+
+    // Downsweep
+    for (step /= 2; step > 0; step /= 2) {
+        if (tid >= step && (n - 1 - tid) % (step * 2) == 0) {
+            uint left = d_bins[tid - step];
+            uint right = d_bins[tid];
+            d_bins[tid] = left + right;
+            d_bins[tid - step] = right;
+        }
+        __syncthreads();
+    }
+
+    // Normalization
+    float normalized = 1.0 / total;
+    d_cdf[tid] = d_bins[tid] * normalized;
+}
+
 
 #ifdef __cplusplus
 }

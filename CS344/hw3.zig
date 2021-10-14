@@ -175,7 +175,7 @@ fn histogram_and_prefixsum(
     std.log.info("Lum histo: {any}", .{histo});
     try cuda.synchronize();
 
-    const computeCdf = try cudaz.Function("computeCdf").init(cuda);
+    const computeCdf = try cudaz.Function("blellochCdf").init(cuda);
     try computeCdf.launch(
         cudaz.Grid.init1D(numBins, numBins),
         .{ d_cdf.ptr, d_histo.ptr, @intCast(c_int, numBins) },
@@ -339,27 +339,32 @@ test "min_max_lum" {
 
 test "cdf" {
     var cuda = try Cuda.init(0);
-    var bins = [_]c_uint{ 2, 1, 1, 4, 1, 0, 1, 1, 1, 3 };
-    const computeCdf = try cudaz.Function("computeCdf").init(&cuda);
-    var cdf = [_]f32{0.0} ** 10;
-    var d_bins = try cuda.allocAndCopy(c_uint, &bins);
-    var d_cdf = try cuda.allocAndCopy(f32, &cdf);
-    try computeCdf.launch(
-        cudaz.Grid.init1D(bins.len, 0),
-        .{
-            d_cdf.ptr,
-            d_bins.ptr,
-            @intCast(c_int, bins.len),
-        },
-    );
-    try cuda.memcpyDtoH(f32, &cdf, d_cdf);
+    inline for ([_][:0]const u8{ "computeCdf", "blellochCdf" }) |variant| {
+        log.warn("Testing Cdf implementation: {s}", .{variant});
+        var bins = [_]c_uint{ 2, 1, 1, 4, 1, 0, 1, 1, 1, 3 };
+        const computeCdf = try cudaz.Function(variant).init(&cuda);
+        var cdf = [_]f32{0.0} ** 10;
+        var d_bins = try cuda.allocAndCopy(c_uint, &bins);
+        var d_cdf = try cuda.allocAndCopy(f32, &cdf);
+        try computeCdf.launch(
+            cudaz.Grid.init1D(bins.len, 0),
+            .{
+                d_cdf.ptr,
+                d_bins.ptr,
+                @intCast(c_int, bins.len),
+            },
+        );
+        try cuda.memcpyDtoH(f32, &cdf, d_cdf);
+        try cuda.memcpyDtoH(c_uint, &bins, d_bins);
 
-    var t: f32 = 15.0;
-    const tgt_cdf = [10]f32{ 0, 2 / t, 3 / t, 4 / t, 8 / t, 9 / t, 9 / t, 10 / t, 11 / t, 12 / t };
-    std.log.warn("tgt_cdf: {d:.3}", .{tgt_cdf});
-    std.log.warn("cdf: {d:.3}", .{cdf});
-    var i: u8 = 0;
-    while (i < cdf.len) : (i += 1) {
-        try std.testing.expectApproxEqRel(tgt_cdf[i], cdf[i], 0.0001);
+        var t: f32 = 15.0;
+        const tgt_cdf = [10]f32{ 0, 2 / t, 3 / t, 4 / t, 8 / t, 9 / t, 9 / t, 10 / t, 11 / t, 12 / t };
+        log.warn("bins: {d}", .{bins});
+        log.warn("tgt_cdf: {d:.3}", .{tgt_cdf});
+        log.warn("cdf: {d:.3}", .{cdf});
+        var i: u8 = 0;
+        while (i < cdf.len) : (i += 1) {
+            try std.testing.expectApproxEqRel(tgt_cdf[i], cdf[i], 0.0001);
+        }
     }
 }
