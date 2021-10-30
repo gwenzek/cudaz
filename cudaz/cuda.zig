@@ -35,28 +35,31 @@ pub const Grid = struct {
     threads: Dim3 = .{},
 
     pub fn init1D(len: usize, threads: usize) Grid {
-        var t_x = threads;
-        if (threads == 0) {
-            // This correspond to having one thread per item.
-            // This is likely to crash at runtime, unless for very small arrays.
-            // Because there is a max number of threads supported by each GPU.
-            t_x = len;
-        }
-        return Grid{
-            .blocks = .{ .x = @intCast(c_uint, std.math.divCeil(usize, len, t_x) catch unreachable) },
-            .threads = .{ .x = @intCast(c_uint, t_x) },
-        };
+        return init3D(len, 1, 1, threads, 1, 1);
     }
+
     pub fn init2D(cols: usize, rows: usize, threads_x: usize, threads_y: usize) Grid {
-        var t_x = if (threads_x == 0) rows else threads_x;
-        var t_y = if (threads_y == 0) cols else threads_y;
+        return init3D(cols, rows, 1, threads_x, threads_y, 1);
+    }
+
+    pub fn init3D(
+        cols: usize,
+        rows: usize,
+        depth: usize,
+        threads_x: usize,
+        threads_y: usize,
+        threads_z: usize,
+    ) Grid {
+        var t_x = if (threads_x == 0) cols else threads_x;
+        var t_y = if (threads_y == 0) rows else threads_y;
+        var t_z = if (threads_z == 0) depth else threads_z;
         return Grid{
             .blocks = Dim3.init(
                 std.math.divCeil(usize, cols, t_x) catch unreachable,
                 std.math.divCeil(usize, rows, t_y) catch unreachable,
-                1,
+                std.math.divCeil(usize, depth, t_z) catch unreachable,
             ),
-            .threads = Dim3.init(t_x, t_y, 1),
+            .threads = Dim3.init(t_x, t_y, t_z),
         };
     }
 };
@@ -255,141 +258,28 @@ pub fn check(result: cu.CUresult) CudaError!void {
     return err;
 }
 
-pub const Cuda = struct {
-    arena: std.heap.ArenaAllocator,
-    stream: cu.CUstream = undefined,
-    device: cu.CUdevice = undefined,
-    ctx: cu.CUcontext = undefined,
+pub const Stream = struct {
+    device: u8,
+    _stream: *cu.CUstream_st,
 
-    pub fn init(device: u8) CudaError!Cuda {
-        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-        var cuda = Cuda{ .arena = arena };
-        try check(cu.cuInit(0));
-        try check(cu.cuDeviceGet(&cuda.device, device));
-        try check(cu.cuCtxCreate(&cuda.ctx, 0, cuda.device));
-        try check(cu.cuStreamCreate(&cuda.stream, cu.CU_STREAM_DEFAULT));
-        return cuda;
+    pub fn init(device: u8) CudaError!Stream {
+        _ = try getCtx(device);
+        var stream: cu.CUstream = undefined;
+        try check(cu.cuStreamCreate(&stream, cu.CU_STREAM_DEFAULT));
+        return Stream{ .device = device, ._stream = stream.? };
     }
 
-    pub fn deinit(self: *Cuda) void {
+    pub fn deinit(self: *Stream) void {
         // Don't handle CUDA errors here
-        _ = cu.cuStreamDestroy(self.stream);
-        _ = cu.cuCtxDestroy(self.ctx);
-        self.arena.deinit();
+        _ = cu.cuStreamDestroy(self._stream);
+        self._stream = undefined;
     }
 
-    // TODO: return a device pointer
-    pub fn alloc(self: *Cuda, comptime DestType: type, size: usize) ![]DestType {
-        _ = self;
-        var int_ptr: cu.CUdeviceptr = undefined;
-        try check(cu.cuMemAlloc(&int_ptr, size * @sizeOf(DestType)));
-        var ptr = @intToPtr([*]DestType, int_ptr);
-        return ptr[0..size];
-    }
-
-    // TODO:
-    pub fn free(self: *Cuda, device_ptr: anytype) void {
-        _ = self;
-        var raw_ptr: *c_void = if (meta.trait.isSlice(@TypeOf(device_ptr)))
-            @ptrCast(*c_void, device_ptr.ptr)
-        else
-            @ptrCast(*c_void, device_ptr);
-        _ = cu.cuMemFree(@ptrToInt(raw_ptr));
-    }
-
-    pub fn memset(self: *Cuda, comptime DestType: type, slice: []DestType, value: DestType) !void {
-        _ = self;
-        var d_ptr = @ptrToInt(slice.ptr);
-        var n = slice.len;
-        var memset_res = switch (@sizeOf(DestType)) {
-            1 => cu.cuMemsetD8(d_ptr, @bitCast(u8, value), n),
-            2 => cu.cuMemsetD16(d_ptr, @bitCast(u16, value), n),
-            4 => cu.cuMemsetD32(d_ptr, @bitCast(u32, value), n),
-            else => @compileError("cuda.memset doesn't support type: " ++ @typeName(DestType)),
-        };
-        try check(memset_res);
-    }
-
-    pub fn memsetD8(self: *Cuda, comptime DestType: type, slice: []DestType, value: u8) !void {
-        _ = self;
-        var d_ptr = @ptrToInt(slice.ptr);
-        var n = slice.len * @sizeOf(DestType);
-        try check(cu.cuMemsetD8(d_ptr, value, n));
-    }
-
-    pub fn allocAndCopy(self: *Cuda, comptime DestType: type, h_source: []const DestType) ![]DestType {
-        var ptr = try self.alloc(DestType, h_source.len);
-        try self.memcpyHtoD(DestType, ptr, h_source);
-        return ptr;
-    }
-
-    pub fn allocAndCopyResult(self: *Cuda, comptime DestType: type, allocator: *std.mem.Allocator, d_source: []const DestType) ![]DestType {
-        var h_tgt = try allocator.alloc(DestType, d_source.len);
-        try self.memcpyDtoH(DestType, h_tgt, d_source);
-        return h_tgt;
-    }
-
-    pub fn readResult(self: *Cuda, comptime DestType: type, d_source: []const DestType) !DestType {
-        var h_res: [1]DestType = undefined;
-        try self.memcpyDtoH(DestType, &h_res, d_source);
-        return h_res[0];
-    }
-
-    pub fn memcpyHtoD(self: *Cuda, comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
-        _ = self;
-        std.debug.assert(h_source.len == d_target.len);
-        check(cu.cuMemcpyHtoD(
-            @ptrToInt(d_target.ptr),
-            @ptrCast(*const c_void, h_source.ptr),
-            h_source.len * @sizeOf(DestType),
-        )) catch |err| switch (err) {
-            // TODO: leverage adress spaces to make this a comptime check
-            error.InvalidValue => std.log.warn("InvalidValue error while memcpyHtoD! Usage is memcpyHtoD(d_tgt, h_src)", .{}),
-            else => return err,
-        };
-    }
-    pub fn memcpyDtoH(self: *Cuda, comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
-        _ = self;
-        std.debug.assert(d_source.len == h_target.len);
-        check(cu.cuMemcpyDtoH(
-            @ptrCast(*c_void, h_target.ptr),
-            @ptrToInt(d_source.ptr),
-            d_source.len * @sizeOf(DestType),
-        )) catch |err| switch (err) {
-            // TODO: leverage adress spaces to make this a comptime check
-            error.InvalidValue => std.log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
-            else => return err,
-        };
-    }
-
-    pub fn loadRawFunction(self: *Cuda, file: [*:0]const u8, name: [*:0]const u8) !cu.CUfunction {
-        // std.fs.accessAbsoluteZ(file, std.fs.File.OpenFlags{ .read = true }) catch @panic("can't open kernel file: " ++ file);
-        var module = self.arena.allocator.create(cu.CUmodule) catch unreachable;
-        // TODO: save the module so we can destroy it in deinit
-        // TODO: cache module objects (unless Cuda does it for us)
-        check(cu.cuModuleLoad(module, file)) catch |err| switch (err) {
-            error.FileNotFound => {
-                std.log.err("FileNotFound: {s}", .{file});
-                return err;
-            },
-            else => return err,
-        };
-        var function: cu.CUfunction = undefined;
-        try check(cu.cuModuleGetFunction(&function, module.*, name));
-        std.log.info("Loaded function {s}:{s} ({})", .{ file, name, function });
-        return function;
-    }
-
-    pub fn loadFunction(self: *Cuda, comptime name: [:0]const u8) !Function(name) {
-        const f = try Function(name).init(self);
-        return f;
-    }
-
-    pub fn launch(self: *Cuda, f: cu.CUfunction, grid: Grid, args: anytype) !void {
+    pub fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args: anytype) !void {
         try self.launchWithSharedMem(f, grid, 0, args);
     }
 
-    pub fn launchWithSharedMem(self: *const Cuda, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
+    pub fn launchWithSharedMem(self: *const Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
         // Create an array of pointers pointing to the given args.
         const fields: []const TypeInfo.StructField = meta.fields(@TypeOf(args));
         var args_ptrs: [fields.len:0]usize = undefined;
@@ -405,29 +295,108 @@ pub const Cuda = struct {
             grid.threads.y,
             grid.threads.z,
             @intCast(c_uint, shared_mem),
-            self.stream,
+            self._stream,
             @ptrCast([*c]?*c_void, &args_ptrs),
             null,
         );
         try check(res);
+        try self.synchronize();
     }
 
-    pub fn synchronize(self: *Cuda) !void {
+    pub fn synchronize(self: *const Stream) !void {
         // TODO: add a debug_sync to catch error in debug code
-        try check(cu.cuStreamSynchronize(self.stream));
+        try check(cu.cuStreamSynchronize(self._stream));
     }
 
     pub fn format(
-        self: *const Cuda,
+        self: *const Stream,
         comptime fmt: []const u8,
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
         _ = fmt;
         _ = options;
-        try std.fmt.format(writer, "Cuda(device={}, stream={*})", .{ self.device, self.stream });
+        try std.fmt.format(writer, "CuStream(device={}, stream={*})", .{ self.device, self._stream });
     }
 };
+
+// TODO: return a device pointer
+pub fn alloc(comptime DestType: type, size: usize) ![]DestType {
+    var int_ptr: cu.CUdeviceptr = undefined;
+    try check(cu.cuMemAlloc(&int_ptr, size * @sizeOf(DestType)));
+    var ptr = @intToPtr([*]DestType, int_ptr);
+    return ptr[0..size];
+}
+
+// TODO:
+pub fn free(device_ptr: anytype) void {
+    var raw_ptr: *c_void = if (meta.trait.isSlice(@TypeOf(device_ptr)))
+        @ptrCast(*c_void, device_ptr.ptr)
+    else
+        @ptrCast(*c_void, device_ptr);
+    _ = cu.cuMemFree(@ptrToInt(raw_ptr));
+}
+
+pub fn memset(comptime DestType: type, slice: []DestType, value: DestType) !void {
+    var d_ptr = @ptrToInt(slice.ptr);
+    var n = slice.len;
+    var memset_res = switch (@sizeOf(DestType)) {
+        1 => cu.cuMemsetD8(d_ptr, @bitCast(u8, value), n),
+        2 => cu.cuMemsetD16(d_ptr, @bitCast(u16, value), n),
+        4 => cu.cuMemsetD32(d_ptr, @bitCast(u32, value), n),
+        else => @compileError("memset doesn't support type: " ++ @typeName(DestType)),
+    };
+    try check(memset_res);
+}
+
+pub fn memsetD8(comptime DestType: type, slice: []DestType, value: u8) !void {
+    var d_ptr = @ptrToInt(slice.ptr);
+    var n = slice.len * @sizeOf(DestType);
+    try check(cu.cuMemsetD8(d_ptr, value, n));
+}
+
+pub fn allocAndCopy(comptime DestType: type, h_source: []const DestType) ![]DestType {
+    var ptr = try alloc(DestType, h_source.len);
+    try memcpyHtoD(DestType, ptr, h_source);
+    return ptr;
+}
+
+pub fn allocAndCopyResult(comptime DestType: type, allocator: *std.mem.Allocator, d_source: []const DestType) ![]DestType {
+    var h_tgt = try allocator.alloc(DestType, d_source.len);
+    try memcpyDtoH(DestType, h_tgt, d_source);
+    return h_tgt;
+}
+
+pub fn readResult(comptime DestType: type, d_source: []const DestType) !DestType {
+    var h_res: [1]DestType = undefined;
+    try memcpyDtoH(DestType, &h_res, d_source);
+    return h_res[0];
+}
+
+pub fn memcpyHtoD(comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
+    std.debug.assert(h_source.len == d_target.len);
+    check(cu.cuMemcpyHtoD(
+        @ptrToInt(d_target.ptr),
+        @ptrCast(*const c_void, h_source.ptr),
+        h_source.len * @sizeOf(DestType),
+    )) catch |err| switch (err) {
+        // TODO: leverage adress spaces to make this a comptime check
+        error.InvalidValue => std.log.warn("InvalidValue error while memcpyHtoD! Usage is memcpyHtoD(d_tgt, h_src)", .{}),
+        else => return err,
+    };
+}
+pub fn memcpyDtoH(comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
+    std.debug.assert(d_source.len == h_target.len);
+    check(cu.cuMemcpyDtoH(
+        @ptrCast(*c_void, h_target.ptr),
+        @ptrToInt(d_source.ptr),
+        d_source.len * @sizeOf(DestType),
+    )) catch |err| switch (err) {
+        // TODO: leverage adress spaces to make this a comptime check
+        error.InvalidValue => std.log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
+        else => return err,
+    };
+}
 
 /// Time gpu event.
 /// deinit is called when `elapsed` is called.
@@ -435,11 +404,13 @@ pub const Cuda = struct {
 pub const GpuTimer = struct {
     _start: cu.CUevent,
     _stop: cu.CUevent,
-    stream: cu.CUstream,
+    // Here we take a pointer to the Zig struct.
+    // This way we can detect if we try to use a timer on a deleted stream
+    stream: *const Stream,
     _elapsed: f32 = std.math.nan_f32,
 
-    pub fn init(cuda: *Cuda) GpuTimer {
-        var timer = GpuTimer{ ._start = undefined, ._stop = undefined, .stream = cuda.stream };
+    pub fn init(stream: *const Stream) GpuTimer {
+        var timer = GpuTimer{ ._start = undefined, ._stop = undefined, .stream = stream };
         _ = cu.cuEventCreate(&timer._start, 0);
         _ = cu.cuEventCreate(&timer._stop, 0);
         return timer;
@@ -452,11 +423,11 @@ pub const GpuTimer = struct {
     }
 
     pub fn start(self: *GpuTimer) void {
-        _ = cu.cuEventRecord(self._start, self.stream);
+        _ = cu.cuEventRecord(self._start, self.stream._stream);
     }
 
     pub fn stop(self: *GpuTimer) void {
-        _ = cu.cuEventRecord(self._stop, self.stream);
+        _ = cu.cuEventRecord(self._stop, self.stream._stream);
     }
 
     pub fn elapsed(self: *GpuTimer) f32 {
@@ -488,31 +459,35 @@ test "cuda version" {
     try testing.expectEqual(cu.cuInit(0), cu.CUDA_SUCCESS);
 }
 
-test "cuda init" {
-    var cuda = try Cuda.init(0);
-    defer cuda.deinit();
+// TODO: who is responsible for destroying the context ?
+// Given that we already assume one program == one module,
+// we can also assume one program == one context per GPU
+var _ctx = [1]cu.CUcontext{null} ** 8;
+fn getCtx(device: u8) !cu.CUcontext {
+    if (_ctx[device]) |ctx| {
+        return ctx;
+    }
+    try check(cu.cuInit(0));
+    var cu_dev: cu.CUdevice = undefined;
+    try check(cu.cuDeviceGet(&cu_dev, device));
+    try check(cu.cuCtxCreate(&_ctx[device], 0, cu_dev));
+    return _ctx[device];
 }
 
-test "HW1" {
-    var cuda = try Cuda.init(0);
-    defer cuda.deinit();
-    std.log.warn("cuda: {}", .{cuda});
-    const rgba_to_greyscale = try cuda.loadFunction(cudaz_options.kernel_ptx_path, "rgba_to_greyscale");
-    const numRows: u32 = 10;
-    const numCols: u32 = 20;
-    const d_rgbaImage = try cuda.alloc([4]u8, numRows * numCols);
-    // try cuda.memset([4]u8, d_rgbaImage, [4]u8{ 0xaa, 0, 0, 255 });
-    const d_greyImage = try cuda.alloc(u8, numRows * numCols);
-    try cuda.memset(u8, d_greyImage, 0);
+var _default_module: cu.CUmodule = null;
 
-    // copy input array to the GPU
-    // checkCudaErrors(cudaMemcpy(*d_rgbaImage, *inputImage, sizeof(uchar3) * numPixels, cudaMemcpyHostToDevice));
+fn defaultModule() cu.CUmodule {
+    if (_default_module != null) return _default_module;
+    const file = cudaz_options.kernel_ptx_path;
 
-    try cuda.launch(
-        rgba_to_greyscale,
-        .{ .blocks = Dim3.init(numRows, numCols, 1) },
-        .{ d_rgbaImage, d_greyImage, numRows, numCols },
-    );
+    check(cu.cuModuleLoad(&_default_module, file)) catch |err| {
+        std.log.err("Couldn't load {s}: {}", .{ file, err });
+        std.debug.panic("Couldn't load default ptx", .{});
+    };
+    if (_default_module == null) {
+        std.debug.panic("Couldn't load default ptx", .{});
+    }
+    return _default_module;
 }
 
 /// Create a function with the correct signature for a cuda Kernel.
@@ -524,25 +499,24 @@ pub fn Function(comptime name: [:0]const u8) type {
         const Args = meta.ArgsTuple(@TypeOf(Self.CpuFn));
 
         f: cu.CUfunction,
-        cuda: *Cuda,
 
-        pub fn init(cuda: *Cuda) !Self {
-            return Self{
-                .f = try cuda.loadRawFunction(cudaz_options.kernel_ptx_path, name),
-                .cuda = cuda,
-            };
+        pub fn init() !Self {
+            var function: cu.CUfunction = undefined;
+            try check(cu.cuModuleGetFunction(&function, defaultModule(), name));
+            std.log.info("Loaded function {s} ({})", .{ name, function });
+            return Self{ .f = function };
         }
 
         // TODO: deinit -> CUDestroy
 
-        pub fn launch(self: *const Self, grid: Grid, args: Args) !void {
-            try self.cuda.launch(self.f, grid, args);
+        pub fn launch(self: *const Self, stream: *const Stream, grid: Grid, args: Args) !void {
+            try stream.launch(self.f, grid, args);
         }
 
-        pub fn launchWithSharedMem(self: *const Self, grid: Grid, shared_mem: usize, args: Args) !void {
+        pub fn launchWithSharedMem(self: *const Self, stream: *const Stream, grid: Grid, shared_mem: usize, args: Args) !void {
             // TODO: this seems error prone, could we make the type of the shared buffer
             // part of the function signature ?
-            try self.cuda.launchWithSharedMem(self.f, grid, shared_mem, args);
+            try stream.launchWithSharedMem(self.f, grid, shared_mem, args);
         }
 
         pub fn debugCpuCall(grid: Grid, point: Grid, args: Args) void {
@@ -555,25 +529,44 @@ pub fn Function(comptime name: [:0]const u8) type {
     };
 }
 
-test "kernel.cu" {
+test "can read function signature from .cu files" {
     std.log.warn("My kernel: {s}", .{@TypeOf(cu.rgba_to_greyscale)});
 }
 
-test "safe kernel" {
-    var cuda = try Cuda.init(0);
-    defer cuda.deinit();
-    std.log.warn("cuda: {}", .{cuda});
-    _ = try cuda.loadFunction(cudaz_options.kernel_ptx_path, "rgba_to_greyscale");
+test "rgba_to_greyscale" {
+    var stream = try Stream.init(0);
+    defer stream.deinit();
+    std.log.warn("cuda: {}", .{stream});
+    const rgba_to_greyscale = try Function("rgba_to_greyscale").init();
     const numRows: u32 = 10;
     const numCols: u32 = 20;
-    var d_rgbaImage = try cuda.alloc(cu.uchar3, numRows * numCols);
-    // cuda.memset(cu.uchar3, d_rgbaImage, 0xaa);
-    const d_greyImage = try cuda.alloc(u8, numRows * numCols);
-    try cuda.memset(u8, d_greyImage, 0);
+    const d_rgbaImage = try alloc([4]u8, numRows * numCols);
+    // try memset([4]u8, d_rgbaImage, [4]u8{ 0xaa, 0, 0, 255 });
+    const d_greyImage = try alloc(u8, numRows * numCols);
+    try memset(u8, d_greyImage, 0);
 
-    const rgba_to_greyscale_safe = try Function("rgba_to_greyscale").init(&cuda);
-    std.log.warn("kernel args: {s}", .{@TypeOf(rgba_to_greyscale_safe).Args});
-    try rgba_to_greyscale_safe.launch(
+    try stream.launch(
+        rgba_to_greyscale.f,
+        .{ .blocks = Dim3.init(numRows, numCols, 1) },
+        .{ d_rgbaImage, d_greyImage, numRows, numCols },
+    );
+    try stream.synchronize();
+}
+
+test "safe kernel" {
+    const rgba_to_greyscale = try Function("rgba_to_greyscale").init();
+    var stream = try Stream.init(0);
+    defer stream.deinit();
+    const numRows: u32 = 10;
+    const numCols: u32 = 20;
+    var d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
+    // memset(cu.uchar3, d_rgbaImage, 0xaa);
+    const d_greyImage = try alloc(u8, numRows * numCols);
+    try memset(u8, d_greyImage, 0);
+    try stream.synchronize();
+    std.log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
+    try rgba_to_greyscale.launch(
+        &stream,
         .{ .blocks = Dim3.init(numCols, numRows, 1) },
         // TODO: we should accept slices
         .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
@@ -581,15 +574,15 @@ test "safe kernel" {
 }
 
 test "cuda alloc" {
-    var cuda = try Cuda.init(0);
-    defer cuda.deinit();
+    var stream = try Stream.init(0);
+    defer stream.deinit();
 
-    const d_greyImage = try cuda.alloc(u8, 128);
-    try cuda.memset(u8, d_greyImage, 0);
-    defer cuda.free(d_greyImage);
+    const d_greyImage = try alloc(u8, 128);
+    try memset(u8, d_greyImage, 0);
+    defer free(d_greyImage);
 }
 
-test "run the kenrnel on CPU" {
+test "run the kernel on CPU" {
     // This isn't very ergonomic, but it's possible !
     // Also ironically it can't run in parallel because of the usage of the
     // globals blockIdx and threadIdx.

@@ -1,24 +1,23 @@
 const std = @import("std");
 const log = std.log;
 
-const cudaz = @import("cudaz");
-const Cuda = cudaz.Cuda;
-const cu = cudaz.cu;
+const cuda = @import("cudaz");
+const cu = cuda.cu;
 
-const ShmemReduce = cudaz.Function("shmem_reduce_kernel");
-const GlobalReduce = cudaz.Function("global_reduce_kernel");
+const ShmemReduce = cuda.Function("shmem_reduce_kernel");
+const GlobalReduce = cuda.Function("global_reduce_kernel");
 
 pub fn main() !void {
     log.info("***** Lesson 3 ******", .{});
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = &general_purpose_allocator.allocator;
-    var cuda = try Cuda.init(0);
+    var stream = try cuda.Stream.init(0);
 
-    try main_reduce(&cuda, gpa);
-    try main_histo(&cuda, gpa);
+    try main_reduce(&stream, gpa);
+    try main_histo(&stream, gpa);
 }
 
-fn main_reduce(cuda: *Cuda, gpa: *std.mem.Allocator) !void {
+fn main_reduce(stream: *const cuda.Stream, gpa: *std.mem.Allocator) !void {
     const array_size: i32 = 1 << 20;
     // generate the input array on the host
     var h_in = try gpa.alloc(f32, array_size);
@@ -44,12 +43,12 @@ fn main_reduce(cuda: *Cuda, gpa: *std.mem.Allocator) !void {
 
     // launch the kernel
     // Run shared_reduced first because it doesn't modify d_in
-    _ = try benchmark_reduce(cuda, 100, d_out, d_intermediate, d_in, true);
-    _ = try benchmark_reduce(cuda, 100, d_out, d_intermediate, d_in, false);
+    _ = try benchmark_reduce(stream, 100, d_out, d_intermediate, d_in, true);
+    _ = try benchmark_reduce(stream, 100, d_out, d_intermediate, d_in, false);
 }
 
 fn benchmark_reduce(
-    cuda: *Cuda,
+    stream: *const cuda.Stream,
     iter: u32,
     d_out: []f32,
     d_intermediate: []f32,
@@ -64,24 +63,23 @@ fn benchmark_reduce(
     log.info("using cuda: {}", .{cuda});
     var reduce_kernel: GlobalReduce = undefined;
     if (uses_shared_memory) {
-        const shared_r = try ShmemReduce.init(cuda);
-        reduce_kernel = GlobalReduce{ .f = shared_r.f, .cuda = cuda };
+        reduce_kernel = GlobalReduce{ .f = (try ShmemReduce.init()).f };
     } else {
-        reduce_kernel = try GlobalReduce.init(cuda);
+        reduce_kernel = try GlobalReduce.init();
     }
 
     // Set the buffers to 0 to have correct computation on the first try
     try cuda.memset(f32, d_intermediate, 0.0);
     try cuda.memset(f32, d_out, 0.0);
 
-    var timer = cudaz.GpuTimer.init(cuda);
+    var timer = cuda.GpuTimer.init(stream);
     defer timer.deinit();
     timer.start();
     var result: f32 = undefined;
     var i: usize = 0;
     while (i < iter) : (i += 1) {
         var r_i = try reduce(
-            cuda,
+            stream,
             reduce_kernel,
             d_out,
             d_intermediate,
@@ -100,18 +98,19 @@ fn benchmark_reduce(
     return result;
 }
 
-fn reduce(cuda: *Cuda, reduce_kernel: GlobalReduce, d_out: []f32, d_intermediate: []f32, d_in: []f32, uses_shared_memory: bool) !f32 {
+fn reduce(stream: *const cuda.Stream, reduce_kernel: GlobalReduce, d_out: []f32, d_intermediate: []f32, d_in: []f32, uses_shared_memory: bool) !f32 {
     // assumes that size is not greater than blockSize^2
     // and that size is a multiple of blockSize
     const blockSize: usize = 1024;
     var size = d_in.len;
     if (size % blockSize != 0 or size > blockSize * blockSize) {
         log.err("Can't run reduce operator on an array of size {} with blockSize={} ({})", .{ size, blockSize, blockSize * blockSize });
-        return cudaz.CudaError.InvalidValue;
+        return cuda.CudaError.InvalidValue;
     }
-    const full_grid = cudaz.Grid.init1D(size, blockSize);
+    const full_grid = cuda.Grid.init1D(size, blockSize);
     var shared_mem = if (uses_shared_memory) blockSize * @sizeOf(f32) else 0;
     try reduce_kernel.launchWithSharedMem(
+        stream,
         full_grid,
         shared_mem,
         .{ d_intermediate.ptr, d_in.ptr },
@@ -120,8 +119,9 @@ fn reduce(cuda: *Cuda, reduce_kernel: GlobalReduce, d_out: []f32, d_intermediate
     // try cuda.synchronize();
 
     // now we're down to one block left, so reduce it
-    const one_block = cudaz.Grid.init1D(blockSize, 0);
+    const one_block = cuda.Grid.init1D(blockSize, 0);
     try reduce_kernel.launchWithSharedMem(
+        stream,
         one_block,
         shared_mem,
         .{ d_out.ptr, d_intermediate.ptr },
@@ -132,7 +132,7 @@ fn reduce(cuda: *Cuda, reduce_kernel: GlobalReduce, d_out: []f32, d_intermediate
     return result[0];
 }
 
-fn main_histo(cuda: *Cuda, gpa: *std.mem.Allocator) !void {
+fn main_histo(stream: *const cuda.Stream, gpa: *std.mem.Allocator) !void {
     const array_size = 65536;
     const bin_count = 16;
 
@@ -153,16 +153,16 @@ fn main_histo(cuda: *Cuda, gpa: *std.mem.Allocator) !void {
     var d_bins = try cuda.allocAndCopy(i32, &naive_bins);
 
     log.info("Running naive histo", .{});
-    const grid = cudaz.Grid{ .blocks = .{ .x = @divExact(array_size, 64) }, .threads = .{ .x = 64 } };
-    const naive_histo = try cudaz.Function("naive_histo").init(cuda);
-    try naive_histo.launch(grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
+    const grid = cuda.Grid{ .blocks = .{ .x = @divExact(array_size, 64) }, .threads = .{ .x = 64 } };
+    const naive_histo = try cuda.Function("naive_histo").init();
+    try naive_histo.launch(stream, grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
     try cuda.memcpyDtoH(i32, &naive_bins, d_bins);
     log.info("naive bins: {any}", .{naive_bins});
 
     log.info("Running simple histo", .{});
     try cuda.memcpyHtoD(i32, d_bins, &simple_bins);
-    const simple_histo = try cudaz.Function("simple_histo").init(cuda);
-    try simple_histo.launch(grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
+    const simple_histo = try cuda.Function("simple_histo").init();
+    try simple_histo.launch(stream, grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
     try cuda.memcpyDtoH(i32, &simple_bins, d_bins);
     log.info("simple bins: {any}", .{simple_bins});
 }

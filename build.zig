@@ -3,6 +3,8 @@ const std = @import("std");
 const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
 
+// Can be one of "ptx" or "fatbin". "cubin" don't work, because they imply a main.
+const NVCC_OUTPUT_FORMAT = "ptx";
 const CUDA_PATH = "/usr/local/cuda";
 
 pub fn build(b: *Builder) void {
@@ -97,12 +99,14 @@ fn addCudaz(
     comptime kernel_path: [:0]const u8,
 ) void {
     const kernel_dir = std.fs.path.dirname(kernel_path).?;
+    const outfile = std.mem.concat(
+        b.allocator,
+        u8,
+        &[_][]const u8{ exe.name, "." ++ NVCC_OUTPUT_FORMAT },
+    ) catch unreachable;
     const kernel_ptx_path = std.fs.path.joinZ(
         b.allocator,
-        &[_][]const u8{
-            b.exe_dir,
-            std.mem.concat(b.allocator, u8, &[_][]const u8{ exe.name, ".ptx" }) catch unreachable,
-        },
+        &[_][]const u8{ b.exe_dir, outfile },
     ) catch unreachable;
 
     // Use nvcc to compile the .cu file
@@ -111,7 +115,7 @@ fn addCudaz(
         // In Zig spirit, promote warnings to errors.
         "--Werror=all-warnings",
         "--display-error-number",
-        "--ptx",
+        "--" ++ NVCC_OUTPUT_FORMAT,
         kernel_path,
         "-o",
         kernel_ptx_path,

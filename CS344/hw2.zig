@@ -4,9 +4,8 @@ const math = std.math;
 const assert = std.debug.assert;
 
 const zigimg = @import("zigimg");
-const cuda_module = @import("cudaz");
-const Cuda = cuda_module.Cuda;
-const cu = cuda_module.cu;
+const cuda = @import("cudaz");
+const cu = cuda.cu;
 
 const png = @import("png.zig");
 const utils = @import("utils.zig");
@@ -25,8 +24,8 @@ pub fn main() anyerror!void {
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 
-    var cuda = try Cuda.init(0);
-    defer cuda.deinit();
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
 
     const img = try zigimg.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
     defer img.deinit();
@@ -60,16 +59,17 @@ pub fn main() anyerror!void {
     var d_out = try cuda.alloc(Rgb24, img.width * img.height);
     defer cuda.free(d_out);
 
-    var timer = cuda_module.GpuTimer.init(&cuda);
-    const separateChannels = try cuda_module.Function("separateChannels").init(&cuda);
-    const gaussianBlur = try cuda_module.Function("gaussian_blur").init(&cuda);
-    const recombineChannels = try cuda_module.Function("recombineChannels").init(&cuda);
+    var timer = cuda.GpuTimer.init(&stream);
+    const separateChannels = try cuda.Function("separateChannels").init();
+    const gaussianBlur = try cuda.Function("gaussian_blur").init();
+    const recombineChannels = try cuda.Function("recombineChannels").init();
 
     var d_filter = try cuda.allocAndCopy(f32, &blurFilter());
     defer cuda.free(d_filter);
 
-    var grid2D = cuda_module.Grid.init2D(img.height, img.width, 32, 32);
+    var grid2D = cuda.Grid.init2D(img.height, img.width, 32, 32);
     try separateChannels.launch(
+        &stream,
         grid2D,
         .{
             @ptrCast([*c]const cu.uchar3, d_img.ptr),
@@ -84,6 +84,7 @@ pub fn main() anyerror!void {
     timer.start();
     for (d_buffers) |d_src_tgt| {
         try gaussianBlur.launch(
+            &stream,
             grid2D,
             .{
                 @ptrCast([*c]const u8, d_src_tgt[0].ptr),
@@ -101,6 +102,7 @@ pub fn main() anyerror!void {
     try png.writePngToFilePath(h_red, resources_dir ++ "output_red.png");
 
     try recombineChannels.launch(
+        &stream,
         grid2D,
         .{
             @ptrCast([*c]const u8, d_red_blured.ptr),

@@ -6,9 +6,8 @@ const assert = std.debug.assert;
 
 const zigimg = @import("zigimg");
 
-const cudaz = @import("cudaz");
-const Cuda = cudaz.Cuda;
-const cu = cudaz.cu;
+const cuda = @import("cudaz");
+const cu = cuda.cu;
 
 const png = @import("png.zig");
 const utils = @import("utils.zig");
@@ -18,8 +17,6 @@ const resources_dir = "CS344/hw4_resources/";
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = &general_purpose_allocator.allocator;
-    var cuda = try Cuda.init(0);
-    defer cuda.deinit();
     log.info("***** HW4 ******", .{});
 
     const img = try zigimg.Image.fromFilePath(allocator, resources_dir ++ "/red_eye_effect.png");
@@ -30,13 +27,17 @@ pub fn main() !void {
     const num_colsTemplate = template.width;
     img.deinit();
 
+    log.info("loaded image", .{});
     const d_img = try cuda.allocAndCopy(cu.uchar3, asUchar3(img));
     const d_template = try cuda.allocAndCopy(cu.uchar3, asUchar3(template));
     const d_scores = try cuda.alloc(f32, num_rows * num_cols);
 
-    const grid = cudaz.Grid.init2D(num_cols, num_rows, 32, 8);
-    const crossCorrelation = try cudaz.Function("naive_normalized_cross_correlation").init(&cuda);
-    try crossCorrelation.launch(grid, .{
+    // Create a 2D grid for the image and use the last dimension for the channel (R, G, B)
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    const gridWithChannel = cuda.Grid.init3D(num_cols, num_rows, 3, 32, 8, 3);
+    const crossCorrelation = try cuda.Function("naive_normalized_cross_correlation").init();
+    try crossCorrelation.launch(&stream, gridWithChannel, .{
         d_scores.ptr,
         d_img.ptr,
         d_template.ptr,
@@ -53,18 +54,18 @@ pub fn main() !void {
 
     var d_sorted_scores = try cuda.alloc(f32, d_scores.len);
     defer cuda.free(d_sorted_scores);
-    var timer = cudaz.GpuTimer.init(&cuda);
+    var timer = cuda.GpuTimer.init(&stream);
     timer.start();
 
-    var d_permutation = try mySort(&cuda, d_sorted_scores, d_scores);
+    var d_permutation = try mySort(&stream, d_sorted_scores, d_scores);
     defer cuda.free(d_permutation);
     timer.stop();
 
-    try cuda.synchronize();
+    try stream.synchronize();
     std.log.info("Your code ran in: {d:.1} msecs.", .{timer.elapsed() * 1000});
 
-    const remove_redness = try cuda.loadFunction("remove_redness");
-    try remove_redness.launch(cudaz.Grid.init1D(d_img.len, 64), .{
+    const remove_redness = try cuda.Function("remove_redness").init();
+    try remove_redness.launch(&stream, cuda.Grid.init1D(d_img.len, 64), .{
         d_permutation.ptr,
         d_img.ptr,
         40,
@@ -114,18 +115,22 @@ pub fn main() !void {
 /// between the input and output buffers we have provided.  Make sure the final
 /// sorted results end up in the output buffer!  Hint: You may need to do a copy
 /// at the end.
-pub fn mySort(cuda: *Cuda, d_out_vals: []f32, d_in_vals: []const f32) ![]c_uint {
-    const range = try cudaz.Function("range").init(cuda);
-    var coords = try cuda.alloc(c_uint, d_in_vals.len);
+pub fn mySort(stream: *const cuda.Stream, d_out_vals: []f32, d_in_vals: []const f32) ![]c_uint {
+    var coords = try range(stream, d_in_vals.len);
     defer cuda.free(coords);
-    try range.launch(cudaz.Grid.init1D(coords.len, 64), .{ coords.ptr, @intCast(c_uint, coords.len) });
-    var out_coords = try cuda.alloc(c_uint, coords.len);
-    defer cuda.free(out_coords);
-    try cuda.memset(c_uint, out_coords, 0);
+    var d_permutation = try cuda.alloc(c_uint, coords.len);
+    try cuda.memset(c_uint, d_permutation, 0);
 
     // TODO
     _ = d_out_vals;
-    return out_coords;
+    return d_permutation;
+}
+
+pub fn range(stream: *const cuda.Stream, len: usize) ![]c_uint {
+    var coords = try cuda.alloc(c_uint, len);
+    const rangeFn = try cuda.Function("range").init();
+    try rangeFn.launch(stream, cuda.Grid.init1D(len, 64), .{ coords.ptr, @intCast(c_uint, len) });
+    return coords;
 }
 
 pub fn asUchar3(img: zigimg.Image) []cu.uchar3 {

@@ -6,9 +6,8 @@ const assert = std.debug.assert;
 
 const zigimg = @import("zigimg");
 
-const cudaz = @import("cudaz");
-const Cuda = cudaz.Cuda;
-const cu = cudaz.cu;
+const cuda = @import("cudaz");
+const cu = cuda.cu;
 
 const png = @import("png.zig");
 const utils = @import("utils.zig");
@@ -18,8 +17,8 @@ const resources_dir = "CS344/hw3_resources/";
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = &general_purpose_allocator.allocator;
-    var cuda = try Cuda.init(0);
-    defer cuda.deinit();
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
     log.info("***** HW3 ******", .{});
 
     const img = try zigimg.Image.fromFilePath(allocator, resources_dir ++ "/memorial_exr.png");
@@ -33,11 +32,11 @@ pub fn main() !void {
     const d_rgb = try cuda.allocAndCopy(cu.float3, rgb);
     const d_xyY = try cuda.alloc(cu.float3, numCols * numRows);
 
-    const threads = cudaz.Dim3.init(32, 16, 1);
-    const blocks = cudaz.Dim3.init((numCols + threads.x - 1) / threads.x, (numRows + threads.y - 1) / threads.y, 1);
-    const grid = cudaz.Grid{ .blocks = blocks, .threads = threads };
-    const rgb_to_xyY = try cudaz.Function("rgb_to_xyY").init(&cuda);
-    try rgb_to_xyY.launch(grid, .{
+    const threads = cuda.Dim3.init(32, 16, 1);
+    const blocks = cuda.Dim3.init((numCols + threads.x - 1) / threads.x, (numRows + threads.y - 1) / threads.y, 1);
+    const grid = cuda.Grid{ .blocks = blocks, .threads = threads };
+    const rgb_to_xyY = try cuda.Function("rgb_to_xyY").init();
+    try rgb_to_xyY.launch(&stream, grid, .{
         d_rgb.ptr,
         d_xyY.ptr,
         0.0001,
@@ -45,7 +44,7 @@ pub fn main() !void {
         @intCast(c_int, numCols),
     });
 
-    try cuda.synchronize();
+    try stream.synchronize();
     const h_xyY = try allocator.alloc(cu.float3, numCols * numRows);
     try cuda.memcpyDtoH(cu.float3, h_xyY, d_xyY);
 
@@ -54,24 +53,25 @@ pub fn main() !void {
     var d_cdf = try cuda.alloc(f32, numBins);
     defer cuda.free(d_cdf);
 
-    var timer = cudaz.GpuTimer.init(&cuda);
+    var timer = cuda.GpuTimer.init(&stream);
     defer timer.deinit();
     timer.start();
 
-    const min_max_lum = try histogram_and_prefixsum(&cuda, d_xyY, d_cdf, numRows, numCols, numBins);
+    const min_max_lum = try histogram_and_prefixsum(&stream, d_xyY, d_cdf, numRows, numCols, numBins);
     var lum_min = min_max_lum.x;
     var lum_range = min_max_lum.y - min_max_lum.x;
 
     timer.stop();
-    try cuda.synchronize();
+    try stream.synchronize();
     std.log.info("Your code ran in: {d:.1} msecs.", .{timer.elapsed() * 1000});
     std.log.info("Found a lum range of: {d:.5}", .{min_max_lum});
 
     var h_cdf = try cuda.allocAndCopyResult(f32, allocator, d_cdf);
     std.log.info("Lum cdf: {d:.3}", .{h_cdf});
 
-    const tone_map = try cudaz.Function("tone_map").init(&cuda);
+    const tone_map = try cuda.Function("tone_map").init();
     try tone_map.launch(
+        &stream,
         grid,
         .{
             d_xyY.ptr,
@@ -134,7 +134,7 @@ fn fromFloat32(allocator: *std.mem.Allocator, rgb: []cu.float3, width: usize, he
 }
 
 fn histogram_and_prefixsum(
-    cuda: *Cuda,
+    stream: *cuda.Stream,
     d_xyY: []const cu.float3,
     d_cdf: []f32,
     numRows: usize,
@@ -152,14 +152,15 @@ fn histogram_and_prefixsum(
     //      the cumulative distribution of luminance values (this should go in the
     //      incoming d_cdf pointer which already has been allocated for you)
     var num_pixels = numRows * numCols;
-    var min_max_lum = try reduceMinMaxLum(cuda, d_xyY);
-    try cuda.synchronize();
+    var min_max_lum = try reduceMinMaxLum(stream, d_xyY);
+    try stream.synchronize();
 
-    const lum_histo = try cudaz.Function("lum_histo").init(cuda);
+    const lum_histo = try cuda.Function("lum_histo").init();
     var d_histo = try cuda.alloc(c_uint, numBins);
     try cuda.memset(c_uint, d_histo, 0);
     try lum_histo.launch(
-        cudaz.Grid.init1D(num_pixels, 1024),
+        stream,
+        cuda.Grid.init1D(num_pixels, 1024),
         .{
             d_histo.ptr,
             d_xyY.ptr,
@@ -169,31 +170,32 @@ fn histogram_and_prefixsum(
             @intCast(c_int, num_pixels),
         },
     );
-    var histo = try cuda.arena.allocator.alloc(c_uint, numBins);
-    defer cuda.arena.allocator.free(histo);
-    try cuda.memcpyDtoH(c_uint, histo, d_histo);
-    std.log.info("Lum histo: {any}", .{histo});
-    try cuda.synchronize();
+    // var histo = try cuda.arena.allocator.alloc(c_uint, numBins);
+    // defer cuda.arena.allocator.free(histo);
+    // try cuda.memcpyDtoH(c_uint, histo, d_histo);
+    // std.log.info("Lum histo: {any}", .{histo});
+    // try stream.synchronize();
 
-    const computeCdf = try cudaz.Function("blellochCdf").init(cuda);
+    const computeCdf = try cuda.Function("blellochCdf").init();
     try computeCdf.launch(
-        cudaz.Grid.init1D(numBins, numBins),
+        stream,
+        cuda.Grid.init1D(numBins, numBins),
         .{ d_cdf.ptr, d_histo.ptr, @intCast(c_int, numBins) },
     );
-    try cuda.synchronize();
+    try stream.synchronize();
 
     return min_max_lum;
 }
 
 fn reduceMinMaxLum(
-    cuda: *Cuda,
+    stream: *cuda.Stream,
     d_xyY: []const cu.float3,
 ) !cu.float2 {
     // TODO: the results seems to change between runs
     const num_pixels = d_xyY.len;
-    const reduce_minmax_lum = try cudaz.Function("reduce_minmax_lum").init(cuda);
+    const reduce_minmax_lum = try cuda.Function("reduce_minmax_lum").init();
 
-    const grid = cudaz.Grid.init1D(num_pixels, 1024);
+    const grid = cuda.Grid.init1D(num_pixels, 1024);
     var d_buff = try cuda.alloc(cu.float2, grid.blocks.x);
     defer cuda.free(d_buff);
     var d_min_max_lum = try cuda.alloc(cu.float2, 1);
@@ -201,20 +203,22 @@ fn reduceMinMaxLum(
     defer cuda.free(d_min_max_lum);
 
     try reduce_minmax_lum.launchWithSharedMem(
+        stream,
         grid,
         grid.threads.x * @sizeOf(cu.float2),
         .{ d_xyY.ptr, d_buff.ptr, @intCast(c_int, num_pixels) },
     );
-    try cuda.synchronize();
+    try stream.synchronize();
 
-    const one_block = cudaz.Grid.init1D(d_buff.len, 0);
-    const reduce_minmax = try cudaz.Function("reduce_minmax").init(cuda);
+    const one_block = cuda.Grid.init1D(d_buff.len, 0);
+    const reduce_minmax = try cuda.Function("reduce_minmax").init();
     try reduce_minmax.launchWithSharedMem(
+        stream,
         one_block,
         one_block.threads.x * @sizeOf(cu.float2),
         .{ d_buff.ptr, d_min_max_lum.ptr },
     );
-    try cuda.synchronize();
+    try stream.synchronize();
     var min_max_lum = try cuda.readResult(cu.float2, d_min_max_lum);
 
     try std.testing.expect(min_max_lum.x < min_max_lum.y);
@@ -226,7 +230,7 @@ fn z(_z: f32) cu.float3 {
 }
 
 test "histogram" {
-    var cuda = try Cuda.init(0);
+    var stream = try cuda.Stream.init(0);
     var img = [_]cu.float3{
         z(0.0),
         z(0.0),
@@ -244,12 +248,13 @@ test "histogram" {
         z(9.0),
         z(10.0),
     };
-    const lum_histo = try cudaz.Function("lum_histo").init(&cuda);
+    const lum_histo = try cuda.Function("lum_histo").init();
     var bins = [_]c_uint{0} ** 10;
     var d_img = try cuda.allocAndCopy(cu.float3, &img);
     var d_bins = try cuda.allocAndCopy(c_uint, &bins);
     try lum_histo.launch(
-        cudaz.Grid.init1D(img.len, 3),
+        &stream,
+        cuda.Grid.init1D(img.len, 3),
         .{
             d_bins.ptr,
             d_img.ptr,
@@ -268,18 +273,19 @@ test "histogram" {
     );
 }
 
-const ReduceMinmaxLum = cudaz.Function("reduce_minmax_lum");
+const ReduceMinmaxLum = cuda.Function("reduce_minmax_lum");
 
-fn test_min_max_lum(cuda: *Cuda, f: ReduceMinmaxLum, d_img: []cu.float3, expected: []const cu.float2) !void {
+fn test_min_max_lum(stream: *cuda.Stream, f: ReduceMinmaxLum, d_img: []cu.float3, expected: []const cu.float2) !void {
     var num_blocks = expected.len;
     var d_minmax = try cuda.alloc(cu.float2, num_blocks);
     defer cuda.free(d_minmax);
 
-    var grid1D = cudaz.Grid{
+    var grid1D = cuda.Grid{
         .blocks = .{ .x = @intCast(c_uint, num_blocks) },
         .threads = .{ .x = @intCast(c_uint, std.math.divCeil(usize, d_img.len, num_blocks) catch unreachable) },
     };
     try f.launchWithSharedMem(
+        stream,
         grid1D,
         @sizeOf(cu.float2) * grid1D.threads.x,
         .{
@@ -303,7 +309,7 @@ fn test_min_max_lum(cuda: *Cuda, f: ReduceMinmaxLum, d_img: []cu.float3, expecte
 }
 
 test "min_max_lum" {
-    var cuda = try Cuda.init(0);
+    var stream = try cuda.Stream.init(0);
     var img = [_]cu.float3{
         z(0),
         z(3),
@@ -322,14 +328,14 @@ test "min_max_lum" {
         z(9),
         z(3),
     };
-    const f = try cudaz.Function("reduce_minmax_lum").init(&cuda);
+    const f = try cuda.Function("reduce_minmax_lum").init();
     var d_img = try cuda.allocAndCopy(cu.float3, &img);
 
-    try test_min_max_lum(&cuda, f, d_img, &[_]cu.float2{
+    try test_min_max_lum(&stream, f, d_img, &[_]cu.float2{
         .{ .x = 0, .y = 7 },
         .{ .x = 3, .y = 10 },
     });
-    try test_min_max_lum(&cuda, f, d_img, &[_]cu.float2{
+    try test_min_max_lum(&stream, f, d_img, &[_]cu.float2{
         .{ .x = 0, .y = 3 },
         .{ .x = 2, .y = 7 },
         .{ .x = 3, .y = 10 },
@@ -338,16 +344,17 @@ test "min_max_lum" {
 }
 
 test "cdf" {
-    var cuda = try Cuda.init(0);
+    var stream = try cuda.Stream.init(0);
     inline for ([_][:0]const u8{ "computeCdf", "blellochCdf" }) |variant| {
         log.warn("Testing Cdf implementation: {s}", .{variant});
         var bins = [_]c_uint{ 2, 1, 1, 4, 1, 0, 1, 1, 1, 3 };
-        const computeCdf = try cudaz.Function(variant).init(&cuda);
+        const computeCdf = try cuda.Function(variant).init();
         var cdf = [_]f32{0.0} ** 10;
         var d_bins = try cuda.allocAndCopy(c_uint, &bins);
         var d_cdf = try cuda.allocAndCopy(f32, &cdf);
         try computeCdf.launch(
-            cudaz.Grid.init1D(bins.len, 0),
+            &stream,
+            cuda.Grid.init1D(bins.len, 0),
             .{
                 d_cdf.ptr,
                 d_bins.ptr,
