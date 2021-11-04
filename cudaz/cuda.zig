@@ -8,7 +8,9 @@ pub const cudaz_options = @import("cudaz_options");
 pub const cu = @cImport({
     @cInclude("cuda.h");
     @cInclude("cuda_globals.h");
-    @cInclude(cudaz_options.kernel_name);
+    if (cudaz_options.cuda_kernel) {
+        @cInclude(cudaz_options.kernel_name);
+    }
 });
 
 pub const Dim3 = struct {
@@ -275,7 +277,8 @@ pub const Stream = struct {
         self._stream = undefined;
     }
 
-    pub fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args: anytype) !void {
+    // TODO: add a typesafe launch, so that we can remove launch from the Function itself
+    pub inline fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args: anytype) !void {
         try self.launchWithSharedMem(f, grid, 0, args);
     }
 
@@ -493,9 +496,13 @@ fn defaultModule() cu.CUmodule {
 /// Create a function with the correct signature for a cuda Kernel.
 /// The kernel must come from the default .cu file
 pub fn Function(comptime name: [:0]const u8) type {
+    return FnStruct(name, @field(cu, name));
+}
+
+pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
     return struct {
         const Self = @This();
-        const CpuFn = @field(cu, name);
+        const CpuFn = func;
         const Args = meta.ArgsTuple(@TypeOf(Self.CpuFn));
 
         f: cu.CUfunction,

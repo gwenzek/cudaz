@@ -3,7 +3,7 @@ const std = @import("std");
 const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
 
-// Can be one of "ptx" or "fatbin". "cubin" don't work, because they imply a main.
+// Can be one of "ptx" or "fatbin". "cubin" don't work, because it implies a main.
 const NVCC_OUTPUT_FORMAT = "ptx";
 const CUDA_PATH = "/usr/local/cuda";
 
@@ -28,6 +28,10 @@ pub fn build(b: *Builder) void {
     const test_cuda = b.addTest("cudaz/cuda.zig");
     addCudaz(b, test_cuda, CUDA_PATH, "cudaz/kernel.cu");
     tests.dependOn(&test_cuda.step);
+
+    const test_nvptx = b.addTest("cudaz/test_nvptx.zig");
+    addCudazWithZigKernel(b, test_nvptx, CUDA_PATH, "cudaz/nvptx.zig");
+    tests.dependOn(&test_nvptx.step);
 
     const test_png = b.addTest("CS344/png.zig");
     test_png.addPackagePath("zigimg", "zigimg/zigimg.zig");
@@ -98,7 +102,6 @@ fn addCudaz(
     comptime cuda_dir: []const u8,
     comptime kernel_path: [:0]const u8,
 ) void {
-    const kernel_dir = std.fs.path.dirname(kernel_path).?;
     const outfile = std.mem.concat(
         b.allocator,
         u8,
@@ -121,7 +124,17 @@ fn addCudaz(
         kernel_ptx_path,
     });
     exe.step.dependOn(&nvcc.step);
+    addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
+}
 
+fn addCudazDeps(
+    b: *Builder,
+    exe: *LibExeObjStep,
+    comptime cuda_dir: []const u8,
+    comptime kernel_path: [:0]const u8,
+    kernel_ptx_path: [:0]const u8,
+) void {
+    const kernel_dir = std.fs.path.dirname(kernel_path).?;
     // Add libc and cuda headers / lib, and our own .cu files
     exe.linkLibC();
     exe.addLibPath(cuda_dir ++ "/lib64");
@@ -136,6 +149,7 @@ fn addCudaz(
     cudaz_options.addOption([]const u8, "kernel_name", std.fs.path.basename(kernel_path));
     cudaz_options.addOption([:0]const u8, "kernel_ptx_path", kernel_ptx_path);
     cudaz_options.addOption([]const u8, "kernel_dir", kernel_dir);
+    cudaz_options.addOption(bool, "cuda_kernel", std.mem.endsWith(u8, kernel_path, ".cu"));
 
     const cudaz_pkg = std.build.Pkg{
         .name = "cudaz",
@@ -167,4 +181,37 @@ fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *
     addCudaz(b, test_hw, CUDA_PATH, "CS344/" ++ name ++ ".cu");
     tests.dependOn(&test_hw.step);
     return hw;
+}
+
+fn addCudazWithZigKernel(
+    b: *Builder,
+    exe: *LibExeObjStep,
+    comptime cuda_dir: []const u8,
+    comptime kernel_path: [:0]const u8,
+) void {
+    const name = std.fs.path.basename(kernel_path);
+    const dummy_zig_kernel = b.addObject(name, kernel_path);
+    dummy_zig_kernel.setTarget(.{ .cpu_arch = .nvptx64, .os_tag = .cuda });
+    const kernel_ptx_path = std.fs.path.joinZ(
+        b.allocator,
+        &[_][]const u8{ b.exe_dir, dummy_zig_kernel.out_filename },
+    ) catch unreachable;
+
+    // Actually we need to use Stage2 here, so don't use the dummy obj,
+    // and manually run this command.
+    const emit_bin = std.mem.join(b.allocator, "=", &[_][]const u8{ "-femit-bin", kernel_ptx_path }) catch unreachable;
+    const zig_kernel = b.addSystemCommand(&[_][]const u8{
+        "../zig/stage2/bin/zig", "build-obj",    kernel_path,
+        "-target",               "nvptx64-cuda", "-OReleaseSafe",
+        emit_bin,
+    });
+
+    exe.step.dependOn(&zig_kernel.step);
+    addCudazDeps(
+        b,
+        exe,
+        cuda_dir,
+        kernel_path,
+        std.mem.joinZ(b.allocator, "", &[_][]const u8{ kernel_ptx_path, ".ptx" }) catch unreachable,
+    );
 }
