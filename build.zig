@@ -46,6 +46,7 @@ pub fn build(b: *Builder) void {
     _ = hw1;
     _ = hw2;
     _ = hw3;
+    _ = hw4;
 
     const lesson3 = b.addExecutable("lesson3", "CS344/lesson3.zig");
     addCudaz(b, lesson3, CUDA_PATH, "CS344/lesson3.cu");
@@ -66,21 +67,21 @@ pub fn build(b: *Builder) void {
     // kernel_zig.install();
 
     const run_step = b.step("run", "Run the example");
-    // const run_hw1 = hw1.run();
-    // run_hw1.step.dependOn(b.getInstallStep());
-    // run_step.dependOn(&run_hw1.step);
+    const run_hw1 = hw1.run();
+    run_hw1.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_hw1.step);
 
-    // const run_hw2 = hw2.run();
-    // run_hw2.step.dependOn(b.getInstallStep());
-    // run_step.dependOn(&run_hw2.step);
+    const run_hw2 = hw2.run();
+    run_hw2.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_hw2.step);
 
-    // const run_lesson3 = lesson3.run();
-    // run_lesson3.step.dependOn(b.getInstallStep());
-    // run_step.dependOn(&run_lesson3.step);
+    const run_lesson3 = lesson3.run();
+    run_lesson3.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_lesson3.step);
 
-    // const run_hw3 = hw3.run();
-    // run_hw3.step.dependOn(b.getInstallStep());
-    // run_step.dependOn(&run_hw3.step);
+    const run_hw3 = hw3.run();
+    run_hw3.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_hw3.step);
 
     const run_hw4 = hw4.run();
     run_hw4.step.dependOn(b.getInstallStep());
@@ -192,26 +193,33 @@ fn addCudazWithZigKernel(
     const name = std.fs.path.basename(kernel_path);
     const dummy_zig_kernel = b.addObject(name, kernel_path);
     dummy_zig_kernel.setTarget(.{ .cpu_arch = .nvptx64, .os_tag = .cuda });
-    const kernel_ptx_path = std.fs.path.joinZ(
+    const kernel_o_path = std.fs.path.joinZ(
         b.allocator,
         &[_][]const u8{ b.exe_dir, dummy_zig_kernel.out_filename },
     ) catch unreachable;
 
     // Actually we need to use Stage2 here, so don't use the dummy obj,
     // and manually run this command.
-    const emit_bin = std.mem.join(b.allocator, "=", &[_][]const u8{ "-femit-bin", kernel_ptx_path }) catch unreachable;
+    const emit_bin = std.mem.join(b.allocator, "=", &[_][]const u8{ "-femit-bin", kernel_o_path }) catch unreachable;
     const zig_kernel = b.addSystemCommand(&[_][]const u8{
         "../zig/stage2/bin/zig", "build-obj",    kernel_path,
         "-target",               "nvptx64-cuda", "-OReleaseSafe",
         emit_bin,
+        // TODO make "--verbose-llvm-ir" optional
     });
+    const kernel_ptx_path = std.mem.joinZ(b.allocator, "", &[_][]const u8{ kernel_o_path, ".ptx" }) catch unreachable;
+    // TODO: Fix this during LLVM IR generation
+    // I think we need to add LLVM annotations to mark functions as kernel
+    // !nvvm.annotations = !{!1}
+    // !1 = !{void (i8*)* @hello, !"kernel", i32 1}
+    const fix_zig_kernel = b.addSystemCommand(&[_][]const u8{
+        "sed",
+        "-i",
+        "s/.visible .func/.visible .entry/g",
+        kernel_ptx_path,
+    });
+    fix_zig_kernel.step.dependOn(&zig_kernel.step);
+    exe.step.dependOn(&fix_zig_kernel.step);
 
-    exe.step.dependOn(&zig_kernel.step);
-    addCudazDeps(
-        b,
-        exe,
-        cuda_dir,
-        kernel_path,
-        std.mem.joinZ(b.allocator, "", &[_][]const u8{ kernel_ptx_path, ".ptx" }) catch unreachable,
-    );
+    addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
 }

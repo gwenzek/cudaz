@@ -495,7 +495,7 @@ fn defaultModule() cu.CUmodule {
 
 /// Create a function with the correct signature for a cuda Kernel.
 /// The kernel must come from the default .cu file
-pub fn Function(comptime name: [:0]const u8) type {
+pub inline fn Function(comptime name: [:0]const u8) type {
     return FnStruct(name, @field(cu, name));
 }
 
@@ -508,10 +508,11 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
         f: cu.CUfunction,
 
         pub fn init() !Self {
-            var function: cu.CUfunction = undefined;
-            try check(cu.cuModuleGetFunction(&function, defaultModule(), name));
-            std.log.info("Loaded function {s} ({})", .{ name, function });
-            return Self{ .f = function };
+            var f: cu.CUfunction = undefined;
+            try check(cu.cuModuleGetFunction(&f, defaultModule(), name));
+            var res = Self{ .f = f };
+            std.log.info("Loaded function {}", .{res});
+            return res;
         }
 
         // TODO: deinit -> CUDestroy
@@ -532,6 +533,23 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
             cu.blockIdx = point.blocks.dim3();
             cu.threadIdx = point.threads.dim3();
             _ = @call(.{}, CpuFn, args);
+        }
+
+        pub fn format(
+            self: *const Self,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = self;
+            _ = fmt;
+            _ = options;
+            try std.fmt.format(writer, "{s}(", .{name});
+            inline for (@typeInfo(Args).Struct.fields) |arg| {
+                const ArgT = arg.field_type;
+                try std.fmt.format(writer, "{}, ", .{ArgT});
+            }
+            try std.fmt.format(writer, ")", .{});
         }
     };
 }

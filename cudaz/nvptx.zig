@@ -21,7 +21,7 @@ pub inline fn syncThreads() void {
 /// threadId.x
 pub inline fn threadIdX() usize {
     if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t%[ret], %%tid.x;"
+    var tid = asm volatile ("mov.u32 \t$0, %tid.x;"
         : [ret] "=r" (-> u32)
     );
     return @intCast(usize, tid);
@@ -44,7 +44,7 @@ pub inline fn threadIdZ() usize {
 /// threadDim.x
 pub inline fn threadDimX() usize {
     if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t%[ret], %%ntid.x;"
+    var ntid = asm volatile ("mov.u32 \t$0, %ntid.x;"
         : [ret] "=r" (-> u32)
     );
     return @intCast(usize, ntid);
@@ -67,7 +67,7 @@ pub inline fn threadDimZ() usize {
 /// gridId.x
 pub inline fn gridIdX() usize {
     if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t%[ret], %%ctaid.x;"
+    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.x;"
         : [ret] "=r" (-> u32)
     );
     return @intCast(usize, ctaid);
@@ -132,9 +132,15 @@ pub fn getId_3D() Dim3 {
 
 const message = "Hello World !\x00";
 
-pub export fn _test_hello_world(out: []u8) void {
+pub fn _test_hello_world(out: []u8) void {
     const i = getId_1D();
     if (i > message.len or i > out.len) return;
     syncThreads();
     out[i] = message[i];
+}
+
+comptime {
+    if (is_nvptx) {
+        @export(_test_hello_world, .{ .name = "_test_hello_world", .linkage = .Strong });
+    }
 }
