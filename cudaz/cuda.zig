@@ -402,8 +402,10 @@ pub fn memcpyDtoH(comptime DestType: type, h_target: []DestType, d_source: []con
 }
 
 /// Time gpu event.
-/// deinit is called when `elapsed` is called.
-/// Note: we don't check errors, timing is considered optional
+/// `deinit` is called when `elapsed` is called.
+/// Note: we don't check errors, you'll receive Nan if any error happens.
+/// start and stop are asynchronous, only elapsed is blocking and will wait
+/// for the underlying operations to be over.
 pub const GpuTimer = struct {
     _start: cu.CUevent,
     _stop: cu.CUevent,
@@ -413,6 +415,10 @@ pub const GpuTimer = struct {
     _elapsed: f32 = std.math.nan_f32,
 
     pub fn init(stream: *const Stream) GpuTimer {
+        // The cuEvent are implicitly reffering to the current context.
+        // We don't know if the current context is the same than the stream context.
+        // Typically I'm not sure what happens with 2 streams on 2 gpus.
+        // We might need to restore the stream context before creating the events.
         var timer = GpuTimer{ ._start = undefined, ._stop = undefined, .stream = stream };
         _ = cu.cuEventCreate(&timer._start, 0);
         _ = cu.cuEventCreate(&timer._stop, 0);
@@ -420,9 +426,12 @@ pub const GpuTimer = struct {
     }
 
     pub fn deinit(self: *GpuTimer) void {
-        if (!std.math.isNan(self._elapsed)) return;
+        // Double deinit is allowed
+        if (self._stop == null) return;
         _ = cu.cuEventDestroy(self._start);
+        self._start = null;
         _ = cu.cuEventDestroy(self._stop);
+        self._stop = null;
     }
 
     pub fn start(self: *GpuTimer) void {
@@ -433,11 +442,13 @@ pub const GpuTimer = struct {
         _ = cu.cuEventRecord(self._stop, self.stream._stream);
     }
 
+    /// Return the elapsed time in milliseconds.
+    /// Resolution is around 0.5 microseconds.
     pub fn elapsed(self: *GpuTimer) f32 {
         if (!std.math.isNan(self._elapsed)) return self._elapsed;
         var _elapsed = std.math.nan_f32;
         _ = cu.cuEventSynchronize(self._stop);
-        _ = cu.cuEventElapsedTime(&self._elapsed, self._start, self._stop);
+        _ = cu.cuEventElapsedTime(&_elapsed, self._start, self._stop);
         self.deinit();
         self._elapsed = _elapsed;
         return _elapsed;
@@ -631,4 +642,36 @@ test "run the kernel on CPU" {
     );
 
     try testing.expectEqual([_]u8{ 38, 154 }, gray);
+}
+
+test "GpuTimer" {
+    const rgba_to_greyscale = try Function("rgba_to_greyscale").init();
+    var stream = try Stream.init(0);
+    defer stream.deinit();
+    const numRows: u32 = 10;
+    const numCols: u32 = 20;
+    var d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
+    // memset(cu.uchar3, d_rgbaImage, 0xaa);
+    const d_greyImage = try alloc(u8, numRows * numCols);
+    try memset(u8, d_greyImage, 0);
+
+    std.log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
+    var timer = GpuTimer.init(&stream);
+    timer.start();
+    try rgba_to_greyscale.launch(
+        &stream,
+        .{ .blocks = Dim3.init(numCols, numRows, 1) },
+        .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
+    );
+    timer.stop();
+    std.log.warn("rgba_to_greyscale took: {}", .{timer.elapsed()});
+    try testing.expect(timer.elapsed() > 0);
+}
+
+test "we use only one context per GPU" {
+    var stream = try Stream.init(0);
+    var default_ctx: cu.CUcontext = undefined;
+    var stream_ctx: cu.CUcontext = undefined;
+    try check(cu.cuCtxGetCurrent(&default_ctx));
+    try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
 }
