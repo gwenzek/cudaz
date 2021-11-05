@@ -88,7 +88,7 @@ pub fn main() !void {
     var out_img = try fromFloat32(allocator, rgb, numCols, numRows);
     defer out_img.deinit();
     try png.writePngToFilePath(out_img, resources_dir ++ "output.png");
-    try utils.validate_output(allocator, resources_dir);
+    try utils.validate_output(allocator, resources_dir, 2.0);
 
     try std.testing.expect(lum_range > 0);
 }
@@ -328,7 +328,7 @@ test "min_max_lum" {
         z(9),
         z(3),
     };
-    const f = try cuda.Function("reduce_minmax_lum").init();
+    const f = try ReduceMinmaxLum.init();
     var d_img = try cuda.allocAndCopy(cu.float3, &img);
 
     try test_min_max_lum(&stream, f, d_img, &[_]cu.float2{

@@ -17,7 +17,7 @@ pub fn grayscale(allocator: *std.mem.Allocator, width: usize, height: usize) !Im
     );
 }
 
-pub fn validate_output(alloc: *std.mem.Allocator, comptime dir: []const u8) !void {
+pub fn validate_output(alloc: *std.mem.Allocator, comptime dir: []const u8, threshold: f32) !void {
     const output = try Image.fromFilePath(alloc, dir ++ "output.png");
     const reference = try Image.fromFilePath(alloc, dir ++ "reference.png");
 
@@ -27,15 +27,13 @@ pub fn validate_output(alloc: *std.mem.Allocator, comptime dir: []const u8) !voi
     assert(output.image_format == reference.image_format);
     assert(output.pixels.?.len() == reference.pixels.?.len());
 
-    const img_match = try eq_and_show_diff(alloc, dir, output, reference);
-    if (img_match) {
+    const avg_diff = try eq_and_show_diff(alloc, dir, output, reference);
+    if (avg_diff < threshold) {
         log.info("*** The image matches, Congrats ! ***", .{});
-    } else {
-        // std.os.exit(1);
     }
 }
 
-pub fn eq_and_show_diff(alloc: *std.mem.Allocator, comptime dir: []const u8, output: Image, reference: Image) !bool {
+pub fn eq_and_show_diff(alloc: *std.mem.Allocator, comptime dir: []const u8, output: Image, reference: Image) !f32 {
     var diff = try grayscale(alloc, reference.width, reference.height);
     var out_pxls = output.iterator();
     var ref_pxls = reference.iterator();
@@ -73,7 +71,6 @@ pub fn eq_and_show_diff(alloc: *std.mem.Allocator, comptime dir: []const u8, out
     try png.writePngToFilePath(diff, dir ++ "output_diff.png");
     if (min_val != 0 or max_val != 0) {
         std.log.err("Found diffs between two images, avg: {d:.3}, ranging from {d:.1} to {d:.1} pixel value.", .{ avg_diff, 255 * min_val, 255 * max_val });
-        return false;
     }
-    return true;
+    return avg_diff;
 }

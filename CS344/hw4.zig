@@ -28,13 +28,13 @@ pub fn main() !void {
     img.deinit();
 
     log.info("loaded image", .{});
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
     const d_img = try cuda.allocAndCopy(cu.uchar3, asUchar3(img));
     const d_template = try cuda.allocAndCopy(cu.uchar3, asUchar3(template));
     const d_scores = try cuda.alloc(f32, num_rows * num_cols);
 
     // Create a 2D grid for the image and use the last dimension for the channel (R, G, B)
-    var stream = try cuda.Stream.init(0);
-    defer stream.deinit();
     const gridWithChannel = cuda.Grid.init3D(num_cols, num_rows, 3, 32, 8, 3);
     const crossCorrelation = try cuda.Function("naive_normalized_cross_correlation").init();
     try crossCorrelation.launch(&stream, gridWithChannel, .{
@@ -77,7 +77,7 @@ pub fn main() !void {
 
     try cuda.memcpyDtoH(cu.uchar3, asUchar3(img), d_img);
     try png.writePngToFilePath(img, resources_dir ++ "output.png");
-    try utils.validate_output(allocator, resources_dir);
+    try utils.validate_output(allocator, resources_dir, 2.0);
 }
 
 /// Red Eye Removal

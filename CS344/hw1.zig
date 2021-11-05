@@ -25,7 +25,7 @@ pub fn main() anyerror!void {
     const img = try zigimg.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
     defer img.deinit();
     assert(img.image_format == .Png);
-    var max_show: usize = 10;
+    var max_show: usize = 12;
     log.info("Loaded img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(img.pixels.?.Rgb24[200 .. 200 + max_show]) });
     // try img.writeToFilePath("HW1/output.pbm", .Pbm, .{ .pbm = .{ .binary = false } });
 
@@ -55,8 +55,9 @@ pub fn main() anyerror!void {
         },
     );
     timer.stop();
-
+    try stream.synchronize();
     try cudaz.memcpyDtoH(Gray8, gray.pixels.?.Grayscale8, d_gray);
+    log.info("Got grayscale img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(gray.pixels.?.Grayscale8[200 .. 200 + @divExact(max_show, 3)]) });
     try png.writePngToFilePath(gray, resources_dir ++ "output.png");
-    try utils.validate_output(alloc, resources_dir);
+    try utils.validate_output(alloc, resources_dir, 1.0);
 }

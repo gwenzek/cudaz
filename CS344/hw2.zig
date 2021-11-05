@@ -116,7 +116,7 @@ pub fn main() anyerror!void {
 
     try cuda.memcpyDtoH(Rgb24, img.pixels.?.Rgb24, d_out);
     try png.writePngToFilePath(img, resources_dir ++ "output.png");
-    try utils.validate_output(alloc, resources_dir);
+    try utils.validate_output(alloc, resources_dir, 2.0);
 }
 
 const blurKernelWidth = 9;
