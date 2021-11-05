@@ -7,16 +7,19 @@ const LibExeObjStep = std.build.LibExeObjStep;
 const NVCC_OUTPUT_FORMAT = "ptx";
 const CUDA_PATH = "/usr/local/cuda";
 
+var target: std.zig.CrossTarget = undefined;
+var mode: std.builtin.Mode = undefined;
+
 pub fn build(b: *Builder) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
-    const target = b.standardTargetOptions(.{});
+    target = b.standardTargetOptions(.{});
 
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
+    mode = b.standardReleaseOptions();
 
     // This isn't very useful, because we still have to declare `extern` symbols
     // const kernel = b.addObject("kernel", "cudaz/kernel.o");
@@ -40,19 +43,15 @@ pub fn build(b: *Builder) void {
 
     // CS344 lessons and home works
     const hw1 = addHomework(b, tests, "hw1");
+    addLesson(b, "lesson2");
     const hw2 = addHomework(b, tests, "hw2");
+    addLesson(b, "lesson3");
     const hw3 = addHomework(b, tests, "hw3");
     const hw4 = addHomework(b, tests, "hw4");
     _ = hw1;
     _ = hw2;
     _ = hw3;
     _ = hw4;
-
-    const lesson3 = b.addExecutable("lesson3", "CS344/lesson3.zig");
-    addCudaz(b, lesson3, CUDA_PATH, "CS344/lesson3.cu");
-    lesson3.setTarget(target);
-    lesson3.setBuildMode(mode);
-    lesson3.install();
 
     // TODO (Jan 2022): try zig build -ofmt=c (with master branch)
     // maybe we could write a kernel in Zig instead of cuda,
@@ -74,10 +73,6 @@ pub fn build(b: *Builder) void {
     const run_hw2 = hw2.run();
     run_hw2.step.dependOn(b.getInstallStep());
     run_step.dependOn(&run_hw2.step);
-
-    const run_lesson3 = lesson3.run();
-    run_lesson3.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_lesson3.step);
 
     const run_hw3 = hw3.run();
     run_hw3.step.dependOn(b.getInstallStep());
@@ -173,6 +168,9 @@ fn addLibpng(exe: *LibExeObjStep) void {
 
 fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *LibExeObjStep {
     const hw = b.addExecutable(name, "CS344/" ++ name ++ ".zig");
+    hw.setTarget(target);
+    hw.setBuildMode(mode);
+
     addCudaz(b, hw, CUDA_PATH, "CS344/" ++ name ++ ".cu");
     hw.addPackagePath("zigimg", "zigimg/zigimg.zig");
     addLibpng(hw);
@@ -182,6 +180,19 @@ fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *
     addCudaz(b, test_hw, CUDA_PATH, "CS344/" ++ name ++ ".cu");
     tests.dependOn(&test_hw.step);
     return hw;
+}
+
+fn addLesson(b: *Builder, comptime name: []const u8) void {
+    const lesson = b.addExecutable(name, "CS344/" ++ name ++ ".zig");
+    addCudaz(b, lesson, CUDA_PATH, "CS344/" ++ name ++ ".cu");
+    lesson.setTarget(target);
+    lesson.setBuildMode(mode);
+    lesson.install();
+
+    const run_lesson_step = b.step(name, "Run " ++ name);
+    const run_lesson = lesson.run();
+    run_lesson.step.dependOn(b.getInstallStep());
+    run_lesson_step.dependOn(&run_lesson.step);
 }
 
 fn addCudazWithZigKernel(
