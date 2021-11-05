@@ -675,3 +675,44 @@ test "we use only one context per GPU" {
     try check(cu.cuCtxGetCurrent(&default_ctx));
     try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
 }
+
+fn cudaAllocFn(allocator: *std.mem.Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) std.mem.Allocator.Error![]u8 {
+    _ = allocator;
+    _ = ra;
+    // TODO implement alignment
+    _ = ptr_align;
+    _ = len_align;
+
+    return alloc(u8, n) catch |err| switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => {
+            std.log.err("Cuda error while allocating memory: {}", .{err});
+            return error.OutOfMemory;
+        },
+    };
+}
+
+fn cudaResizeFn(allocator: *std.mem.Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ra: usize) std.mem.Allocator.Error!usize {
+    _ = allocator;
+    _ = ra;
+    _ = buf_align;
+    _ = len_align;
+    if (new_len == 0) {
+        free(buf);
+        return new_len;
+    }
+
+    return error.OutOfMemory;
+}
+
+pub const cuda_allocator = &cuda_allocator_state;
+var cuda_allocator_state = std.mem.Allocator{
+    .allocFn = cudaAllocFn,
+    .resizeFn = cudaResizeFn,
+};
+
+// TODO: fix cuda_allocator
+// test "cuda_allocator" {
+//     _ = try Stream.init(0);
+//     try std.heap.testAllocator(cuda_allocator);
+// }
