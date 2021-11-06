@@ -26,14 +26,6 @@ __global__ void rgba_to_greyscale(const uchar3 *const rgbaImage,
   greyImage[myId] = (unsigned char)output;
 }
 
-__device__ static const unsigned char* message = "Hello World !";
-
-__global__ void hello_world(unsigned char *const out, uint len) {
-  uint i = blockIdx.x * blockDim.x + threadIdx.x;
-  if (i >= len) return;
-  out[i] = message[i];
-}
-
 #ifdef __cplusplus
 }
 #endif

@@ -8,6 +8,7 @@ const cu = cudaz.cu;
 
 const png = @import("png.zig");
 const utils = @import("utils.zig");
+const hw1_kernel = @import("hw1_kernel.zig");
 
 const resources_dir = "CS344/hw1_resources/";
 
@@ -30,9 +31,8 @@ pub fn main() anyerror!void {
     // try img.writeToFilePath("HW1/output.pbm", .Pbm, .{ .pbm = .{ .binary = false } });
 
     const Rgb24 = zigimg.color.Rgb24;
-    var d_img = try cudaz.alloc(Rgb24, img.width * img.height);
+    var d_img = try cudaz.allocAndCopy(Rgb24, img.pixels.?.Rgb24);
     defer cudaz.free(d_img);
-    try cudaz.memcpyHtoD(Rgb24, d_img, img.pixels.?.Rgb24);
 
     const Gray8 = zigimg.color.Grayscale8;
     var gray = try utils.grayscale(alloc, img.width, img.height);
@@ -43,6 +43,7 @@ pub fn main() anyerror!void {
 
     var timer = cudaz.GpuTimer.init(&stream);
     const kernel = try cudaz.Function("rgba_to_greyscale").init();
+    // const kernel = try cudaz.FnStruct("rgba_to_greyscale", hw1_kernel.rgba_to_greyscale).init();
     timer.start();
     try kernel.launch(
         &stream,
@@ -52,6 +53,7 @@ pub fn main() anyerror!void {
             @ptrCast([*c]u8, d_gray.ptr),
             @intCast(c_int, img.height),
             @intCast(c_int, img.width),
+            // std.mem.sliceAsBytes(d_img), std.mem.sliceAsBytes(d_gray),
         },
     );
     timer.stop();

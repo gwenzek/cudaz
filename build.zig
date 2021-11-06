@@ -182,6 +182,20 @@ fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *
     return hw;
 }
 
+fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *LibExeObjStep {
+    const hw = b.addExecutable(name, "CS344/" ++ name ++ ".zig");
+    hw.setTarget(target);
+    hw.setBuildMode(mode);
+
+    addCudazWithZigKernel(b, hw, CUDA_PATH, "CS344/" ++ name ++ "_kernel.zig");
+    hw.addPackagePath("zigimg", "zigimg/zigimg.zig");
+    addLibpng(hw);
+    hw.install();
+
+    _ = tests;
+    return hw;
+}
+
 fn addLesson(b: *Builder, comptime name: []const u8) void {
     const lesson = b.addExecutable(name, "CS344/" ++ name ++ ".zig");
     addCudaz(b, lesson, CUDA_PATH, "CS344/" ++ name ++ ".cu");
