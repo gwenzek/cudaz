@@ -1,3 +1,5 @@
+#include <stdbool.h>
+
 #define uchar unsigned char
 #define ID_X threadIdx.x + blockDim.x * blockIdx.x
 #define ID_Y threadIdx.y + blockDim.y * blockIdx.y

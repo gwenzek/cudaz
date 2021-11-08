@@ -17,31 +17,35 @@ __device__ void writeChannel(uchar3* d_pixels, int offset, uint channel, uchar v
     channel_ptr[3 * offset + channel] = val;
 }
 
-__global__ void sort_network(const float* d_in) {
+__global__ void sort_network(float* d_in, uint len) {
     uint i = threadIdx.x;
-    uint n = threadDim.x;
-    SHARED(d_group, uint);
-    d_group[i] = d_in[ID_X];
+    uint n = blockDim.x;
+    SHARED(d_block, uint);
+    if (ID_X >= len) return;
+    // uint l_max = MIN(len, blockDim.x * (blockIdx.x + 1));
+    d_block[i] = d_in[ID_X];
     __syncthreads();
 
     // Using notation from https://en.wikipedia.org/wiki/Bitonic_sorter#How_the_algorithm_works
     for (uint k = 2; k <= n; k *= 2) {
         // Corresponds to green blocks
         bool upward = (i & k) == 0;
-        for (uint j = k/2; j >=0; j/=2) {
+        for (uint j = k/2; j > 0; j/=2) {
             uint l = i ^ j;
-            if (l > i) {
-                bool sorted = arr[i] < arr[l];
+            // Code is inversed here wrt to Wikipedia
+            // This prevents out of bound because we know i is always in bound.
+            if (i > l) {
+                bool sorted = d_block[i] > d_block[l];
                 if ((upward & !sorted) || (!upward & sorted)) {
-                    float arr_i = arr[i];
-                    arr[i] = arr[l];
-                    arr[l] = arr_i;
+                    float arr_i = d_block[i];
+                    d_block[i] = d_block[l];
+                    d_block[l] = arr_i;
                 }
             }
             __syncthreads();
         }
     }
-    d_in[ID_X] = d_group[i];
+    d_in[ID_X] = d_block[i];
 }
 
 __global__ void find_radix(
@@ -86,17 +90,17 @@ void radix_cdf(const uchar* d_radix, uint* h, int n) {
         }
         __syncthreads();
     }
-    d_bins_out[blockIdx.y * n + ID_X] = d_bins[tid];
+    // d_bins_out[blockIdx.y * n + ID_X] = d_bins[tid];
 }
 
 __global__
-void cdf_vertical(uint* d_cdf, int n, int step) {
+void cdf_vertical(uint* d_cdf, int n, int stride) {
     int  tid = ID_X;
     if (tid >= n) return;
     // Here thread id correspond to a grid id in radix_cdf
     int group = tid;
     SHARED(d_bins, uint);
-    d_bins[tid] = d_cdf[(group + 1) * step - 1];
+    d_bins[tid] = d_cdf[(group + 1) * stride - 1];
     // Reduce
     uint step = 1;
     for (; step < n; step *= 2) {
@@ -118,7 +122,7 @@ void cdf_vertical(uint* d_cdf, int n, int step) {
         }
         __syncthreads();
     }
-    d_cdf[group * step] += d_bins[tid];
+    d_cdf[group * stride] += d_bins[tid];
 }
 
 __global__

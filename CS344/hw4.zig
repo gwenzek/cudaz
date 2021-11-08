@@ -120,9 +120,12 @@ pub fn mySort(stream: *const cuda.Stream, d_out_vals: []f32, d_in_vals: []const 
     defer cuda.free(coords);
     var d_permutation = try cuda.alloc(c_uint, coords.len);
     try cuda.memset(c_uint, d_permutation, 0);
-    const radix_cdf = cuda.Function("radix_cdf").init();
+    // const radix_cdf = cuda.Function("radix_cdf").init();
     // TODO
     _ = d_out_vals;
+    // Sorting is done in several stages
+    // Sorting of small arrays is done with Radix/sort_network
+    // Then we can merge using parallel merging
     return d_permutation;
 }
 
@@ -131,38 +134,6 @@ pub fn range(stream: *const cuda.Stream, len: usize) ![]c_uint {
     const rangeFn = try cuda.Function("range").init();
     try rangeFn.launch(stream, cuda.Grid.init1D(len, 64), .{ coords.ptr, @intCast(c_uint, len) });
     return coords;
-}
-
-/// Finds the minimum value of the given input slice.
-/// Do several passes until the minimum is found.
-/// Each block computes the minimum over 1024 elements.
-/// Each pass divides the size of the input array per 1024.
-pub fn reduce_min(stream: *const cuda.Stream, d_data: []const f32) !f32 {
-    const n_threads = 1024;
-    const n1 = math.divCeil(usize, d_data.len, n_threads) catch unreachable;
-    var n2 = math.divCeil(usize, n1, n_threads) catch unreachable;
-    const buffer = try cuda.alloc(f32, n1 + n2);
-    defer cuda.free(buffer);
-
-    var d_in = d_data;
-    var d_out = buffer[0..n1];
-    var d_next = buffer[n1 .. n1 + n2];
-    const reduce = try cuda.Function("reduce_min").init();
-
-    while (d_in.len > 1) {
-        try reduce.launchWithSharedMem(
-            stream,
-            cuda.Grid.init1D(d_in.len, n_threads),
-            n_threads * @sizeOf(f32),
-            .{ d_in.ptr, d_out.ptr, @intCast(c_int, d_in.len) },
-        );
-        d_in = d_out;
-        d_out = d_next;
-        n2 = math.divCeil(usize, d_next.len, n_threads) catch unreachable;
-        d_next = d_out[0..n2];
-    }
-
-    return try cuda.readResult(f32, &d_in[0]);
 }
 
 /// Finds the minimum value of the given input slice.
@@ -209,4 +180,44 @@ test "reduce min" {
 
     const d_x = try cuda.allocAndCopy(f32, h_x);
     try testing.expectEqual(try reduce_min(&stream, d_x), -7.0);
+}
+
+pub fn sort_network(stream: *const cuda.Stream, d_data: []f32, n_threads: usize) !void {
+    const sort_net = try cuda.Function("sort_network").init();
+    const grid = cuda.Grid.init1D(d_data.len, n_threads);
+    try sort_net.launchWithSharedMem(
+        stream,
+        grid,
+        grid.threads.x * @sizeOf(f32),
+        .{ d_data.ptr, @intCast(c_uint, d_data.len) },
+    );
+}
+
+test "sorting network" {
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    const h_x = [_]f32{ 2, 3, 1, 0, 7, 9, 6, 5 };
+    var h_out = [_]f32{0} ** h_x.len;
+    const d_x = try cuda.alloc(f32, h_x.len);
+    defer cuda.free(d_x);
+
+    try cuda.memcpyHtoD(f32, d_x, &h_x);
+    try sort_network(&stream, d_x, 2);
+    try cuda.memcpyDtoH(f32, &h_out, d_x);
+    try testing.expectEqual([_]f32{ 2, 3, 0, 1, 7, 9, 5, 6 }, h_out);
+
+    try cuda.memcpyHtoD(f32, d_x, &h_x);
+    try sort_network(&stream, d_x, 4);
+    try cuda.memcpyDtoH(f32, &h_out, d_x);
+    try testing.expectEqual([_]f32{ 0, 1, 2, 3, 5, 6, 7, 9 }, h_out);
+
+    try cuda.memcpyHtoD(f32, d_x, &h_x);
+    try sort_network(&stream, d_x, 8);
+    try cuda.memcpyDtoH(f32, &h_out, d_x);
+    try testing.expectEqual([_]f32{ 0, 1, 2, 3, 5, 6, 7, 9 }, h_out);
+
+    try cuda.memcpyHtoD(f32, d_x, &h_x);
+    try sort_network(&stream, d_x, 16);
+    try cuda.memcpyDtoH(f32, &h_out, d_x);
+    try testing.expectEqual([_]f32{ 0, 1, 2, 3, 5, 6, 7, 9 }, h_out);
 }

@@ -684,6 +684,7 @@ test "we use only one context per GPU" {
     try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
 }
 
+// Adapted from "raw_c_allocator"
 fn cudaAllocFn(allocator: *std.mem.Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) std.mem.Allocator.Error![]u8 {
     _ = allocator;
     _ = ra;
@@ -704,12 +705,13 @@ fn cudaResizeFn(allocator: *std.mem.Allocator, buf: []u8, buf_align: u29, new_le
     _ = allocator;
     _ = ra;
     _ = buf_align;
-    _ = len_align;
     if (new_len == 0) {
         free(buf);
         return new_len;
     }
-
+    if (new_len <= buf.len) {
+        return std.mem.alignAllocLen(buf.len, new_len, len_align);
+    }
     return error.OutOfMemory;
 }
 

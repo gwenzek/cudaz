@@ -13,10 +13,9 @@
 #define SHARED(NAME, TYPE) extern TYPE *NAME;
 #define extern
 
-dim3 blockDim;
+dim3 gridDim;
 dim3 blockIdx;
-
-dim3 threadDim;
+dim3 blockDim;
 dim3 threadIdx;
 
 int atomicAdd(int* a, int b) {a += b;}
