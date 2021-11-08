@@ -42,7 +42,7 @@ pub fn build(b: *Builder) void {
     tests.dependOn(&test_png.step);
 
     // CS344 lessons and home works
-    const hw1 = addHomework(b, tests, "hw1");
+    const hw1 = addZigHomework(b, tests, "hw1");
     addLesson(b, "lesson2");
     const hw2 = addHomework(b, tests, "hw2");
     addLesson(b, "lesson3");
@@ -115,6 +115,8 @@ fn addCudaz(
         "--Werror=all-warnings",
         "--display-error-number",
         "--" ++ NVCC_OUTPUT_FORMAT,
+        "-I",
+        "cudaz",
         kernel_path,
         "-o",
         kernel_ptx_path,
