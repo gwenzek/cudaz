@@ -30,8 +30,8 @@ pub fn main() !void {
     log.info("loaded image", .{});
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
-    const d_img = try cuda.allocAndCopy(cu.uchar3, asUchar3(img));
-    const d_template = try cuda.allocAndCopy(cu.uchar3, asUchar3(template));
+    const d_img = try cuda.allocAndCopy(cu.uchar3, utils.asUchar3(img));
+    const d_template = try cuda.allocAndCopy(cu.uchar3, utils.asUchar3(template));
     const d_scores = try cuda.alloc(f32, num_rows * num_cols);
 
     // Create a 2D grid for the image and use the last dimension for the channel (R, G, B)
@@ -75,7 +75,7 @@ pub fn main() !void {
         @intCast(c_int, num_colsTemplate),
     });
 
-    try cuda.memcpyDtoH(cu.uchar3, asUchar3(img), d_img);
+    try cuda.memcpyDtoH(cu.uchar3, utils.asUchar3(img), d_img);
     try png.writePngToFilePath(img, resources_dir ++ "output.png");
     try utils.validate_output(allocator, resources_dir, 2.0);
 }
@@ -120,7 +120,7 @@ pub fn mySort(stream: *const cuda.Stream, d_out_vals: []f32, d_in_vals: []const 
     defer cuda.free(coords);
     var d_permutation = try cuda.alloc(c_uint, coords.len);
     try cuda.memset(c_uint, d_permutation, 0);
-
+    const radix_cdf = cuda.Function("radix_cdf").init();
     // TODO
     _ = d_out_vals;
     return d_permutation;
@@ -133,8 +133,80 @@ pub fn range(stream: *const cuda.Stream, len: usize) ![]c_uint {
     return coords;
 }
 
-pub fn asUchar3(img: zigimg.Image) []cu.uchar3 {
-    var ptr: [*]cu.uchar3 = @ptrCast([*]cu.uchar3, img.pixels.?.Rgb24);
-    const num_pixels = img.width * img.height;
-    return ptr[0..num_pixels];
+/// Finds the minimum value of the given input slice.
+/// Do several passes until the minimum is found.
+/// Each block computes the minimum over 1024 elements.
+/// Each pass divides the size of the input array per 1024.
+pub fn reduce_min(stream: *const cuda.Stream, d_data: []const f32) !f32 {
+    const n_threads = 1024;
+    const n1 = math.divCeil(usize, d_data.len, n_threads) catch unreachable;
+    var n2 = math.divCeil(usize, n1, n_threads) catch unreachable;
+    const buffer = try cuda.alloc(f32, n1 + n2);
+    defer cuda.free(buffer);
+
+    var d_in = d_data;
+    var d_out = buffer[0..n1];
+    var d_next = buffer[n1 .. n1 + n2];
+    const reduce = try cuda.Function("reduce_min").init();
+
+    while (d_in.len > 1) {
+        try reduce.launchWithSharedMem(
+            stream,
+            cuda.Grid.init1D(d_in.len, n_threads),
+            n_threads * @sizeOf(f32),
+            .{ d_in.ptr, d_out.ptr, @intCast(c_int, d_in.len) },
+        );
+        d_in = d_out;
+        d_out = d_next;
+        n2 = math.divCeil(usize, d_next.len, n_threads) catch unreachable;
+        d_next = d_out[0..n2];
+    }
+
+    return try cuda.readResult(f32, &d_in[0]);
+}
+
+/// Finds the minimum value of the given input slice.
+/// Do several passes until the minimum is found.
+/// Each block computes the minimum over 1024 elements.
+/// Each pass divides the size of the input array per 1024.
+pub fn reduce_min(stream: *const cuda.Stream, d_data: []const f32) !f32 {
+    const n_threads = 1024;
+    const n1 = math.divCeil(usize, d_data.len, n_threads) catch unreachable;
+    var n2 = math.divCeil(usize, n1, n_threads) catch unreachable;
+    const buffer = try cuda.alloc(f32, n1 + n2);
+    defer cuda.free(buffer);
+
+    var d_in = d_data;
+    var d_out = buffer[0..n1];
+    var d_next = buffer[n1 .. n1 + n2];
+    const reduce = try cuda.Function("reduce_min").init();
+
+    while (d_in.len > 1) {
+        try reduce.launchWithSharedMem(
+            stream,
+            cuda.Grid.init1D(d_in.len, n_threads),
+            n_threads * @sizeOf(f32),
+            .{ d_in.ptr, d_out.ptr, @intCast(c_int, d_in.len) },
+        );
+        d_in = d_out;
+        d_out = d_next;
+        n2 = math.divCeil(usize, d_next.len, n_threads) catch unreachable;
+        d_next = d_out[0..n2];
+    }
+
+    return try cuda.readResult(f32, &d_in[0]);
+}
+
+test "reduce min" {
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    const h_x = try testing.allocator.alloc(f32, 2100);
+    defer testing.allocator.free(h_x);
+    std.mem.set(f32, h_x, 0.0);
+    h_x[987] = -5.0;
+    h_x[1024] = -6.0;
+    h_x[1479] = -7.0;
+
+    const d_x = try cuda.allocAndCopy(f32, h_x);
+    try testing.expectEqual(try reduce_min(&stream, d_x), -7.0);
 }

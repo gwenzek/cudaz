@@ -370,9 +370,17 @@ pub fn allocAndCopyResult(comptime DestType: type, allocator: *std.mem.Allocator
     return h_tgt;
 }
 
-pub fn readResult(comptime DestType: type, d_source: []const DestType) !DestType {
+pub fn readResult(comptime DestType: type, d_source: *const DestType) !DestType {
     var h_res: [1]DestType = undefined;
-    try memcpyDtoH(DestType, &h_res, d_source);
+    check(cu.cuMemcpyDtoH(
+        @ptrCast(*c_void, &h_res),
+        @ptrToInt(d_source),
+        @sizeOf(DestType),
+    )) catch |err| switch (err) {
+        // TODO: leverage adress spaces to make this a comptime check
+        error.InvalidValue => std.log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
+        else => return err,
+    };
     return h_res[0];
 }
 

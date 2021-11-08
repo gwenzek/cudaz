@@ -219,7 +219,7 @@ fn reduceMinMaxLum(
         .{ d_buff.ptr, d_min_max_lum.ptr },
     );
     try stream.synchronize();
-    var min_max_lum = try cuda.readResult(cu.float2, d_min_max_lum);
+    var min_max_lum = try cuda.readResult(cu.float2, &d_min_max_lum[0]);
 
     try std.testing.expect(min_max_lum.x < min_max_lum.y);
     return min_max_lum;

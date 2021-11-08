@@ -2,6 +2,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
 
+const cuda = @import("cudaz");
+const cu = cuda.cu;
+
 const zigimg = @import("zigimg");
 const Image = zigimg.Image;
 
@@ -73,4 +76,10 @@ pub fn eq_and_show_diff(alloc: *std.mem.Allocator, comptime dir: []const u8, out
         std.log.err("Found diffs between two images, avg: {d:.3}, ranging from {d:.1} to {d:.1} pixel value.", .{ avg_diff, 255 * min_val, 255 * max_val });
     }
     return avg_diff;
+}
+
+pub fn asUchar3(img: zigimg.Image) []cu.uchar3 {
+    var ptr: [*]cu.uchar3 = @ptrCast([*]cu.uchar3, img.pixels.?.Rgb24);
+    const num_pixels = img.width * img.height;
+    return ptr[0..num_pixels];
 }
