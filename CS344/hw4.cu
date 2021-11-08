@@ -1,14 +1,7 @@
 #include <math.h>
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
-#define MAX(x, y) (((x) > (y)) ? (x) : (y))
-#define CLAMP(x, n) MIN(n - 1, MAX(0, x))
-#define uchar unsigned char
+#include "cuda_helpers.h"
+
 #ifdef __cplusplus
-// This is only seen by nvcc, not by Zig
-
-// You must use this macro to declare shared buffers
-#define SHARED(NAME, TYPE) extern __shared__ TYPE NAME[];
-
 extern "C" {
 #endif
 
