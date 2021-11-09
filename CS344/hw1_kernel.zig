@@ -1,7 +1,9 @@
 const builtin = @import("builtin");
+const CallingConvention = @import("std").builtin.CallingConvention;
 const is_nvptx = builtin.cpu.arch == .nvptx64;
+const kernel: CallingConvention = if (is_nvptx) .PtxKernel else .Unspecified;
 
-pub fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) void {
+pub fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(kernel) void {
     const i = getId_1D();
     if (i >= greyImage.len) return;
     const px = rgbaImage[i * 3 .. i * 3 + 3];

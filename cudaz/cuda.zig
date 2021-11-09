@@ -1,4 +1,5 @@
 const std = @import("std");
+const log = std.log;
 const meta = std.meta;
 const testing = std.testing;
 const TypeInfo = std.builtin.TypeInfo;
@@ -547,10 +548,10 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
         }
 
         pub fn debugCpuCall(grid: Grid, point: Grid, args: Args) void {
-            cu.blockDim = grid.blocks.dim3();
-            cu.threadDim = grid.threads.dim3();
-            cu.blockIdx = point.blocks.dim3();
             cu.threadIdx = point.threads.dim3();
+            cu.blockDim = grid.threads.dim3();
+            cu.blockIdx = point.blocks.dim3();
+            cu.gridDim = grid.blocks.dim3();
             _ = @call(.{}, CpuFn, args);
         }
 
@@ -684,11 +685,9 @@ test "we use only one context per GPU" {
     try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
 }
 
-// Adapted from "raw_c_allocator"
 fn cudaAllocFn(allocator: *std.mem.Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) std.mem.Allocator.Error![]u8 {
     _ = allocator;
     _ = ra;
-    // TODO implement alignment
     _ = ptr_align;
     _ = len_align;
 
@@ -715,14 +714,30 @@ fn cudaResizeFn(allocator: *std.mem.Allocator, buf: []u8, buf_align: u29, new_le
     return error.OutOfMemory;
 }
 
-pub const cuda_allocator = &cuda_allocator_state;
-var cuda_allocator_state = std.mem.Allocator{
-    .allocFn = cudaAllocFn,
-    .resizeFn = cudaResizeFn,
-};
+// This doesn't work because Allocator.zig from std will call @memset(undefined)
+// on the returned pointer which will segfault, because we're returning a device pointer.
+// https://github.com/ziglang/zig/issues/4298 want to make the @memset optional
+// But does it make sense to have an allocator that return GPU memory ?
+// Most function that want an allocator want to read/write the returned data.
+// I think we should only have this in GPU code.
+//
+// // TODO: we could create an allocator that map the memory to the host
+// this will likely make read/write much slower though
+// https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__VA.html#group__CUDA__VA
+// fn cudaAllocMappedFn(allocator: *std.mem.Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) std.mem.Allocator.Error![]u8 {
+// }
+//
+// pub const cuda_allocator = &cuda_allocator_state;
+// var cuda_allocator_state = std.mem.Allocator{
+//     .allocFn = cudaAllocFn,
+//     .resizeFn = cudaResizeFn,
+// };
 
-// TODO: fix cuda_allocator
 // test "cuda_allocator" {
 //     _ = try Stream.init(0);
-//     try std.heap.testAllocator(cuda_allocator);
+//     // This doesn't work because testAllocator will try to write to the memory
+//     // returned by the allocator. In our case the memory is on the GPU and isn't
+//     // writable from CPU.
+//     // try std.heap.testAllocator(cuda_allocator);
+//     // TODO: find some tests to do
 // }

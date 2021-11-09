@@ -235,18 +235,7 @@ fn addCudazWithZigKernel(
         // TODO make "--verbose-llvm-ir" optional
     });
     const kernel_ptx_path = std.mem.joinZ(b.allocator, "", &[_][]const u8{ kernel_o_path, ".ptx" }) catch unreachable;
-    // TODO: Fix this during LLVM IR generation
-    // I think we need to add LLVM annotations to mark functions as kernel
-    // !nvvm.annotations = !{!1}
-    // !1 = !{void (i8*)* @hello, !"kernel", i32 1}
-    const fix_zig_kernel = b.addSystemCommand(&[_][]const u8{
-        "sed",
-        "-i",
-        "s/.visible .func/.visible .entry/g",
-        kernel_ptx_path,
-    });
-    fix_zig_kernel.step.dependOn(&zig_kernel.step);
-    exe.step.dependOn(&fix_zig_kernel.step);
+    exe.step.dependOn(&zig_kernel.step);
 
     addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
 }

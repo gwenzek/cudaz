@@ -10,6 +10,11 @@ const Image = zigimg.Image;
 
 const png = @import("png.zig");
 
+const builtin = @import("builtin");
+const CallingConvention = @import("std").builtin.CallingConvention;
+pub const is_nvptx = builtin.cpu.arch == .nvptx64;
+pub const kernel: CallingConvention = if (is_nvptx) .PtxKernel else .Unspecified;
+
 pub fn grayscale(allocator: *std.mem.Allocator, width: usize, height: usize) !Image {
     return try Image.create(
         allocator,

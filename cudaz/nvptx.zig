@@ -1,5 +1,7 @@
 const builtin = @import("builtin");
+const CallingConvention = @import("std").builtin.CallingConvention;
 const is_nvptx = builtin.cpu.arch == .nvptx64;
+const kernel: CallingConvention = if (is_nvptx) .PtxKernel else .Unspecified;
 
 // Equivalent of Cuda's __syncthreads()
 /// Wait to all the threads in this block to reach this barrier
@@ -132,7 +134,7 @@ pub fn getId_3D() Dim3 {
 
 const message = "Hello World !\x00";
 
-pub fn _test_hello_world(out: []u8) void {
+pub fn _test_hello_world(out: []u8) callconv(kernel) void {
     const i = getId_1D();
     if (i > message.len or i > out.len) return;
     syncThreads();
