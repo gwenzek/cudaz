@@ -33,9 +33,8 @@ pub fn main() anyerror!void {
     var max_show: usize = 10;
     log.info("Loaded img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(img.pixels.?.Rgb24[200 .. 200 + max_show]) });
 
-    var d_img = try cuda.alloc(Rgb24, img.width * img.height);
+    var d_img = try cuda.allocAndCopy(Rgb24, img.pixels.?.Rgb24);
     defer cuda.free(d_img);
-    try cuda.memcpyHtoD(Rgb24, d_img, img.pixels.?.Rgb24);
 
     var d_red = try cuda.alloc(Gray8, img.width * img.height);
     defer cuda.free(d_red);

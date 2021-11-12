@@ -23,7 +23,7 @@ comptime {
 pub inline fn threadIdX() usize {
     if (!is_nvptx) return 0;
     var tid = asm volatile ("mov.u32 \t$0, %tid.x;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, tid);
 }
@@ -31,7 +31,7 @@ pub inline fn threadIdX() usize {
 pub inline fn threadDimX() usize {
     if (!is_nvptx) return 0;
     var ntid = asm volatile ("mov.u32 \t$0, %ntid.x;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, ntid);
 }
@@ -39,7 +39,7 @@ pub inline fn threadDimX() usize {
 pub inline fn gridIdX() usize {
     if (!is_nvptx) return 0;
     var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.x;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, ctaid);
 }

@@ -18,6 +18,7 @@ __device__ void writeChannel(uchar3* d_pixels, int offset, uint channel, uchar v
 }
 
 __global__ void sort_network(float* d_in, uint len) {
+    // TODO: add sort_network that returns a permutation
     uint i = threadIdx.x;
     uint n = blockDim.x;
     SHARED(d_block, uint);
@@ -32,7 +33,7 @@ __global__ void sort_network(float* d_in, uint len) {
         bool upward = (i & k) == 0;
         for (uint j = k/2; j > 0; j/=2) {
             uint l = i ^ j;
-            // Code is inversed here wrt to Wikipedia
+            // Condition is inversed here wrt to Wikipedia
             // This prevents out of bound because we know i is always in bound.
             if (i > l) {
                 bool sorted = d_block[i] > d_block[l];
