@@ -14,6 +14,8 @@ pub const cu = @cImport({
     }
 });
 
+pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
+
 pub const Dim3 = struct {
     x: c_uint = 1,
     y: c_uint = 1,
@@ -251,12 +253,12 @@ pub fn check(result: cu.CUresult) CudaError!void {
     var err_message: [*c]const u8 = undefined;
     const error_string_res = cu.cuGetErrorString(result, &err_message);
     if (error_string_res == cu.CUDA_SUCCESS) {
-        std.log.err("Cuda error {d}: {s}", .{ err, err_message });
+        log.err("Cuda error {d}: {s}", .{ err, err_message });
     } else {
-        std.log.err("Cuda error {d} (no error string)", .{err});
+        log.err("Cuda error {d} (no error string)", .{err});
     }
     if (err == error.UnexpectedByCudaz) {
-        std.log.err("Unknown cuda error {d}. Please open a bug against Cudaz.", .{result});
+        log.err("Unknown cuda error {d}. Please open a bug against Cudaz.", .{result});
     }
     return err;
 }
@@ -379,7 +381,7 @@ pub fn readResult(comptime DestType: type, d_source: *const DestType) !DestType 
         @sizeOf(DestType),
     )) catch |err| switch (err) {
         // TODO: leverage adress spaces to make this a comptime check
-        error.InvalidValue => std.log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
+        error.InvalidValue => log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
         else => return err,
     };
     return h_res[0];
@@ -393,7 +395,7 @@ pub fn memcpyHtoD(comptime DestType: type, d_target: []DestType, h_source: []con
         h_source.len * @sizeOf(DestType),
     )) catch |err| switch (err) {
         // TODO: leverage adress spaces to make this a comptime check
-        error.InvalidValue => std.log.warn("InvalidValue error while memcpyHtoD! Usage is memcpyHtoD(d_tgt, h_src)", .{}),
+        error.InvalidValue => log.warn("InvalidValue error while memcpyHtoD! Usage is memcpyHtoD(d_tgt, h_src)", .{}),
         else => return err,
     };
 }
@@ -405,7 +407,7 @@ pub fn memcpyDtoH(comptime DestType: type, h_target: []DestType, d_source: []con
         d_source.len * @sizeOf(DestType),
     )) catch |err| switch (err) {
         // TODO: leverage adress spaces to make this a comptime check
-        error.InvalidValue => std.log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
+        error.InvalidValue => log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
         else => return err,
     };
 }
@@ -470,14 +472,14 @@ pub fn main() anyerror!void {
     const args = try std.process.argsAlloc(gpa);
     defer std.process.argsFree(gpa, args);
 
-    std.log.info("All your codebase are belong to us.", .{});
+    log.info("All your codebase are belong to us.", .{});
 
-    std.log.info("cuda: {}", .{cu.cuInit});
-    std.log.info("cuInit: {}", .{cu.cuInit(0)});
+    log.info("cuda: {}", .{cu.cuInit});
+    log.info("cuInit: {}", .{cu.cuInit(0)});
 }
 
 test "cuda version" {
-    std.log.warn("Cuda version: {d}", .{cu.CUDA_VERSION});
+    log.warn("Cuda version: {d}", .{cu.CUDA_VERSION});
     try testing.expect(cu.CUDA_VERSION > 11000);
     try testing.expectEqual(cu.cuInit(0), cu.CUDA_SUCCESS);
 }
@@ -503,12 +505,22 @@ fn defaultModule() cu.CUmodule {
     if (_default_module != null) return _default_module;
     const file = cudaz_options.kernel_ptx_path;
 
-    check(cu.cuModuleLoad(&_default_module, file)) catch |err| {
-        std.log.err("Couldn't load {s}: {}", .{ file, err });
-        std.debug.panic("Couldn't load default ptx", .{});
-    };
+    if (kernel_ptx_content.len == 0) {
+        log.info("Loading Cuda module from local file {s}", .{file});
+        // Note: I tried to make this a path relative to the executable but failed because
+        // the main executable and the test executable are in different folder
+        // but refer to the same .ptx file.
+        check(cu.cuModuleLoad(&_default_module, file)) catch |err| {
+            std.debug.panic("Couldn't load cuda module: {s}: {}", .{ file, err });
+        };
+    } else {
+        log.info("Loading Cuda module from embedded file.", .{});
+        check(cu.cuModuleLoadData(&_default_module, kernel_ptx_content)) catch |err| {
+            std.debug.panic("Couldn't load embedded cuda module. Originally file was at {s}: {}", .{ file, err });
+        };
+    }
     if (_default_module == null) {
-        std.debug.panic("Couldn't load default ptx", .{});
+        std.debug.panic("Couldn't find module.", .{});
     }
     return _default_module;
 }
@@ -531,7 +543,7 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
             var f: cu.CUfunction = undefined;
             try check(cu.cuModuleGetFunction(&f, defaultModule(), name));
             var res = Self{ .f = f };
-            std.log.info("Loaded function {}", .{res});
+            log.info("Loaded function {}", .{res});
             return res;
         }
 
@@ -575,13 +587,13 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
 }
 
 test "can read function signature from .cu files" {
-    std.log.warn("My kernel: {s}", .{@TypeOf(cu.rgba_to_greyscale)});
+    log.warn("My kernel: {s}", .{@TypeOf(cu.rgba_to_greyscale)});
 }
 
 test "rgba_to_greyscale" {
     var stream = try Stream.init(0);
     defer stream.deinit();
-    std.log.warn("cuda: {}", .{stream});
+    log.warn("cuda: {}", .{stream});
     const rgba_to_greyscale = try Function("rgba_to_greyscale").init();
     const numRows: u32 = 10;
     const numCols: u32 = 20;
@@ -609,7 +621,7 @@ test "safe kernel" {
     const d_greyImage = try alloc(u8, numRows * numCols);
     try memset(u8, d_greyImage, 0);
     try stream.synchronize();
-    std.log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
+    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
     try rgba_to_greyscale.launch(
         &stream,
         .{ .blocks = Dim3.init(numCols, numRows, 1) },
@@ -664,7 +676,7 @@ test "GpuTimer" {
     const d_greyImage = try alloc(u8, numRows * numCols);
     try memset(u8, d_greyImage, 0);
 
-    std.log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
+    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
     var timer = GpuTimer.init(&stream);
     timer.start();
     try rgba_to_greyscale.launch(
@@ -673,7 +685,7 @@ test "GpuTimer" {
         .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
     );
     timer.stop();
-    std.log.warn("rgba_to_greyscale took: {}", .{timer.elapsed()});
+    log.warn("rgba_to_greyscale took: {}", .{timer.elapsed()});
     try testing.expect(timer.elapsed() > 0);
 }
 
@@ -694,7 +706,7 @@ fn cudaAllocFn(allocator: *std.mem.Allocator, n: usize, ptr_align: u29, len_alig
     return alloc(u8, n) catch |err| switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => {
-            std.log.err("Cuda error while allocating memory: {}", .{err});
+            log.err("Cuda error while allocating memory: {}", .{err});
             return error.OutOfMemory;
         },
     };

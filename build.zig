@@ -3,7 +3,13 @@ const std = @import("std");
 const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
 
-// Can be one of "ptx" or "fatbin". "cubin" don't work, because it implies a main.
+/// Can be one of "ptx" or "fatbin". "cubin" don't work, because it implies a main.
+/// Fatbin contains device specialized assembly for all GPU arch supported
+/// by this compiler. This provides faster startup time.
+/// Ptx is a high-level text assembly that can converted to GPU specialized
+/// instruction on loading.
+/// We default to .ptx because it's more easy to distribute.
+// TODO: make this a build option
 const NVCC_OUTPUT_FORMAT = "ptx";
 const CUDA_PATH = "/usr/local/cuda";
 
@@ -89,19 +95,20 @@ pub fn build(b: *Builder) void {
 ///   3. Add cuda headers, and cuda lib path
 ///   4. Add Cudaz package with the given .cu file that will get imported as C code.
 ///
-/// The .ptx file will have the same base name than the object (which is supposed to be unique)
+/// The .ptx file will have the same base name than the executable
 /// and will appear in zig-out/bin folder next to the executable.
-// TODO: allow to embed the .ptx file in the executable (and use another format probably)
+/// In release mode the .ptx will be embedded inside the executable
+/// so you can distribute it.
 fn addCudaz(
     b: *Builder,
     exe: *LibExeObjStep,
     comptime cuda_dir: []const u8,
     comptime kernel_path: [:0]const u8,
 ) void {
-    const outfile = std.mem.concat(
+    const outfile = std.mem.join(
         b.allocator,
-        u8,
-        &[_][]const u8{ exe.name, "." ++ NVCC_OUTPUT_FORMAT },
+        ".",
+        &[_][]const u8{ exe.name, NVCC_OUTPUT_FORMAT },
     ) catch unreachable;
     const kernel_ptx_path = std.fs.path.joinZ(
         b.allocator,
@@ -148,6 +155,10 @@ fn addCudazDeps(
     cudaz_options.addOption([:0]const u8, "kernel_ptx_path", kernel_ptx_path);
     cudaz_options.addOption([]const u8, "kernel_dir", kernel_dir);
     cudaz_options.addOption(bool, "cuda_kernel", std.mem.endsWith(u8, kernel_path, ".cu"));
+    // Portable mode will embed the cuda modules inside the binary.
+    // In debug mode we skip this step to have faster compilation.
+    // But this makes the debug executable dependent on a hard-coded path.
+    cudaz_options.addOption(bool, "portable", mode != .Debug);
 
     const cudaz_pkg = std.build.Pkg{
         .name = "cudaz",
@@ -158,7 +169,11 @@ fn addCudazDeps(
     };
     exe.addPackage(cudaz_pkg);
     // TODO: this is only needed for the tests in cuda.zig
-    exe.addOptions("cudaz_options", cudaz_options);
+    if (exe.root_src) |root_src| {
+        if (std.mem.eql(u8, root_src.path, "cudaz/cuda.zig")) {
+            exe.addOptions("cudaz_options", cudaz_options);
+        }
+    }
 }
 
 fn addLibpng(exe: *LibExeObjStep) void {

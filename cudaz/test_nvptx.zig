@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const cuda = @import("cudaz");
-const nvptx = cuda.nvptx;
+const nvptx = @import("nvptx.zig");
 
 test "hello_world" {
     var stream = try cuda.Stream.init(0);
