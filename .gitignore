@@ -1,4 +1,5 @@
-/cudaz/kernel.o
-/zig-cache/
-/zig-out/
+zig-cache/
+zig-out/
+
 /CS344/*/output*
+*.o
