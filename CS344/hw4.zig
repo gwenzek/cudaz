@@ -50,14 +50,13 @@ pub fn main() !void {
         @intCast(c_int, num_rowsTemplate * num_colsTemplate),
     });
 
-    // TODO: d_scores += min(d_scores)
+    // TODO
+    // d_scores += try reduce_min(&stream, d_scores);
 
-    var d_sorted_scores = try cuda.alloc(f32, d_scores.len);
-    defer cuda.free(d_sorted_scores);
     var timer = cuda.GpuTimer.init(&stream);
     timer.start();
 
-    var d_permutation = try mySort(&stream, d_sorted_scores, d_scores);
+    var d_permutation = try mySort(&stream, d_scores);
     defer cuda.free(d_permutation);
     timer.stop();
 
@@ -115,16 +114,15 @@ pub fn main() !void {
 /// between the input and output buffers we have provided.  Make sure the final
 /// sorted results end up in the output buffer!  Hint: You may need to do a copy
 /// at the end.
-pub fn mySort(stream: *const cuda.Stream, d_out_vals: []f32, d_in_vals: []const f32) ![]c_uint {
-    var coords = try range(stream, d_in_vals.len);
+pub fn mySort(stream: *const cuda.Stream, d_values: []const f32) ![]c_uint {
+    var coords = try range(stream, d_values.len);
     defer cuda.free(coords);
     var d_permutation = try cuda.alloc(c_uint, coords.len);
     try cuda.memset(c_uint, d_permutation, 0);
-    // const radix_cdf = cuda.Function("radix_cdf").init();
+    // const radix_cdf = try cuda.Function("radix_cdf").init();
     // TODO
-    _ = d_out_vals;
     // Sorting is done in several stages
-    // Sorting of small arrays is done with Radix/sort_network
+    // Sorting of small arrays is done with Radix/sortNetwork
     // Then we can merge using parallel merging
     return d_permutation;
 }
@@ -182,7 +180,7 @@ test "reduce min" {
     try testing.expectEqual(try reduce_min(&stream, d_x), -7.0);
 }
 
-pub fn sort_network(stream: *const cuda.Stream, d_data: []f32, n_threads: usize) !void {
+pub fn sortNetwork(stream: *const cuda.Stream, d_data: []f32, n_threads: usize) !void {
     const sort_net = try cuda.Function("sort_network").init();
     const grid = cuda.Grid.init1D(d_data.len, n_threads);
     try sort_net.launchWithSharedMem(
@@ -202,22 +200,153 @@ test "sorting network" {
     defer cuda.free(d_x);
 
     try cuda.memcpyHtoD(f32, d_x, &h_x);
-    try sort_network(&stream, d_x, 2);
+    try sortNetwork(&stream, d_x, 2);
     try cuda.memcpyDtoH(f32, &h_out, d_x);
     try testing.expectEqual([_]f32{ 2, 3, 0, 1, 7, 9, 5, 6 }, h_out);
 
     try cuda.memcpyHtoD(f32, d_x, &h_x);
-    try sort_network(&stream, d_x, 4);
+    try sortNetwork(&stream, d_x, 4);
     try cuda.memcpyDtoH(f32, &h_out, d_x);
     try testing.expectEqual([_]f32{ 0, 1, 2, 3, 5, 6, 7, 9 }, h_out);
 
     try cuda.memcpyHtoD(f32, d_x, &h_x);
-    try sort_network(&stream, d_x, 8);
+    try sortNetwork(&stream, d_x, 8);
     try cuda.memcpyDtoH(f32, &h_out, d_x);
     try testing.expectEqual([_]f32{ 0, 1, 2, 3, 5, 6, 7, 9 }, h_out);
 
     try cuda.memcpyHtoD(f32, d_x, &h_x);
-    try sort_network(&stream, d_x, 16);
+    try sortNetwork(&stream, d_x, 16);
     try cuda.memcpyDtoH(f32, &h_out, d_x);
     try testing.expectEqual([_]f32{ 0, 1, 2, 3, 5, 6, 7, 9 }, h_out);
+}
+
+pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) cuda.CudaError!void {
+    const n = d_values.len;
+    const grid_N = cuda.Grid.init1D(n, n_threads);
+    const N = grid_N.blocks.x;
+    var d_grid_bins = try cuda.alloc(u32, N);
+    defer cuda.free(d_grid_bins);
+    log.warn("cdf({}, {})", .{ n, N });
+    const cdfIncremental = try cuda.Function("cdf_incremental").init();
+    try cdfIncremental.launchWithSharedMem(
+        stream,
+        grid_N,
+        n_threads * @sizeOf(u32),
+        .{ d_values.ptr, d_grid_bins.ptr, @intCast(c_int, n) },
+    );
+    if (N == 1) return;
+
+    log.warn("cdf_shift({}, {})", .{ n, N });
+    try inPlaceCdf(stream, d_grid_bins, n_threads);
+    const cdfShift = try cuda.Function("cdf_incremental_shift").init();
+    try cdfShift.launch(
+        stream,
+        grid_N,
+        .{ d_values.ptr, d_grid_bins.ptr, @intCast(c_int, n) },
+    );
+}
+
+test "inPlaceCdf" {
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    const h_x = [_]u32{ 0, 2, 1, 1, 0, 1, 3, 0 };
+    var h_out = [_]u32{0} ** h_x.len;
+    const h_cdf = [_]u32{ 0, 0, 2, 3, 4, 4, 5, 8 };
+    const d_x = try cuda.alloc(u32, h_x.len);
+    defer cuda.free(d_x);
+
+    try cuda.memcpyHtoD(u32, d_x, &h_x);
+    try inPlaceCdf(&stream, d_x, 8);
+    try cuda.memcpyDtoH(u32, &h_out, d_x);
+    try testing.expectEqual(h_cdf, h_out);
+
+    try cuda.memcpyHtoD(u32, d_x, &h_x);
+    try inPlaceCdf(&stream, d_x, 16);
+    try cuda.memcpyDtoH(u32, &h_out, d_x);
+    try testing.expectEqual(h_cdf, h_out);
+
+    // Try with smaller batch sizes, forcing several passes
+    try cuda.memcpyHtoD(u32, d_x, &h_x);
+    try inPlaceCdf(&stream, d_x, 4);
+    try cuda.memcpyDtoH(u32, &h_out, d_x);
+    try testing.expectEqual(h_cdf, h_out);
+
+    try cuda.memcpyHtoD(u32, d_x, &h_x);
+    try inPlaceCdf(&stream, d_x, 2);
+    try expectEqualDeviceSlices(u32, &h_cdf, d_x, false);
+}
+
+pub fn radixSortAlloc(stream: *const cuda.Stream, d_values: []const f32) ![]u32 {
+    const findRadixSplitted = try cuda.Function("find_radix_splitted").init();
+    const updatePermutation = try cuda.Function("update_permutation").init();
+    const n = d_values.len;
+    const radix_splitted = try cuda.alloc(u32, n * 16);
+    defer cuda.free(radix_splitted);
+    var d_perm0 = try range(stream, n);
+    errdefer cuda.free(d_perm0);
+    var d_perm1 = try cuda.alloc(u32, n);
+    errdefer cuda.free(d_perm1);
+
+    var shift: u8 = 0;
+    while (shift < 32) : (shift += 4) {
+        // TODO: there is something wrong here
+        log.warn("radixSort({}, {})", .{ n, shift });
+        try findRadixSplitted.launch(
+            stream,
+            cuda.Grid.init1D(n, 1024),
+            .{
+                radix_splitted.ptr,
+                d_values.ptr,
+                d_perm0.ptr,
+                shift,
+                @intCast(c_int, n),
+            },
+        );
+        try inPlaceCdf(stream, radix_splitted, 1024);
+        try updatePermutation.launch(
+            stream,
+            cuda.Grid.init1D(n, 1024),
+            .{
+                d_perm1.ptr,
+                radix_splitted.ptr,
+                d_values.ptr,
+                d_perm0.ptr,
+                shift,
+                @intCast(c_int, n),
+            },
+        );
+        var d_perm00 = d_perm0;
+        d_perm0 = d_perm1;
+        d_perm1 = d_perm00;
+    }
+    // perm0 is the last permutation we wrote to.
+    cuda.free(d_perm1);
+    return d_perm0;
+}
+
+test "radixSort" {
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    const h_x = [_]f32{ 2, 3, 1, 0, 7, 9, 6, 5 };
+    const h_perm = [_]u32{ 2, 3, 1, 0, 6, 7, 5, 4 };
+    const d_x = try cuda.allocAndCopy(f32, &h_x);
+    defer cuda.free(d_x);
+    const d_perm = try radixSortAlloc(&stream, d_x);
+
+    try expectEqualDeviceSlices(u32, &h_perm, d_perm, true);
+}
+
+fn expectEqualDeviceSlices(
+    comptime DType: type,
+    h_expected: []const DType,
+    d_values: []const DType,
+    verbose: bool,
+) !void {
+    const allocator = std.testing.allocator;
+    const h_values = try cuda.allocAndCopyResult(DType, allocator, d_values);
+    defer allocator.free(h_values);
+    if (verbose) {
+        log.warn("Expected: {any}, got: {any}", .{ h_expected, h_values });
+    }
+    try testing.expectEqualSlices(DType, h_expected, h_values);
 }

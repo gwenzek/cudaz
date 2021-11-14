@@ -49,26 +49,45 @@ __global__ void sort_network(float* d_in, uint len) {
     d_in[ID_X] = d_block[i];
 }
 
-__global__ void find_radix(
+__global__ void find_radix_splitted(
+    uint* d_out,
     const float* d_in,
-    uchar* d_out,
+    const uint* d_permutation,
     uchar shift,
     int n
 ) {
     uint id = ID_X;
     if (id >= n) return;
-    uint x = ((uint*)d_in)[id];
-    x = x >> shift & _radix_mask;
-    d_out[id] = (uchar)x;
+    uint rad = ((uint*)d_in)[d_permutation[id]];
+    rad = rad >> shift & _radix_mask;
+    d_out[rad * n + ID_X] = 1;
 }
 
+__global__ void update_permutation(
+    uint* d_new_perm,
+    const uint* d_cdf,
+    const float* d_in,
+    const uint* d_permutation,
+    uchar shift,
+    int n
+) {
+    uint id = ID_X;
+    if (id >= n) return;
+    uint rad = ((uint*)d_in)[d_permutation[id]];
+    rad = rad >> shift & _radix_mask;
+    uint new_index = d_cdf[rad * n + ID_X];
+    d_new_perm[id] = new_index;
+}
+
+// grid1D(n, N)
+// Shapes: d_glob_bins(n), d_blocks_bins(N)
 __global__
-void radix_cdf(const uchar* d_radix, uint* h, int n) {
-    int tid = ID_X;
-    if (tid >= n) return;
-    int group = blockIdx.y;
+void cdf_incremental(uint* d_glob_bins, uint* d_block_bins, int n) {
+    int tid = threadIdx.x;
+    int global_tid = ID_X;
+    if (global_tid >= n) return;
     SHARED(d_bins, uint);
-    d_bins[tid] = d_radix[tid] == (uchar)group ? 1 : 0;
+    d_bins[tid] = d_glob_bins[global_tid];
     __syncthreads();
     // Reduce
     uint step = 1;
@@ -79,7 +98,12 @@ void radix_cdf(const uchar* d_radix, uint* h, int n) {
         __syncthreads();
     }
 
-    if (tid == n - 1) d_bins[tid] = 0;
+    if (tid == blockDim.x - 1 || global_tid == n - 1) {
+        uint total = d_bins[tid];
+        d_block_bins[blockIdx.x] = total;
+        d_bins[tid] = 0;
+    }
+    __syncthreads();
 
     // Downsweep
     for (step /= 2; step > 0; step /= 2) {
@@ -91,48 +115,13 @@ void radix_cdf(const uchar* d_radix, uint* h, int n) {
         }
         __syncthreads();
     }
-    // d_bins_out[blockIdx.y * n + ID_X] = d_bins[tid];
+    d_glob_bins[global_tid] = d_bins[tid];
 }
 
 __global__
-void cdf_vertical(uint* d_cdf, int n, int stride) {
-    int  tid = ID_X;
-    if (tid >= n) return;
-    // Here thread id correspond to a grid id in radix_cdf
-    int group = tid;
-    SHARED(d_bins, uint);
-    d_bins[tid] = d_cdf[(group + 1) * stride - 1];
-    // Reduce
-    uint step = 1;
-    for (; step < n; step *= 2) {
-        if (tid >= step && (n - 1 - tid) % (step * 2) == 0) {
-            d_bins[tid] += d_bins[tid - step];
-        }
-        __syncthreads();
-    }
-
-    if (tid == n - 1) d_bins[tid] = 0;
-
-    // Downsweep
-    for (step /= 2; step > 0; step /= 2) {
-        if (tid >= step && (n - 1 - tid) % (step * 2) == 0) {
-            uint left = d_bins[tid - step];
-            uint right = d_bins[tid];
-            d_bins[tid] = left + right;
-            d_bins[tid - step] = right;
-        }
-        __syncthreads();
-    }
-    d_cdf[group * stride] += d_bins[tid];
-}
-
-__global__
-void cdf_increment_after_vertical(uint* d_cdf, int n, int step) {
-    uint tid = ID_X;
-    uint group_start = (tid % step) * step;
-    if (tid == group_start || tid >= n) return;
-
-    d_cdf[tid] += d_cdf[group_start];
+void cdf_incremental_shift(uint* d_glob_bins, const uint* d_block_bins, int n) {
+    uint block_shift = d_block_bins[blockIdx.x];
+    d_glob_bins[ID_X] += block_shift;
 }
 
 __global__ void naive_normalized_cross_correlation(
