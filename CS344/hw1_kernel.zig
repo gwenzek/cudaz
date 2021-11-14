@@ -1,9 +1,8 @@
 const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
 const is_nvptx = builtin.cpu.arch == .nvptx64;
-const kernel: CallingConvention = if (is_nvptx) .PtxKernel else .Unspecified;
 
-pub fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(kernel) void {
+pub export fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(.PtxKernel) void {
     const i = getId_1D();
     if (i >= greyImage.len) return;
     const px = rgbaImage[i * 3 .. i * 3 + 3];
@@ -12,12 +11,6 @@ pub fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(kernel) void
     const B = @intCast(u32, px[2]);
     var grey = @divFloor(299 * R + 587 * G + 114 * B, 1000);
     greyImage[i] = @intCast(u8, grey);
-}
-
-comptime {
-    if (is_nvptx) {
-        @export(rgba_to_greyscale, .{ .name = "rgba_to_greyscale", .linkage = .Strong });
-    }
 }
 
 pub inline fn threadIdX() usize {

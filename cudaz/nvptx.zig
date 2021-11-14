@@ -1,7 +1,6 @@
 const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
 const is_nvptx = builtin.cpu.arch == .nvptx64;
-const kernel: CallingConvention = if (is_nvptx) .PtxKernel else .Unspecified;
 
 // Equivalent of Cuda's __syncthreads()
 /// Wait to all the threads in this block to reach this barrier
@@ -24,21 +23,21 @@ pub inline fn syncThreads() void {
 pub inline fn threadIdX() usize {
     if (!is_nvptx) return 0;
     var tid = asm volatile ("mov.u32 \t$0, %tid.x;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, tid);
 }
 /// threadId.y
 pub inline fn threadIdY() usize {
     var tid = asm volatile ("mov.u32 \t$0, %tid.y;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, tid);
 }
 /// threadId.z
 pub inline fn threadIdZ() usize {
     var tid = asm volatile ("mov.u32 \t$0, %tid.z;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, tid);
 }
@@ -47,21 +46,21 @@ pub inline fn threadIdZ() usize {
 pub inline fn threadDimX() usize {
     if (!is_nvptx) return 0;
     var ntid = asm volatile ("mov.u32 \t$0, %ntid.x;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, ntid);
 }
 /// threadDim.y
 pub inline fn threadDimY() usize {
     var ntid = asm volatile ("mov.u32 \t$0, %ntid.y;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, ntid);
 }
 /// threadDim.z
 pub inline fn threadDimZ() usize {
     var ntid = asm volatile ("mov.u32 \t$0, %ntid.z;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, ntid);
 }
@@ -70,21 +69,21 @@ pub inline fn threadDimZ() usize {
 pub inline fn gridIdX() usize {
     if (!is_nvptx) return 0;
     var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.x;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, ctaid);
 }
 /// gridId.y
 pub inline fn gridIdY() usize {
     var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.y;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, ctaid);
 }
 /// gridId.z
 pub inline fn gridIdZ() usize {
     var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.z;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, ctaid);
 }
@@ -92,21 +91,21 @@ pub inline fn gridIdZ() usize {
 /// gridDim.x
 pub inline fn gridDimX() usize {
     var nctaid = asm volatile ("mov.u32 \t$0, %nctaid.x;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, nctaid);
 }
 /// gridDim.y
 pub inline fn gridDimY() usize {
     var nctaid = asm volatile ("mov.u32 \t$0, %nctaid.y;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, nctaid);
 }
 /// gridDim.z
 pub inline fn gridDimZ() usize {
     var nctaid = asm volatile ("mov.u32 \t$0, %nctaid.z;"
-        : [ret] "=r" (-> u32)
+        : [ret] "=r" (-> u32),
     );
     return @intCast(usize, nctaid);
 }
@@ -134,15 +133,9 @@ pub fn getId_3D() Dim3 {
 
 const message = "Hello World !\x00";
 
-pub fn _test_hello_world(out: []u8) callconv(kernel) void {
+pub export fn _test_hello_world(out: []u8) callconv(.PtxKernel) void {
     const i = getId_1D();
     if (i > message.len or i > out.len) return;
     syncThreads();
     out[i] = message[i];
-}
-
-comptime {
-    if (is_nvptx) {
-        @export(_test_hello_world, .{ .name = "_test_hello_world", .linkage = .Strong });
-    }
 }
