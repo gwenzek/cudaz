@@ -1,5 +1,4 @@
 const std = @import("std");
-const log = std.log;
 const meta = std.meta;
 const testing = std.testing;
 const TypeInfo = std.builtin.TypeInfo;
@@ -15,6 +14,7 @@ pub const cu = @cImport({
 });
 
 pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
+const log = std.log.scoped(.Cuda);
 
 pub const Dim3 = struct {
     x: c_uint = 1,
@@ -66,6 +66,14 @@ pub const Grid = struct {
             ),
             .threads = Dim3.init(t_x, t_y, t_z),
         };
+    }
+
+    pub fn threadsPerBlock(self: *const Grid) usize {
+        return self.threads.x * self.threads.y * self.threads.z;
+    }
+
+    pub fn sharedMemPerThread(self: *const Grid, comptime ty: type, n: usize) usize {
+        return self.threadsPerBlock() * @sizeOf(ty) * n;
     }
 };
 
@@ -329,7 +337,23 @@ pub const Stream = struct {
 // TODO: return a device pointer
 pub fn alloc(comptime DestType: type, size: usize) ![]DestType {
     var int_ptr: cu.CUdeviceptr = undefined;
-    try check(cu.cuMemAlloc(&int_ptr, size * @sizeOf(DestType)));
+    const byte_size = size * @sizeOf(DestType);
+    check(cu.cuMemAlloc(&int_ptr, byte_size)) catch |err| {
+        switch (err) {
+            error.OutOfMemory => {
+                var free_mem: usize = undefined;
+                var total_mem: usize = undefined;
+                const mb = 1024 * 1024;
+                check(cu.cuMemGetInfo(&free_mem, &total_mem)) catch return err;
+                log.err(
+                    "Cuda OutOfMemory: tried to allocate {d:.1}Mb, free {d:.1}Mb, total {d:.1}Mb",
+                    .{ byte_size / mb, free_mem / mb, total_mem / mb },
+                );
+                return err;
+            },
+            else => return err,
+        }
+    };
     var ptr = @intToPtr([*]DestType, int_ptr);
     return ptr[0..size];
 }
@@ -557,7 +581,7 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
             if (args.len != @typeInfo(Args).Struct.fields.len) {
                 @compileError("Expected more arguments");
             }
-            try stream.launch(self.f, grid, args);
+            try self.launchWithSharedMem(stream, grid, 0, args);
         }
 
         pub fn launchWithSharedMem(self: *const Self, stream: *const Stream, grid: Grid, shared_mem: usize, args: Args) !void {
@@ -760,3 +784,17 @@ fn cudaResizeFn(allocator: *std.mem.Allocator, buf: []u8, buf_align: u29, new_le
 //     // try std.heap.testAllocator(cuda_allocator);
 //     // TODO: find some tests to do
 // }
+
+test "nice error when OOM" {
+    var stream = try Stream.init(0);
+    defer stream.deinit();
+    var last_err: anyerror = undefined;
+    while (true) {
+        _ = alloc(u8, 1024 * 1024) catch |err| {
+            last_err = err;
+            break;
+        };
+    }
+    try testing.expectEqual(last_err, error.OutOfMemory);
+    // TODO: release the cuda memory
+}
