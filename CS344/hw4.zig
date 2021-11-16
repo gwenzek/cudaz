@@ -1,5 +1,5 @@
 const std = @import("std");
-const log = std.log;
+// const log = std.log;
 const math = std.math;
 const testing = std.testing;
 const assert = std.debug.assert;
@@ -13,6 +13,8 @@ const png = @import("png.zig");
 const utils = @import("utils.zig");
 
 const resources_dir = "CS344/hw4_resources/";
+
+const log = std.log.scoped(.HW4);
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -127,11 +129,18 @@ pub fn mySort(stream: *const cuda.Stream, d_values: []const f32) ![]c_uint {
     return d_permutation;
 }
 
-pub fn range(stream: *const cuda.Stream, len: usize) ![]c_uint {
+pub fn range(stream: *const cuda.Stream, len: usize) ![]u32 {
     var coords = try cuda.alloc(c_uint, len);
     const rangeFn = try cuda.Function("range").init();
     try rangeFn.launch(stream, cuda.Grid.init1D(len, 64), .{ coords.ptr, @intCast(c_uint, len) });
     return coords;
+}
+
+test "range" {
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    var numbers = try range(&stream, 5);
+    try expectEqualDeviceSlices(u32, &[_]u32{ 0, 1, 2, 3, 4 }, numbers);
 }
 
 /// Finds the minimum value of the given input slice.
@@ -226,7 +235,7 @@ pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) c
     const N = grid_N.blocks.x;
     var d_grid_bins = try cuda.alloc(u32, N);
     defer cuda.free(d_grid_bins);
-    log.warn("cdf({}, {})", .{ n, N });
+    log.debug("cdf({}, {})", .{ n, N });
     const cdfIncremental = try cuda.Function("cdf_incremental").init();
     try cdfIncremental.launchWithSharedMem(
         stream,
@@ -236,7 +245,7 @@ pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) c
     );
     if (N == 1) return;
 
-    log.warn("cdf_shift({}, {})", .{ n, N });
+    log.debug("cdf_shift({}, {})", .{ n, N });
     try inPlaceCdf(stream, d_grid_bins, n_threads);
     const cdfShift = try cuda.Function("cdf_incremental_shift").init();
     try cdfShift.launch(
@@ -273,80 +282,251 @@ test "inPlaceCdf" {
 
     try cuda.memcpyHtoD(u32, d_x, &h_x);
     try inPlaceCdf(&stream, d_x, 2);
-    try expectEqualDeviceSlices(u32, &h_cdf, d_x, false);
+    try expectEqualDeviceSlices(u32, &h_cdf, d_x);
 }
 
-pub fn radixSortAlloc(stream: *const cuda.Stream, d_values: []const f32) ![]u32 {
-    const findRadixSplitted = try cuda.Function("find_radix_splitted").init();
-    const updatePermutation = try cuda.Function("update_permutation").init();
+pub fn radixSortAlloc(stream: *const cuda.Stream, d_values: []const u32) ![]u32 {
     const n = d_values.len;
-    const radix_splitted = try cuda.alloc(u32, n * 16);
-    defer cuda.free(radix_splitted);
+    const mask: u8 = 0b1111;
+    const mask_bits: u8 = 8 - @clz(u8, mask);
+
+    const d_radix = try cuda.alloc(u32, n * (mask + 1));
+    defer cuda.free(d_radix);
     var d_perm0 = try range(stream, n);
     errdefer cuda.free(d_perm0);
     var d_perm1 = try cuda.alloc(u32, n);
     errdefer cuda.free(d_perm1);
 
-    var shift: u8 = 0;
-    while (shift < 32) : (shift += 4) {
-        // TODO: there is something wrong here
-        log.warn("radixSort({}, {})", .{ n, shift });
-        try findRadixSplitted.launch(
-            stream,
-            cuda.Grid.init1D(n, 1024),
-            .{
-                radix_splitted.ptr,
-                d_values.ptr,
-                d_perm0.ptr,
-                shift,
-                @intCast(c_int, n),
-            },
-        );
-        try inPlaceCdf(stream, radix_splitted, 1024);
-        try updatePermutation.launch(
-            stream,
-            cuda.Grid.init1D(n, 1024),
-            .{
-                d_perm1.ptr,
-                radix_splitted.ptr,
-                d_values.ptr,
-                d_perm0.ptr,
-                shift,
-                @intCast(c_int, n),
-            },
-        );
-        var d_perm00 = d_perm0;
-        d_perm0 = d_perm1;
-        d_perm1 = d_perm00;
+    log.warn("radixSort(n={}, mask_bits={}, mask={})", .{ n, mask_bits, mask });
+    // Unroll the loop at compile time.
+    comptime var shift: u8 = 0;
+    inline while (shift < 32) {
+        try _radixSort(stream, d_values, d_perm0, d_perm1, d_radix, shift, mask);
+        shift += mask_bits;
+        if (shift >= 32) {
+            cuda.free(d_perm0);
+            return d_perm1;
+        }
+        try _radixSort(stream, d_values, d_perm1, d_perm0, d_radix, shift, mask);
+        shift += mask_bits;
     }
-    // perm0 is the last permutation we wrote to.
     cuda.free(d_perm1);
     return d_perm0;
+}
+
+fn _radixSort(
+    stream: *const cuda.Stream,
+    d_values: []const u32,
+    d_perm0: []const u32,
+    d_perm1: []u32,
+    d_radix: []u32,
+    shift: u8,
+    mask: u8,
+) !void {
+    const n = d_values.len;
+    // TODO: this should be done only once
+    const findRadixSplitted = try cuda.Function("find_radix_splitted").init();
+    const updatePermutation = try cuda.Function("update_permutation").init();
+    try cuda.memset(u32, d_radix, 0);
+    debugDevice("d_values", d_values);
+    debugDevice("d_perm0", d_perm0);
+    log.debug("radixSort(n={}, shift={}, mask={})", .{ n, shift, mask });
+    try findRadixSplitted.launch(
+        stream,
+        cuda.Grid.init1D(n, 1024),
+        .{
+            d_radix.ptr,
+            d_values.ptr,
+            d_perm0.ptr,
+            shift,
+            mask,
+            @intCast(c_int, n),
+        },
+    );
+    debugDevice("d_radix", d_radix);
+    try inPlaceCdf(stream, d_radix, 1024);
+    debugDevice("d_radix + cdf", d_radix);
+    try updatePermutation.launch(
+        stream,
+        cuda.Grid.init1D(n, 1024),
+        .{
+            d_perm1.ptr,
+            d_radix.ptr,
+            d_values.ptr,
+            d_perm0.ptr,
+            shift,
+            mask,
+            @intCast(c_int, n),
+        },
+    );
+    debugDevice("d_perm1", d_perm1);
+}
+
+test "findRadixSplitted" {
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    const h_x0 = [_]u32{ 0b10, 0b01, 0b00 };
+    const n = h_x0.len;
+    const d_values = try cuda.allocAndCopy(u32, &h_x0);
+    defer cuda.free(d_values);
+    const findRadixSplitted = try cuda.Function("find_radix_splitted").init();
+    const d_radix = try cuda.alloc(u32, 2 * n);
+    defer cuda.free(d_radix);
+    try cuda.memset(u32, d_radix, 0);
+    const d_perm0 = try range(&stream, n);
+    defer cuda.free(d_perm0);
+
+    try findRadixSplitted.launch(
+        &stream,
+        cuda.Grid.init1D(n, 1024),
+        .{ d_radix.ptr, d_values.ptr, d_perm0.ptr, 0, @intCast(c_uint, 0b1), @intCast(c_int, n) },
+    );
+    try expectEqualDeviceSlices(u32, &[_]u32{ 1, 0, 1, 0, 1, 0 }, d_radix);
+
+    try cuda.memset(u32, d_radix, 0);
+    try findRadixSplitted.launch(
+        &stream,
+        cuda.Grid.init1D(n, 1024),
+        .{ d_radix.ptr, d_values.ptr, d_perm0.ptr, 1, @intCast(c_uint, 0b1), @intCast(c_int, n) },
+    );
+    try expectEqualDeviceSlices(u32, &[_]u32{ 0, 1, 1, 1, 0, 0 }, d_radix);
+
+    try cuda.memcpyHtoD(u32, d_perm0, &[_]u32{ 0, 2, 1 });
+    // values: { 0b10, 0b01, 0b00 }; perm: {0, 2, 1}
+    try cuda.memset(u32, d_radix, 0);
+    try findRadixSplitted.launch(
+        &stream,
+        cuda.Grid.init1D(n, 1024),
+        .{ d_radix.ptr, d_values.ptr, d_perm0.ptr, 0, @intCast(c_uint, 0b1), @intCast(c_int, n) },
+    );
+    try expectEqualDeviceSlices(u32, &[_]u32{ 1, 1, 0, 0, 0, 1 }, d_radix);
+
+    try cuda.memset(u32, d_radix, 0);
+    try findRadixSplitted.launch(
+        &stream,
+        cuda.Grid.init1D(n, 1024),
+        .{ d_radix.ptr, d_values.ptr, d_perm0.ptr, 1, @intCast(c_uint, 0b1), @intCast(c_int, n) },
+    );
+    try expectEqualDeviceSlices(u32, &[_]u32{ 0, 1, 1, 1, 0, 0 }, d_radix);
+}
+
+test "_radixSort" {
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    const h_x0 = [_]u32{ 0b10, 0b01, 0b00 };
+    const n = h_x0.len;
+    const d_values = try cuda.allocAndCopy(u32, &h_x0);
+    defer cuda.free(d_values);
+    const d_radix = try cuda.alloc(u32, 2 * n);
+    defer cuda.free(d_radix);
+    const d_perm0 = try range(&stream, n);
+    defer cuda.free(d_perm0);
+    const d_perm1 = try range(&stream, n);
+    defer cuda.free(d_perm1);
+
+    try _radixSort(&stream, d_values, d_perm0, d_perm1, d_radix, 0, 0b1);
+    // d_radix before cdf = { 1, 0, 1, 0, 1, 0 }
+    try expectEqualDeviceSlices(u32, &[_]u32{ 0, 1, 1, 2, 2, 3 }, d_radix);
+    try expectEqualDeviceSlices(u32, &[_]u32{ 0, 2, 1 }, d_perm1);
+
+    try _radixSort(&stream, d_values, d_perm0, d_perm1, d_radix, 1, 0b1);
+    // d_radix before cdf = { 0, 1, 1, 1, 0, 0 }
+    try expectEqualDeviceSlices(u32, &[_]u32{ 0, 0, 1, 2, 3, 3 }, d_radix);
+    try expectEqualDeviceSlices(u32, &[_]u32{ 2, 0, 1 }, d_perm1);
+
+    try cuda.memcpyHtoD(u32, d_perm0, &[_]u32{ 0, 2, 1 });
+    try _radixSort(&stream, d_values, d_perm0, d_perm1, d_radix, 0, 0b1);
+    // d_radix before cdf = { 1, 1, 0, 0, 0, 1 }
+    try expectEqualDeviceSlices(u32, &[_]u32{ 0, 1, 2, 2, 2, 2 }, d_radix);
+    try expectEqualDeviceSlices(u32, &[_]u32{ 0, 2, 1 }, d_perm1);
+
+    try _radixSort(&stream, d_values, d_perm0, d_perm1, d_radix, 1, 0b1);
+    // d_radix before cdf = { 0, 1, 1, 1, 0, 0 }
+    try expectEqualDeviceSlices(u32, &[6]u32{ 0, 0, 1, 2, 3, 3 }, d_radix);
+    try expectEqualDeviceSlices(u32, &[_]u32{ 2, 1, 0 }, d_perm1);
+}
+
+test "updatePermutation" {
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    const updatePermutation = try cuda.Function("update_permutation").init();
+
+    const h_x0 = [_]u32{ 0b1000, 0b0001 };
+    const n = h_x0.len;
+    const d_values = try cuda.allocAndCopy(u32, &h_x0);
+    defer cuda.free(d_values);
+
+    var d_radix = try cuda.allocAndCopy(u32, &[_]u32{ 0, 1, 1, 1, 2, 2, 2, 2 });
+    defer cuda.free(d_radix);
+    var d_perm0 = try range(&stream, n);
+    defer cuda.free(d_perm0);
+    const d_perm1 = try range(&stream, n);
+    defer cuda.free(d_perm1);
+
+    try updatePermutation.launch(
+        &stream,
+        cuda.Grid.init1D(n, 1024),
+        .{
+            d_perm1.ptr,
+            d_radix.ptr,
+            d_values.ptr,
+            d_perm0.ptr,
+            0,
+            @intCast(c_uint, 0b11),
+            @intCast(c_int, n),
+        },
+    );
+    // TODO test with a harder permutation
 }
 
 test "radixSort" {
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
-    const h_x = [_]f32{ 2, 3, 1, 0, 7, 9, 6, 5 };
-    const h_perm = [_]u32{ 2, 3, 1, 0, 6, 7, 5, 4 };
-    const d_x = try cuda.allocAndCopy(f32, &h_x);
+    const h_x0 = [_]u32{ 2, 3, 1, 0, 6, 7, 5, 4 };
+    // h_x should be it's own permutation, since there is only consecutive integers
+    const expected = [_]u32{ 2, 3, 1, 0, 6, 7, 5, 4 };
+    const d_x = try cuda.allocAndCopy(u32, &h_x0);
     defer cuda.free(d_x);
-    const d_perm = try radixSortAlloc(&stream, d_x);
+    var d_perm0 = try radixSortAlloc(&stream, d_x);
+    defer cuda.free(d_perm0);
+    try expectEqualDeviceSlices(u32, &expected, d_perm0);
 
-    try expectEqualDeviceSlices(u32, &h_perm, d_perm, true);
+    const h_x1 = [_]u32{ 1073741824, 1077936128, 1065353216, 0, 1088421888, 1091567616, 1086324736, 1084227584 };
+    try cuda.memcpyHtoD(u32, d_x, &h_x1);
+    var d_perm1 = try radixSortAlloc(&stream, d_x);
+    try expectEqualDeviceSlices(u32, &expected, d_perm1);
+
+    // With floats !
+    const h_x2 = [_]f32{ 2, 3, 1, 0, 6, 7, 5, 4 };
+    try cuda.memcpyHtoD(u32, d_x, bitCastU32(&h_x2));
+    var d_perm2 = try radixSortAlloc(&stream, d_x);
+    try expectEqualDeviceSlices(u32, &expected, d_perm2);
+}
+
+fn bitCastU32(data: anytype) []const u32 {
+    return @ptrCast([*]const u32, data)[0..data.len];
 }
 
 fn expectEqualDeviceSlices(
     comptime DType: type,
     h_expected: []const DType,
     d_values: []const DType,
-    verbose: bool,
 ) !void {
     const allocator = std.testing.allocator;
     const h_values = try cuda.allocAndCopyResult(DType, allocator, d_values);
     defer allocator.free(h_values);
-    if (verbose) {
-        log.warn("Expected: {any}, got: {any}", .{ h_expected, h_values });
-    }
-    try testing.expectEqualSlices(DType, h_expected, h_values);
+    testing.expectEqualSlices(DType, h_expected, h_values) catch |err| {
+        log.debug("Expected: {any}, got: {any}", .{ h_expected, h_values });
+        return err;
+    };
+}
+
+fn debugDevice(
+    name: []const u8,
+    d_values: anytype,
+) void {
+    const DType = std.meta.Elem(@TypeOf(d_values));
+    var h = cuda.allocAndCopyResult(DType, testing.allocator, d_values) catch unreachable;
+    defer testing.allocator.free(h);
+    log.debug("{s} -> {any}", .{ name, h });
 }

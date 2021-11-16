@@ -5,8 +5,6 @@
 extern "C" {
 #endif
 
-const uint _radix_mask = (2 << 4) - 1;
-
 __device__ uchar readChannel(const uchar3* d_pixels, int offset, uint channel) {
     uchar* channel_ptr = (uchar*)d_pixels;
     return channel_ptr[3 * offset + channel];
@@ -51,32 +49,36 @@ __global__ void sort_network(float* d_in, uint len) {
 
 __global__ void find_radix_splitted(
     uint* d_out,
-    const float* d_in,
+    const uint* d_in,
     const uint* d_permutation,
     uchar shift,
+    uchar mask,
     int n
 ) {
-    uint id = ID_X;
-    if (id >= n) return;
-    uint rad = ((uint*)d_in)[d_permutation[id]];
-    rad = rad >> shift & _radix_mask;
-    d_out[rad * n + ID_X] = 1;
+    uint tid = ID_X;
+    if (tid >= n) return;
+    uint id = d_permutation[tid];
+    uint rad = ((uint*)d_in)[tid];
+    rad = (rad >> shift) & mask;
+    d_out[rad * n + id] = 1;
 }
 
 __global__ void update_permutation(
     uint* d_new_perm,
     const uint* d_cdf,
-    const float* d_in,
+    const uint* d_in,
     const uint* d_permutation,
     uchar shift,
+    uchar mask,
     int n
 ) {
-    uint id = ID_X;
-    if (id >= n) return;
-    uint rad = ((uint*)d_in)[d_permutation[id]];
-    rad = rad >> shift & _radix_mask;
-    uint new_index = d_cdf[rad * n + ID_X];
-    d_new_perm[id] = new_index;
+    uint tid = ID_X;
+    if (tid >= n) return;
+    uint id = d_permutation[tid];
+    uint rad = ((uint*)d_in)[tid];
+    rad = rad >> shift & mask;
+    uint new_id = d_cdf[rad * n + id];
+    d_new_perm[tid] = new_id;
 }
 
 // grid1D(n, N)
@@ -214,6 +216,7 @@ __global__ void naive_normalized_cross_correlation(
     d_response[image_index_1d] = result_value;
   }
 }
+
 
 __global__
 void reduce_min(const float* d_in, float* d_out, int num_pixels)

@@ -367,7 +367,11 @@ pub fn allocAndCopy(comptime DestType: type, h_source: []const DestType) ![]Dest
     return ptr;
 }
 
-pub fn allocAndCopyResult(comptime DestType: type, allocator: *std.mem.Allocator, d_source: []const DestType) ![]DestType {
+pub fn allocAndCopyResult(
+    comptime DestType: type,
+    allocator: *std.mem.Allocator,
+    d_source: []const DestType,
+) ![]DestType {
     var h_tgt = try allocator.alloc(DestType, d_source.len);
     try memcpyDtoH(DestType, h_tgt, d_source);
     return h_tgt;
@@ -543,13 +547,16 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
             var f: cu.CUfunction = undefined;
             try check(cu.cuModuleGetFunction(&f, defaultModule(), name));
             var res = Self{ .f = f };
-            log.info("Loaded function {}", .{res});
+            log.info("Loaded function {}@{}", .{ res, f });
             return res;
         }
 
         // TODO: deinit -> CUDestroy
 
         pub fn launch(self: *const Self, stream: *const Stream, grid: Grid, args: Args) !void {
+            if (args.len != @typeInfo(Args).Struct.fields.len) {
+                @compileError("Expected more arguments");
+            }
             try stream.launch(self.f, grid, args);
         }
 

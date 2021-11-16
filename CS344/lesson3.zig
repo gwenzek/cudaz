@@ -23,11 +23,11 @@ fn main_reduce(stream: *const cuda.Stream, gpa: *std.mem.Allocator) !void {
     var h_in = try gpa.alloc(f32, array_size);
     defer gpa.free(h_in);
     log.debug("h_in = {*}", .{h_in.ptr});
-    var prng = std.rand.DefaultPrng.init(0);
+    var prng = std.rand.DefaultPrng.init(0).random();
     var sum: f32 = 0.0;
     for (h_in) |*value| {
         // generate random float in [-1.0f, 1.0f]
-        var v = -1.0 + prng.random.float(f32) * 2.0;
+        var v = -1.0 + prng.float(f32) * 2.0;
         value.* = v;
         sum += v;
     }
