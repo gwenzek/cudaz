@@ -8,6 +8,10 @@
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 #define CLAMP(x, n) MIN(n - 1, MAX(0, x))
 
+// Get the last valid thread id in this block
+// The last block often contains thread id that goes above the input size
+#define LAST_TID(n) (blockIdx.x == gridDim.x - 1) ? (n-1) % blockDim.x : blockDim.x - 1;
+
 #ifdef __cplusplus
 // This is only seen by nvcc, not by Zig
 

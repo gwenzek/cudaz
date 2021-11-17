@@ -86,21 +86,22 @@ __global__ void update_permutation(
 __global__
 void cdf_incremental(uint* d_glob_bins, uint* d_block_bins, int n) {
     int tid = threadIdx.x;
-    int global_tid = ID_X;
-    if (global_tid >= n) return;
+    int global_id = ID_X;
+    if (global_id >= n) return;
+    int last_tid = LAST_TID(n);
     SHARED(d_bins, uint);
-    d_bins[tid] = d_glob_bins[global_tid];
+    d_bins[tid] = d_glob_bins[global_id];
     __syncthreads();
     // Reduce
     uint step = 1;
-    for (; step < n; step *= 2) {
-        if (tid >= step && (n - 1 - tid) % (step * 2) == 0) {
+    for (; step <= last_tid; step *= 2) {
+        if (tid >= step && (last_tid - tid) % (step * 2) == 0) {
             d_bins[tid] += d_bins[tid - step];
         }
         __syncthreads();
     }
 
-    if (tid == blockDim.x - 1 || global_tid == n - 1) {
+    if (tid == last_tid) {
         uint total = d_bins[tid];
         d_block_bins[blockIdx.x] = total;
         d_bins[tid] = 0;
@@ -109,7 +110,7 @@ void cdf_incremental(uint* d_glob_bins, uint* d_block_bins, int n) {
 
     // Downsweep
     for (step /= 2; step > 0; step /= 2) {
-        if (tid >= step && (n - 1 - tid) % (step * 2) == 0) {
+        if (tid >= step && (last_tid - tid) % (step * 2) == 0) {
             uint left = d_bins[tid - step];
             uint right = d_bins[tid];
             d_bins[tid] = left + right;
@@ -117,7 +118,7 @@ void cdf_incremental(uint* d_glob_bins, uint* d_block_bins, int n) {
         }
         __syncthreads();
     }
-    d_glob_bins[global_tid] = d_bins[tid];
+    d_glob_bins[global_id] = d_bins[tid];
 }
 
 __global__
@@ -363,7 +364,7 @@ __global__ void remove_redness(
     uint pixel_id = ID_X;
     if (pixel_id > imgSize) return;
 
-    // d_out[pixel_id] = (uchar3){0, 0, 0};
+    d_out[pixel_id] = d_rgb[pixel_id];
     uint ranking = d_perm[pixel_id];
     if (ranking < imgSize - num_coordinates) return;
     // d_out[pixel_id].x = 0x00;

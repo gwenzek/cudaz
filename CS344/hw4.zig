@@ -112,7 +112,7 @@ pub fn main() !void {
 
     const d_perm_min = try reduce(&stream, k.minU32, d_permutation);
     const d_perm_max = try reduce(&stream, k.maxU32, d_permutation);
-    log.info("Permutation ranges from {} to {} (expected 0 to {})", .{ d_perm_min, d_perm_max, d_permutation.len });
+    log.info("Permutation ranges from {} to {} (expected 0 to {})", .{ d_perm_min, d_perm_max, d_permutation.len - 1 });
 
     try stream.synchronize();
     std.log.info("Your code ran in: {d:.1} msecs.", .{timer.elapsed() * 1000});
@@ -123,7 +123,7 @@ pub fn main() !void {
         d_permutation.ptr,
         d_img.ptr,
         d_out.ptr,
-        100000,
+        100,
         @intCast(c_int, num_rows),
         @intCast(c_int, num_cols),
         @intCast(c_int, @divFloor(num_rows_template, 2)),
@@ -258,10 +258,15 @@ test "sorting network" {
 pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) cuda.CudaError!void {
     const n = d_values.len;
     const grid_N = cuda.Grid.init1D(n, n_threads);
-    const N = grid_N.blocks.x;
-    var d_grid_bins = try cuda.alloc(u32, N);
+    const n_blocks = grid_N.blocks.x;
+    var d_grid_bins = try cuda.alloc(u32, n_blocks);
     defer cuda.free(d_grid_bins);
-    log.debug("cdf({}, {})", .{ n, N });
+    log.debug("cdf(n={}, n_threads={}, n_blocks={})", .{ n, n_threads, n_blocks });
+    var n_threads_pow_2 = n_threads;
+    while (n_threads_pow_2 > 1) {
+        std.debug.assert(n_threads_pow_2 % 2 == 0);
+        n_threads_pow_2 /= 2;
+    }
     try k.cdfIncremental.launchWithSharedMem(
         stream,
         grid_N,
@@ -271,7 +276,7 @@ pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) c
     var d_cdf_min = try reduce(stream, k.minU32, d_values);
     var d_cdf_max = try reduce(stream, k.maxU32, d_values);
     log.info("Cdf ranges from {} to {}", .{ d_cdf_min, d_cdf_max });
-    if (N == 1) return;
+    if (n_blocks == 1) return;
 
     // log.debug("cdf_shift({}, {})", .{ n, N });
     try inPlaceCdf(stream, d_grid_bins, n_threads);
@@ -288,30 +293,25 @@ pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) c
 test "inPlaceCdf" {
     var stream = initStreamWithModule(0);
     defer stream.deinit();
-    const h_x = [_]u32{ 0, 2, 1, 1, 0, 1, 3, 0 };
+    const h_x = [_]u32{ 0, 2, 1, 1, 0, 1, 3, 0, 2 };
     var h_out = [_]u32{0} ** h_x.len;
-    const h_cdf = [_]u32{ 0, 0, 2, 3, 4, 4, 5, 8 };
+    const h_cdf = [_]u32{ 0, 0, 2, 3, 4, 4, 5, 8, 8 };
     const d_x = try cuda.alloc(u32, h_x.len);
     defer cuda.free(d_x);
-
-    try cuda.memcpyHtoD(u32, d_x, &h_x);
-    try inPlaceCdf(&stream, d_x, 8);
-    try cuda.memcpyDtoH(u32, &h_out, d_x);
-    try testing.expectEqual(h_cdf, h_out);
 
     try cuda.memcpyHtoD(u32, d_x, &h_x);
     try inPlaceCdf(&stream, d_x, 16);
     try cuda.memcpyDtoH(u32, &h_out, d_x);
     try testing.expectEqual(h_cdf, h_out);
 
-    // Try with smaller batch sizes, forcing several passes
     try cuda.memcpyHtoD(u32, d_x, &h_x);
-    try inPlaceCdf(&stream, d_x, 4);
+    try inPlaceCdf(&stream, d_x, 8);
     try cuda.memcpyDtoH(u32, &h_out, d_x);
     try testing.expectEqual(h_cdf, h_out);
 
+    // Try with smaller batch sizes, forcing several passes
     try cuda.memcpyHtoD(u32, d_x, &h_x);
-    try inPlaceCdf(&stream, d_x, 3);
+    try inPlaceCdf(&stream, d_x, 4);
     try cuda.memcpyDtoH(u32, &h_out, d_x);
     try testing.expectEqual(h_cdf, h_out);
 
