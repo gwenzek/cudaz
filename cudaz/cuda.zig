@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const meta = std.meta;
 const testing = std.testing;
 const TypeInfo = std.builtin.TypeInfo;
@@ -314,7 +315,14 @@ pub const Stream = struct {
             null,
         );
         try check(res);
-        try self.synchronize();
+        if (builtin.mode == .Debug) {
+            // In CUDA operation are asynchronous.
+            // The consequence is that an error in a kernel will only be
+            // returned later on. In debug mode we want to know which
+            // kernel is responsible for which error, so we have to wait
+            // for this kernel to end before scheduling another.
+            try self.synchronize();
+        }
     }
 
     pub fn synchronize(self: *const Stream) !void {
@@ -785,16 +793,16 @@ fn cudaResizeFn(allocator: *std.mem.Allocator, buf: []u8, buf_align: u29, new_le
 //     // TODO: find some tests to do
 // }
 
-test "nice error when OOM" {
-    var stream = try Stream.init(0);
-    defer stream.deinit();
-    var last_err: anyerror = undefined;
-    while (true) {
-        _ = alloc(u8, 1024 * 1024) catch |err| {
-            last_err = err;
-            break;
-        };
-    }
-    try testing.expectEqual(last_err, error.OutOfMemory);
-    // TODO: release the cuda memory
-}
+// test "nice error when OOM" {
+//     var stream = try Stream.init(0);
+//     defer stream.deinit();
+//     var last_err: anyerror = undefined;
+//     while (true) {
+//         _ = alloc(u8, 1024 * 1024) catch |err| {
+//             last_err = err;
+//             break;
+//         };
+//     }
+//     try testing.expectEqual(last_err, error.OutOfMemory);
+//     // TODO: release the cuda memory
+// }
