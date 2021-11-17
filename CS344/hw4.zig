@@ -73,6 +73,7 @@ pub fn main() !void {
     log.info("Loaded template: {}x{}", .{ num_rows_template, num_cols_template });
     const d_scores = try cuda.alloc(f32, num_rows * num_cols);
 
+    try test_naive_normalized_cross_correlation(&stream, d_template, num_rows_template, num_cols_template);
     // Create a 2D grid for the image and use the last dimension for the channel (R, G, B)
     const gridWithChannel = cuda.Grid.init3D(num_cols, num_rows, 3, 32, 1, 3);
     log.info("crossCorrelation({}, {},)", .{ gridWithChannel, gridWithChannel.sharedMemPerThread(f32, 1) });
@@ -123,11 +124,11 @@ pub fn main() !void {
         d_permutation.ptr,
         d_img.ptr,
         d_out.ptr,
-        100,
+        30,
         @intCast(c_int, num_rows),
         @intCast(c_int, num_cols),
-        @intCast(c_int, @divFloor(num_rows_template, 2)),
-        @intCast(c_int, @divFloor(num_cols_template, 2)),
+        9, // We use something smaller than the full template
+        9, // to only edit the pupil and not the rest of the eye
     });
 
     try cuda.memcpyDtoH(cu.uchar3, utils.asUchar3(img), d_out);
@@ -521,6 +522,45 @@ test "radixSort" {
     try expectEqualDeviceSlices(u32, &expected, d_perm2);
 }
 
+fn test_naive_normalized_cross_correlation(
+    stream: *const cuda.Stream,
+    d_template: []const cu.uchar3,
+    num_rows: usize,
+    num_cols: usize,
+) !void {
+    try testing.expectEqual(num_rows, num_cols);
+    const half_height = @divFloor(num_rows, 2);
+    log.info("Loaded template: {}x{}", .{ num_rows, num_rows });
+    const d_scores = try cuda.alloc(f32, num_rows * num_rows);
+    defer cuda.free(d_scores);
+
+    const gridWithChannel = cuda.Grid.init3D(num_rows, num_rows, 3, 32, 1, 3);
+    // Auto cross-correlation
+    log.info("crossCorrelation({}, {},)", .{ gridWithChannel, gridWithChannel.sharedMemPerThread(f32, 1) });
+    try k.crossCorrelation.launchWithSharedMem(
+        stream,
+        gridWithChannel,
+        gridWithChannel.sharedMemPerThread(f32, 1),
+        .{
+            d_scores.ptr,
+            d_template.ptr,
+            d_template.ptr,
+            @intCast(c_int, num_rows),
+            @intCast(c_int, num_rows),
+            @intCast(c_int, num_rows),
+            @intCast(c_int, half_height),
+            @intCast(c_int, num_rows),
+            @intCast(c_int, half_height),
+            @intCast(c_int, num_rows * num_rows),
+        },
+    );
+    debugDevice("auto_corr", d_scores);
+    // Should be maximal at the center
+    const center_corr = try cuda.readResult(f32, &d_scores[num_rows * half_height + half_height]);
+    const max_corr = try reduce(stream, k.max, d_scores);
+    try testing.expectEqual(max_corr, center_corr);
+}
+
 fn bitCastU32(data: anytype) []const u32 {
     return @ptrCast([*]const u32, data)[0..data.len];
 }
@@ -558,6 +598,7 @@ const Kernels = struct {
     findRadixSplitted: cuda.Function("find_radix_splitted"),
     rangeFn: cuda.Function("range"),
     min: cuda.Function("reduce_min"),
+    max: cuda.Function("reduce_max"),
     minU32: cuda.Function("reduce_min_u32"),
     maxU32: cuda.Function("reduce_max_u32"),
     removeRedness: cuda.Function("remove_redness"),
@@ -578,6 +619,7 @@ fn initStreamWithModule(device: u8) cuda.Stream {
         .findRadixSplitted = @TypeOf(k.findRadixSplitted).init() catch unreachable,
         .rangeFn = @TypeOf(k.rangeFn).init() catch unreachable,
         .min = @TypeOf(k.min).init() catch unreachable,
+        .max = @TypeOf(k.max).init() catch unreachable,
         .minU32 = @TypeOf(k.minU32).init() catch unreachable,
         .maxU32 = @TypeOf(k.maxU32).init() catch unreachable,
         .removeRedness = @TypeOf(k.removeRedness).init() catch unreachable,

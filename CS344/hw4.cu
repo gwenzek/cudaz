@@ -141,14 +141,13 @@ __global__ void naive_normalized_cross_correlation(
 ) {
     int ny = num_pixels_y;
     int nx = num_pixels_x;
-    int knx = template_width;
     int2 image_index_2d = {(int)(ID_X), (int)(ID_Y)};
-    uint channel = threadIdx.z;
-    int image_index_1d = (nx * image_index_2d.y) + image_index_2d.x;
-
     if (image_index_2d.x >= nx || image_index_2d.y >= ny) return;
+
+    uint channel = threadIdx.z;
+    int image_index_1d = FLAT_ID_2D(image_index_2d.x, image_index_2d.y, nx);
     uchar original = readChannel(d_original, image_index_1d, channel);
-    d_response[image_index_1d] = (float)original;
+
     // compute image mean
     float image_sum = 0.0f;
     float template_sum = 0.0f;
@@ -163,15 +162,14 @@ __global__ void naive_normalized_cross_correlation(
             uchar original = readChannel(d_original, image_offset_index_1d, channel);
             image_sum += (float)original;
             int2 template_index_2d = {x + template_half_width, y + template_half_height};
-            int template_index_1d = (knx * template_index_2d.y) + template_index_2d.x;
+            int template_index_1d = (template_width * template_index_2d.y) + template_index_2d.x;
             uchar template_value = readChannel(d_template, template_index_1d, channel);
             template_sum += (float)template_value;
         }
     }
-
     float template_mean = template_sum / (float)template_size;
     float image_mean = image_sum / (float)template_size;
-    d_response[image_index_1d] = template_sum;
+
     // compute sums
     float sum_of_image_template_diff_products = 0.0f;
     float sum_of_squared_image_diffs = 0.0f;
@@ -191,7 +189,7 @@ __global__ void naive_normalized_cross_correlation(
         float image_diff = (float)image_offset_value - image_mean;
 
         int2 template_index_2d = {x + template_half_width, y + template_half_height};
-        int template_index_1d = (knx * template_index_2d.y) + template_index_2d.x;
+        int template_index_1d = (template_width * template_index_2d.y) + template_index_2d.x;
         uchar template_value = readChannel(d_template, template_index_1d, channel);
         float template_diff = template_value - template_mean;
 
@@ -210,7 +208,7 @@ __global__ void naive_normalized_cross_correlation(
     float result_value = denominator > 0 ? sum_of_image_template_diff_products / denominator : 0;
 
     SHARED(channel_scores, float);
-    uint tid = (threadIdx.x * blockDim.y + threadIdx.y) * threadIdx.y + threadIdx.z;
+    uint tid = (threadIdx.y * blockDim.x + threadIdx.x) * 3 + channel;
     channel_scores[tid] = result_value;
     __syncthreads();
     if (channel == 0) {
@@ -239,6 +237,35 @@ void reduce_min(const float* d_in, float* d_out, int num_pixels)
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s && id + s < num_pixels) {
             sdata[tid] = MIN(sdata[tid], sdata[tid + s]);
+        }
+        __syncthreads();        // make sure all adds at one stage are done!
+    }
+
+    // only thread 0 writes result for this block back to global mem
+    if (tid == 0) {
+        d_out[blockIdx.x] = sdata[0];
+    }
+}
+
+__global__
+void reduce_max(const float* d_in, float* d_out, int num_pixels)
+{
+    // sdata is allocated in the kernel call: 3rd arg to <<<b, t, shmem>>>
+    SHARED(sdata, float);
+    int id = ID_X;
+    if (id >= num_pixels) {
+      return;
+    }
+    int tid  = threadIdx.x;
+
+    // load shared mem from global mem
+    sdata[tid] = d_in[id];
+    __syncthreads();            // make sure entire block is loaded!
+
+    // do reduction in shared mem
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s && id + s < num_pixels) {
+            sdata[tid] = MAX(sdata[tid], sdata[tid + s]);
         }
         __syncthreads();        // make sure all adds at one stage are done!
     }
@@ -367,14 +394,7 @@ __global__ void remove_redness(
     d_out[pixel_id] = d_rgb[pixel_id];
     uint ranking = d_perm[pixel_id];
     if (ranking < imgSize - num_coordinates) return;
-    // d_out[pixel_id].x = 0x00;
-    // d_out[pixel_id].y = 0xff;
-    // d_out[pixel_id].z = 0x00;
-
-    uint2 image_index_2d = {
-        pixel_id % num_pixels_x,
-        pixel_id / num_pixels_x
-    };
+    uint2 image_index_2d = {pixel_id % num_pixels_x, pixel_id / num_pixels_x};
 
     for (int y = image_index_2d.y - template_half_height;
             y <= image_index_2d.y + template_half_height; y++) {

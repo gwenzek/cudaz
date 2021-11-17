@@ -1,6 +1,7 @@
 #include <stdbool.h>
 
 #define uchar unsigned char
+#define FLAT_ID_2D(threadIdx, blockIdx, blockDim) threadIdx + blockDim * blockIdx;
 #define ID_X threadIdx.x + blockDim.x * blockIdx.x
 #define ID_Y threadIdx.y + blockDim.y * blockIdx.y
 #define ID_Z threadIdx.z + blockDim.z * blockIdx.z
