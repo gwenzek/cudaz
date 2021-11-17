@@ -76,7 +76,7 @@ pub fn main() !void {
     // Create a 2D grid for the image and use the last dimension for the channel (R, G, B)
     const gridWithChannel = cuda.Grid.init3D(num_cols, num_rows, 3, 32, 1, 3);
     log.info("crossCorrelation({}, {},)", .{ gridWithChannel, gridWithChannel.sharedMemPerThread(f32, 1) });
-    try crossCorrelation.launchWithSharedMem(
+    try k.crossCorrelation.launchWithSharedMem(
         &stream,
         gridWithChannel,
         gridWithChannel.sharedMemPerThread(f32, 1),
@@ -94,8 +94,8 @@ pub fn main() !void {
         },
     );
 
-    const min_corr = try reduce_min(&stream, d_scores);
-    try addConstant.launch(
+    const min_corr = try reduceMin(&stream, d_scores);
+    try k.addConstant.launch(
         &stream,
         cuda.Grid.init1D(d_scores.len, 32),
         .{ d_scores.ptr, -min_corr, @intCast(c_uint, d_scores.len) },
@@ -110,16 +110,20 @@ pub fn main() !void {
     defer cuda.free(d_permutation);
     timer.stop();
 
+    const d_perm_min = try reduce(&stream, k.minU32, d_permutation);
+    const d_perm_max = try reduce(&stream, k.maxU32, d_permutation);
+    log.info("Permutation ranges from {} to {} (expected 0 to {})", .{ d_perm_min, d_perm_max, d_permutation.len });
+
     try stream.synchronize();
     std.log.info("Your code ran in: {d:.1} msecs.", .{timer.elapsed() * 1000});
 
     var d_out = try cuda.alloc(cu.uchar3, d_img.len);
     debugDevice("d_perm", d_permutation[20000..21000]);
-    try removeRedness.launch(&stream, cuda.Grid.init1D(d_img.len, 64), .{
+    try k.removeRedness.launch(&stream, cuda.Grid.init1D(d_img.len, 64), .{
         d_permutation.ptr,
         d_img.ptr,
         d_out.ptr,
-        1000,
+        100000,
         @intCast(c_int, num_rows),
         @intCast(c_int, num_cols),
         @intCast(c_int, @divFloor(num_rows_template, 2)),
@@ -133,7 +137,7 @@ pub fn main() !void {
 
 pub fn range(stream: *const cuda.Stream, len: usize) ![]u32 {
     var coords = try cuda.alloc(c_uint, len);
-    try rangeFn.launch(stream, cuda.Grid.init1D(len, 64), .{ coords.ptr, @intCast(c_uint, len) });
+    try k.rangeFn.launch(stream, cuda.Grid.init1D(len, 64), .{ coords.ptr, @intCast(c_uint, len) });
     return coords;
 }
 
@@ -144,15 +148,20 @@ test "range" {
     try expectEqualDeviceSlices(u32, &[_]u32{ 0, 1, 2, 3, 4 }, numbers);
 }
 
+pub fn reduceMin(stream: *const cuda.Stream, d_data: []const f32) !f32 {
+    return reduce(stream, k.min, d_data);
+}
+
 /// Finds the minimum value of the given input slice.
 /// Do several passes until the minimum is found.
 /// Each block computes the minimum over 1024 elements.
 /// Each pass divides the size of the input array per 1024.
-pub fn reduce_min(stream: *const cuda.Stream, d_data: []const f32) !f32 {
+pub fn reduce(stream: *const cuda.Stream, operator: anytype, d_data: anytype) !std.meta.Elem(@TypeOf(d_data)) {
     const n_threads = 1024;
     const n1 = math.divCeil(usize, d_data.len, n_threads) catch unreachable;
     var n2 = math.divCeil(usize, n1, n_threads) catch unreachable;
-    const buffer = try cuda.alloc(f32, n1 + n2);
+    const DType = std.meta.Elem(@TypeOf(d_data));
+    const buffer = try cuda.alloc(DType, n1 + n2);
     defer cuda.free(buffer);
 
     var d_in = d_data;
@@ -160,10 +169,10 @@ pub fn reduce_min(stream: *const cuda.Stream, d_data: []const f32) !f32 {
     var d_next = buffer[n1 .. n1 + n2];
 
     while (d_in.len > 1) {
-        try reduceMin.launchWithSharedMem(
+        try operator.launchWithSharedMem(
             stream,
             cuda.Grid.init1D(d_in.len, n_threads),
-            n_threads * @sizeOf(f32),
+            n_threads * @sizeOf(DType),
             .{ d_in.ptr, d_out.ptr, @intCast(c_int, d_in.len) },
         );
         d_in = d_out;
@@ -171,8 +180,7 @@ pub fn reduce_min(stream: *const cuda.Stream, d_data: []const f32) !f32 {
         n2 = math.divCeil(usize, d_next.len, n_threads) catch unreachable;
         d_next = d_out[0..n2];
     }
-
-    return try cuda.readResult(f32, &d_in[0]);
+    return try cuda.readResult(DType, &d_in[0]);
 }
 
 test "reduce min" {
@@ -186,12 +194,31 @@ test "reduce min" {
     h_x[1479] = -7.0;
 
     const d_x = try cuda.allocAndCopy(f32, h_x);
-    try testing.expectEqual(try reduce_min(&stream, d_x), -7.0);
+    try testing.expectEqual(try reduceMin(&stream, d_x), -7.0);
+}
+
+test "reduce sum" {
+    var stream = initStreamWithModule(0);
+    defer stream.deinit();
+
+    const d1 = try cuda.allocAndCopy(u32, &[_]u32{ 1, 4, 8, 0, 1 });
+    try testing.expectEqual(@intCast(u32, 14), try reduce(&stream, k.sumU32, d1));
+
+    const h_x = try testing.allocator.alloc(u32, 2100);
+    defer testing.allocator.free(h_x);
+    std.mem.set(u32, h_x, 0.0);
+    h_x[987] = 5;
+    h_x[1024] = 6;
+    h_x[1479] = 7;
+    h_x[14] = 42;
+
+    const d_x = try cuda.allocAndCopy(u32, h_x);
+    try testing.expectEqual(@intCast(u32, 60), try reduce(&stream, k.sumU32, d_x));
 }
 
 pub fn sortNetwork(stream: *const cuda.Stream, d_data: []f32, n_threads: usize) !void {
     const grid = cuda.Grid.init1D(d_data.len, n_threads);
-    try sortNet.launchWithSharedMem(
+    try k.sortNet.launchWithSharedMem(
         stream,
         grid,
         grid.threads.x * @sizeOf(f32),
@@ -234,22 +261,28 @@ pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) c
     const N = grid_N.blocks.x;
     var d_grid_bins = try cuda.alloc(u32, N);
     defer cuda.free(d_grid_bins);
-    // log.debug("cdf({}, {})", .{ n, N });
-    try cdfIncremental.launchWithSharedMem(
+    log.debug("cdf({}, {})", .{ n, N });
+    try k.cdfIncremental.launchWithSharedMem(
         stream,
         grid_N,
         n_threads * @sizeOf(u32),
         .{ d_values.ptr, d_grid_bins.ptr, @intCast(c_int, n) },
     );
+    var d_cdf_min = try reduce(stream, k.minU32, d_values);
+    var d_cdf_max = try reduce(stream, k.maxU32, d_values);
+    log.info("Cdf ranges from {} to {}", .{ d_cdf_min, d_cdf_max });
     if (N == 1) return;
 
     // log.debug("cdf_shift({}, {})", .{ n, N });
     try inPlaceCdf(stream, d_grid_bins, n_threads);
-    try cdfShift.launch(
+    try k.cdfShift.launch(
         stream,
         grid_N,
         .{ d_values.ptr, d_grid_bins.ptr, @intCast(c_int, n) },
     );
+    d_cdf_min = try reduce(stream, k.minU32, d_values);
+    d_cdf_max = try reduce(stream, k.maxU32, d_values);
+    log.info("After shift cdf ranges from {} to {}", .{ d_cdf_min, d_cdf_max });
 }
 
 test "inPlaceCdf" {
@@ -278,6 +311,11 @@ test "inPlaceCdf" {
     try testing.expectEqual(h_cdf, h_out);
 
     try cuda.memcpyHtoD(u32, d_x, &h_x);
+    try inPlaceCdf(&stream, d_x, 3);
+    try cuda.memcpyDtoH(u32, &h_out, d_x);
+    try testing.expectEqual(h_cdf, h_out);
+
+    try cuda.memcpyHtoD(u32, d_x, &h_x);
     try inPlaceCdf(&stream, d_x, 2);
     try expectEqualDeviceSlices(u32, &h_cdf, d_x);
 }
@@ -285,7 +323,7 @@ test "inPlaceCdf" {
 pub fn radixSortAlloc(stream: *const cuda.Stream, d_values: []const u32) ![]u32 {
     const n = d_values.len;
     // TODO: I get illegal memory access when I use mask = 0b1111 and input image
-    const mask: u8 = 0b11;
+    const mask: u8 = 0b1111;
     const mask_bits: u8 = 8 - @clz(u8, mask);
 
     const d_radix = try cuda.alloc(u32, n * (mask + 1));
@@ -325,15 +363,17 @@ fn _radixSort(
     // debugDevice("d_values", d_values);
     // debugDevice("d_perm0", d_perm0);
     log.debug("radixSort(n={}, shift={}, mask={})", .{ n, shift, mask });
-    try findRadixSplitted.launch(
+    try k.findRadixSplitted.launch(
         stream,
         cuda.Grid.init1D(n, 1024),
         .{ d_radix.ptr, d_values.ptr, d_perm0.ptr, shift, mask, @intCast(c_int, n) },
     );
-    // debugDevice("d_radix", d_radix);
+    const radix_sum = try reduce(stream, k.sumU32, d_radix);
+    log.debug("Radix sums to {}, expected {}", .{ radix_sum, d_values.len });
+    std.debug.assert(radix_sum == d_values.len);
     try inPlaceCdf(stream, d_radix, 1024);
     // debugDevice("d_radix + cdf", d_radix);
-    try updatePermutation.launch(
+    try k.updatePermutation.launch(
         stream,
         cuda.Grid.init1D(n, 1024),
         .{ d_perm1.ptr, d_radix.ptr, d_values.ptr, d_perm0.ptr, shift, mask, @intCast(c_int, n) },
@@ -354,7 +394,7 @@ test "findRadixSplitted" {
     const d_perm0 = try range(&stream, n);
     defer cuda.free(d_perm0);
 
-    try findRadixSplitted.launch(
+    try k.findRadixSplitted.launch(
         &stream,
         cuda.Grid.init1D(n, 1024),
         .{ d_radix.ptr, d_values.ptr, d_perm0.ptr, 0, @intCast(c_uint, 0b1), @intCast(c_int, n) },
@@ -362,7 +402,7 @@ test "findRadixSplitted" {
     try expectEqualDeviceSlices(u32, &[_]u32{ 1, 0, 1, 0, 1, 0 }, d_radix);
 
     try cuda.memset(u32, d_radix, 0);
-    try findRadixSplitted.launch(
+    try k.findRadixSplitted.launch(
         &stream,
         cuda.Grid.init1D(n, 1024),
         .{ d_radix.ptr, d_values.ptr, d_perm0.ptr, 1, @intCast(c_uint, 0b1), @intCast(c_int, n) },
@@ -372,7 +412,7 @@ test "findRadixSplitted" {
     try cuda.memcpyHtoD(u32, d_perm0, &[_]u32{ 0, 2, 1 });
     // values: { 0b10, 0b01, 0b00 }; perm: {0, 2, 1}
     try cuda.memset(u32, d_radix, 0);
-    try findRadixSplitted.launch(
+    try k.findRadixSplitted.launch(
         &stream,
         cuda.Grid.init1D(n, 1024),
         .{ d_radix.ptr, d_values.ptr, d_perm0.ptr, 0, @intCast(c_uint, 0b1), @intCast(c_int, n) },
@@ -380,7 +420,7 @@ test "findRadixSplitted" {
     try expectEqualDeviceSlices(u32, &[_]u32{ 1, 1, 0, 0, 0, 1 }, d_radix);
 
     try cuda.memset(u32, d_radix, 0);
-    try findRadixSplitted.launch(
+    try k.findRadixSplitted.launch(
         &stream,
         cuda.Grid.init1D(n, 1024),
         .{ d_radix.ptr, d_values.ptr, d_perm0.ptr, 1, @intCast(c_uint, 0b1), @intCast(c_int, n) },
@@ -391,6 +431,8 @@ test "findRadixSplitted" {
 test "_radixSort" {
     var stream = initStreamWithModule(0);
     defer stream.deinit();
+    testing.log_level = std.log.Level.debug;
+    defer testing.log_level = std.log.Level.warn;
     const h_x0 = [_]u32{ 0b10, 0b01, 0b00 };
     const n = h_x0.len;
     const d_values = try cuda.allocAndCopy(u32, &h_x0);
@@ -440,7 +482,7 @@ test "updatePermutation" {
     const d_perm1 = try range(&stream, n);
     defer cuda.free(d_perm1);
 
-    try updatePermutation.launch(
+    try k.updatePermutation.launch(
         &stream,
         cuda.Grid.init1D(n, 1024),
         .{
@@ -508,29 +550,40 @@ fn debugDevice(
 }
 
 // TODO: generate this when the kernel is written in Zig.
-var addConstant: cuda.Function("add_constant") = .{ .f = null };
-var cdfIncremental: cuda.Function("cdf_incremental") = .{ .f = null };
-var cdfShift: cuda.Function("cdf_incremental_shift") = .{ .f = null };
-var crossCorrelation: cuda.Function("naive_normalized_cross_correlation") = .{ .f = null };
-var findRadixSplitted: cuda.Function("find_radix_splitted") = .{ .f = null };
-var rangeFn: cuda.Function("range") = .{ .f = null };
-var reduceMin: cuda.Function("reduce_min") = .{ .f = null };
-var removeRedness: cuda.Function("remove_redness") = .{ .f = null };
-var sortNet: cuda.Function("sort_network") = .{ .f = null };
-var updatePermutation: cuda.Function("update_permutation") = .{ .f = null };
+const Kernels = struct {
+    addConstant: cuda.Function("add_constant"),
+    cdfIncremental: cuda.Function("cdf_incremental"),
+    cdfShift: cuda.Function("cdf_incremental_shift"),
+    crossCorrelation: cuda.Function("naive_normalized_cross_correlation"),
+    findRadixSplitted: cuda.Function("find_radix_splitted"),
+    rangeFn: cuda.Function("range"),
+    min: cuda.Function("reduce_min"),
+    minU32: cuda.Function("reduce_min_u32"),
+    maxU32: cuda.Function("reduce_max_u32"),
+    removeRedness: cuda.Function("remove_redness"),
+    sortNet: cuda.Function("sort_network"),
+    sumU32: cuda.Function("reduce_sum_u32"),
+    updatePermutation: cuda.Function("update_permutation"),
+};
+var k: Kernels = undefined;
 
 fn initStreamWithModule(device: u8) cuda.Stream {
     const stream = cuda.Stream.init(device) catch unreachable;
     // Panic if we can't load the module.
-    addConstant = @TypeOf(addConstant).init() catch unreachable;
-    cdfIncremental = @TypeOf(cdfIncremental).init() catch unreachable;
-    cdfShift = @TypeOf(cdfShift).init() catch unreachable;
-    crossCorrelation = @TypeOf(crossCorrelation).init() catch unreachable;
-    findRadixSplitted = @TypeOf(findRadixSplitted).init() catch unreachable;
-    rangeFn = @TypeOf(rangeFn).init() catch unreachable;
-    reduceMin = @TypeOf(reduceMin).init() catch unreachable;
-    removeRedness = @TypeOf(removeRedness).init() catch unreachable;
-    sortNet = @TypeOf(sortNet).init() catch unreachable;
-    updatePermutation = @TypeOf(updatePermutation).init() catch unreachable;
+    k = Kernels{
+        .addConstant = @TypeOf(k.addConstant).init() catch unreachable,
+        .cdfIncremental = @TypeOf(k.cdfIncremental).init() catch unreachable,
+        .cdfShift = @TypeOf(k.cdfShift).init() catch unreachable,
+        .crossCorrelation = @TypeOf(k.crossCorrelation).init() catch unreachable,
+        .findRadixSplitted = @TypeOf(k.findRadixSplitted).init() catch unreachable,
+        .rangeFn = @TypeOf(k.rangeFn).init() catch unreachable,
+        .min = @TypeOf(k.min).init() catch unreachable,
+        .minU32 = @TypeOf(k.minU32).init() catch unreachable,
+        .maxU32 = @TypeOf(k.maxU32).init() catch unreachable,
+        .removeRedness = @TypeOf(k.removeRedness).init() catch unreachable,
+        .sortNet = @TypeOf(k.sortNet).init() catch unreachable,
+        .sumU32 = @TypeOf(k.sumU32).init() catch unreachable,
+        .updatePermutation = @TypeOf(k.updatePermutation).init() catch unreachable,
+    };
     return stream;
 }

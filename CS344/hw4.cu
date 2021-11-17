@@ -57,9 +57,9 @@ __global__ void find_radix_splitted(
 ) {
     uint tid = ID_X;
     if (tid >= n) return;
-    uint id = d_perm[tid];
     uint rad = ((uint*)d_in)[tid];
     rad = (rad >> shift) & mask;
+    uint id = d_perm[tid];
     d_out[rad * n + id] = 1;
 }
 
@@ -205,9 +205,8 @@ __global__ void naive_normalized_cross_correlation(
     }
 
     // compute final result
-    float result_value = (sum_of_image_template_diff_products /
-          sqrt(sum_of_squared_image_diffs * sum_of_squared_template_diffs)
-    );
+    float denominator = sqrt(sum_of_squared_image_diffs * sum_of_squared_template_diffs);
+    float result_value = denominator > 0 ? sum_of_image_template_diff_products / denominator : 0;
 
     SHARED(channel_scores, float);
     uint tid = (threadIdx.x * blockDim.y + threadIdx.y) * threadIdx.y + threadIdx.z;
@@ -237,7 +236,7 @@ void reduce_min(const float* d_in, float* d_out, int num_pixels)
 
     // do reduction in shared mem
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
-        if (tid < s) {
+        if (tid < s && id + s < num_pixels) {
             sdata[tid] = MIN(sdata[tid], sdata[tid + s]);
         }
         __syncthreads();        // make sure all adds at one stage are done!
@@ -246,6 +245,93 @@ void reduce_min(const float* d_in, float* d_out, int num_pixels)
     // only thread 0 writes result for this block back to global mem
     if (tid == 0) {
         d_out[blockIdx.x] = sdata[0];
+    }
+}
+
+__global__
+void reduce_min_u32(const uint* d_in, uint* d_out, int num_pixels)
+{
+    // sdata is allocated in the kernel call: 3rd arg to <<<b, t, shmem>>>
+    SHARED(sdata_u32, uint);
+    int id = ID_X;
+    if (id >= num_pixels) {
+      return;
+    }
+    int tid  = threadIdx.x;
+
+    // load shared mem from global mem
+    sdata_u32[tid] = d_in[id];
+    __syncthreads();            // make sure entire block is loaded!
+
+    // do reduction in shared mem
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s && id + s < num_pixels) {
+            sdata_u32[tid] = MIN(sdata_u32[tid], sdata_u32[tid + s]);
+        }
+        __syncthreads();        // make sure all adds at one stage are done!
+    }
+
+    // only thread 0 writes result for this block back to global mem
+    if (tid == 0) {
+        d_out[blockIdx.x] = sdata_u32[0];
+    }
+}
+
+__global__
+void reduce_max_u32(const uint* d_in, uint* d_out, int num_pixels)
+{
+    // sdata_u32 is allocated in the kernel call: 3rd arg to <<<b, t, shmem>>>
+    SHARED(sdata_u32, uint);
+    int id = ID_X;
+    if (id >= num_pixels) {
+      return;
+    }
+    int tid  = threadIdx.x;
+
+    // load shared mem from global mem
+    sdata_u32[tid] = d_in[id];
+    __syncthreads();            // make sure entire block is loaded!
+
+    // do reduction in shared mem
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s && id + s < num_pixels) {
+            sdata_u32[tid] = MAX(sdata_u32[tid], sdata_u32[tid + s]);
+        }
+        __syncthreads();        // make sure all adds at one stage are done!
+    }
+
+    // only thread 0 writes result for this block back to global mem
+    if (tid == 0) {
+        d_out[blockIdx.x] = sdata_u32[0];
+    }
+}
+
+__global__
+void reduce_sum_u32(const uint* d_in, uint* d_out, int num_pixels)
+{
+    // sdata_u32 is allocated in the kernel call: 3rd arg to <<<b, t, shmem>>>
+    SHARED(sdata_sum_u32, uint);
+    int id = ID_X;
+    if (id >= num_pixels) {
+      return;
+    }
+    int tid  = threadIdx.x;
+
+    // load shared mem from global mem
+    sdata_sum_u32[tid] = d_in[id];
+    __syncthreads();            // make sure entire block is loaded!
+
+    // do reduction in shared mem
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s && id + s < num_pixels) {
+            sdata_sum_u32[tid] += sdata_sum_u32[tid + s];
+        }
+        __syncthreads();        // make sure all adds at one stage are done!
+    }
+
+    // only thread 0 writes result for this block back to global mem
+    if (tid == 0) {
+        d_out[blockIdx.x] = sdata_sum_u32[0];
     }
 }
 
@@ -277,12 +363,12 @@ __global__ void remove_redness(
     uint pixel_id = ID_X;
     if (pixel_id > imgSize) return;
 
-    d_out[pixel_id] = d_rgb[pixel_id];
+    // d_out[pixel_id] = (uchar3){0, 0, 0};
     uint ranking = d_perm[pixel_id];
     if (ranking < imgSize - num_coordinates) return;
-    d_out[pixel_id].x = 0x00;
-    d_out[pixel_id].y = 0xff;
-    d_out[pixel_id].z = 0x00;
+    // d_out[pixel_id].x = 0x00;
+    // d_out[pixel_id].y = 0xff;
+    // d_out[pixel_id].z = 0x00;
 
     uint2 image_index_2d = {
         pixel_id % num_pixels_x,
