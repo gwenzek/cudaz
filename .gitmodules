@@ -1,3 +1,6 @@
+[submodule "CS344/zigimg"]
+	path = CS344/zigimg
+	url = https://github.com/zigimg/zigimg
 [submodule "zigimg"]
 	path = zigimg
 	url = https://github.com/zigimg/zigimg
