@@ -335,7 +335,7 @@ fn defaultModule() cu.CUmodule {
     const file = cudaz_options.kernel_ptx_path;
 
     if (kernel_ptx_content.len == 0) {
-        log.info("Loading Cuda module from local file {s}", .{file});
+        log.warn("Loading Cuda module from local file {s}", .{file});
         // Note: I tried to make this a path relative to the executable but failed because
         // the main executable and the test executable are in different folder
         // but refer to the same .ptx file.
