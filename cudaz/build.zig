@@ -1,22 +1,20 @@
 const std = @import("std");
 const sdk = @import("sdk.zig");
+const CUDA_PATH = "/usr/local/cuda";
 
 const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
-
-var target: std.zig.CrossTarget = undefined;
-var mode: std.builtin.Mode = undefined;
 
 pub fn build(b: *Builder) void {
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
     // for restricting supported target set are available.
-    target = b.standardTargetOptions(.{});
+    // const target = b.standardTargetOptions(.{});
 
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    mode = b.standardReleaseOptions();
+    // const mode = b.standardReleaseOptions();
 
     // This isn't very useful, because we still have to declare `extern` symbols
     // const kernel = b.addObject("kernel", "cudaz/kernel.o");
@@ -26,11 +24,11 @@ pub fn build(b: *Builder) void {
 
     var tests = b.step("test", "Tests");
     const test_cuda = b.addTest("cudaz/cuda.zig");
-    sdk.addCudaz(b, test_cuda, sdk.CUDA_PATH, "cudaz/test.cu");
+    sdk.addCudaz(b, test_cuda, CUDA_PATH, "cudaz/test.cu");
     tests.dependOn(&test_cuda.step);
 
     const test_nvptx = b.addTest("cudaz/test_nvptx.zig");
-    sdk.addCudazWithZigKernel(b, test_nvptx, sdk.CUDA_PATH, "cudaz/nvptx.zig");
+    sdk.addCudazWithZigKernel(b, test_nvptx, CUDA_PATH, "cudaz/nvptx.zig");
     tests.dependOn(&test_nvptx.step);
 
     // TODO (Jan 2022): try zig build -ofmt=c (with master branch)

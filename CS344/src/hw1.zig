@@ -8,9 +8,9 @@ const cu = cudaz.cu;
 
 const png = @import("png.zig");
 const utils = @import("utils.zig");
-const hw1_kernel = @import("hw1_kernel.zig");
+// const hw1_kernel = @import("hw1_kernel.zig");
 
-const resources_dir = "CS344/hw1_resources/";
+const resources_dir = "resources/hw1_resources/";
 
 pub fn main() anyerror!void {
     log.info("***** HW1 ******", .{});
@@ -42,19 +42,19 @@ pub fn main() anyerror!void {
     try cudaz.memset(Gray8, d_gray, Gray8{ .value = 0 });
 
     var timer = cudaz.GpuTimer.init(&stream);
-    // const kernel = try cudaz.Function("rgba_to_greyscale").init();
-    const kernel = try cudaz.FnStruct("rgba_to_greyscale", hw1_kernel.rgba_to_greyscale).init();
+    const kernel = try cudaz.Function("rgba_to_greyscale").init();
+    // const kernel = try cudaz.FnStruct("rgba_to_greyscale", hw1_kernel.rgba_to_greyscale).init();
     timer.start();
     try kernel.launch(
         &stream,
         cudaz.Grid.init1D(img.height * img.width, 64),
         .{
-            // @ptrCast([*c]const cu.uchar3, d_img.ptr),
-            // @ptrCast([*c]u8, d_gray.ptr),
-            // @intCast(c_int, img.height),
-            // @intCast(c_int, img.width),
-            std.mem.sliceAsBytes(d_img),
-            std.mem.sliceAsBytes(d_gray),
+            @ptrCast([*c]const cu.uchar3, d_img.ptr),
+            @ptrCast([*c]u8, d_gray.ptr),
+            @intCast(c_int, img.height),
+            @intCast(c_int, img.width),
+            // std.mem.sliceAsBytes(d_img),
+            // std.mem.sliceAsBytes(d_gray),
         },
     );
     timer.stop();

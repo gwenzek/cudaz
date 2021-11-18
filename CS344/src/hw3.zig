@@ -12,7 +12,7 @@ const cu = cuda.cu;
 const png = @import("png.zig");
 const utils = @import("utils.zig");
 
-const resources_dir = "CS344/hw3_resources/";
+const resources_dir = "resources/hw3_resources/";
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};

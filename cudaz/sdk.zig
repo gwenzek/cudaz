@@ -11,9 +11,8 @@ const LibExeObjStep = std.build.LibExeObjStep;
 /// We default to .ptx because it's more easy to distribute.
 // TODO: make this a build option
 const NVCC_OUTPUT_FORMAT = "ptx";
-pub const CUDA_PATH = "/usr/local/cuda";
-const ZIG_STAGE2 = sdk_root() ++ "/../../zig/stage2/bin/zig";
-
+const ZIG_STAGE2 = SDK_ROOT ++ "../../zig/stage2/bin/zig";
+const SDK_ROOT = sdk_root() ++ "/";
 /// For a given object:
 ///   1. Compile the given .cu file to a .ptx
 ///   2. Add lib C
@@ -48,7 +47,7 @@ pub fn addCudaz(
         "--display-error-number",
         "--" ++ NVCC_OUTPUT_FORMAT,
         "-I",
-        "cudaz",
+        SDK_ROOT ++ "cudaz",
         kernel_path,
         "-o",
         kernel_ptx_path,
@@ -100,7 +99,7 @@ pub fn addCudazDeps(
     exe.addLibPath(cuda_dir ++ "/lib64");
     exe.linkSystemLibraryName("cuda");
     exe.addIncludeDir(cuda_dir ++ "/include");
-    exe.addIncludeDir("cudaz");
+    exe.addIncludeDir(SDK_ROOT ++ "cudaz");
     exe.addIncludeDir(kernel_dir);
 
     // Add cudaz package with the kernel paths.
@@ -117,7 +116,7 @@ pub fn addCudazDeps(
 
     const cudaz_pkg = std.build.Pkg{
         .name = "cudaz",
-        .path = .{ .path = "cudaz/cuda.zig" },
+        .path = .{ .path = SDK_ROOT ++ "cudaz/cuda.zig" },
         .dependencies = &[_]std.build.Pkg{
             .{ .name = "cudaz_options", .path = cudaz_options.getSource() },
         },
@@ -132,5 +131,5 @@ pub fn addCudazDeps(
 }
 
 fn sdk_root() []const u8 {
-    return std.fs.path.dirname(@src().file) orelse ".";
+    return std.fs.path.dirname(@src().file).?;
 }

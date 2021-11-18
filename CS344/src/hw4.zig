@@ -47,7 +47,7 @@ const cu = cuda.cu;
 const png = @import("png.zig");
 const utils = @import("utils.zig");
 
-const resources_dir = "CS344/hw4_resources/";
+const resources_dir = "resources/hw4_resources/";
 
 const log = std.log.scoped(.HW4);
 const log_level = std.log.Level.warn;

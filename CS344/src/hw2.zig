@@ -10,7 +10,7 @@ const cu = cuda.cu;
 const png = @import("png.zig");
 const utils = @import("utils.zig");
 
-const resources_dir = "CS344/hw2_resources/";
+const resources_dir = "resources/hw2_resources/";
 
 const Rgb24 = zigimg.color.Rgb24;
 const Gray8 = zigimg.color.Grayscale8;

@@ -105,7 +105,7 @@ fn reduce(stream: *const cuda.Stream, reduce_kernel: GlobalReduce, d_out: []f32,
     var size = d_in.len;
     if (size % blockSize != 0 or size > blockSize * blockSize) {
         log.err("Can't run reduce operator on an array of size {} with blockSize={} ({})", .{ size, blockSize, blockSize * blockSize });
-        return cuda.CudaError.InvalidValue;
+        @panic("Invalid reduce on too big array");
     }
     const full_grid = cuda.Grid.init1D(size, blockSize);
     var shared_mem = if (uses_shared_memory) blockSize * @sizeOf(f32) else 0;
