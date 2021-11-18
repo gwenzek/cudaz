@@ -4,15 +4,11 @@ const meta = std.meta;
 const testing = std.testing;
 const TypeInfo = std.builtin.TypeInfo;
 
-pub const cudaz_options = @import("cudaz_options");
-
-pub const cu = @cImport({
-    @cInclude("cuda.h");
-    @cInclude("cuda_globals.h");
-    if (cudaz_options.cuda_kernel) {
-        @cInclude(cudaz_options.kernel_name);
-    }
-});
+const cudaz_options = @import("cudaz_options");
+pub const cu = @import("cuda_cimports.zig").cu;
+pub const cuda_errors = @import("cuda_errors.zig");
+pub const check = cuda_errors.check;
+pub const CudazError = cuda_errors.CudazError;
 
 pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
 const log = std.log.scoped(.Cuda);
@@ -78,208 +74,17 @@ pub const Grid = struct {
     }
 };
 
-pub const CudaError = error{
-    InvalidValue,
-    OutOfMemory,
-    NotInitialized,
-    Deinitialized,
-    ProfilerDisabled,
-    ProfilerNotInitialized,
-    ProfilerAlreadyStarted,
-    ProfilerAlreadyStopped,
-    StubLibrary,
-    NoDevice,
-    InvalidDevice,
-    DeviceNotLicensed,
-    InvalidImage,
-    InvalidContext,
-    ContextAlreadyCurrent,
-    MapFailed,
-    UnmapFailed,
-    ArrayIsMapped,
-    AlreadyMapped,
-    NoBinaryForGpu,
-    AlreadyAcquired,
-    NotMapped,
-    NotMappedAsArray,
-    NotMappedAsPointer,
-    EccUncorrectable,
-    UnsupportedLimit,
-    ContextAlreadyInUse,
-    PeerAccessUnsupported,
-    InvalidPtx,
-    InvalidGraphicsContext,
-    NvlinkUncorrectable,
-    JitCompilerNotFound,
-    UnsupportedPtxVersion,
-    JitCompilationDisabled,
-    UnsupportedExecAffinity,
-    InvalidSource,
-    FileNotFound,
-    SharedObjectSymbolNotFound,
-    SharedObjectInitFailed,
-    OperatingSystem,
-    InvalidHandle,
-    IllegalState,
-    NotFound,
-    NotReady,
-    IllegalAddress,
-    LaunchOutOfResources,
-    LaunchTimeout,
-    LaunchIncompatibleTexturing,
-    PeerAccessAlreadyEnabled,
-    PeerAccessNotEnabled,
-    PrimaryContextActive,
-    ContextIsDestroyed,
-    Assert,
-    TooManyPeers,
-    HostMemoryAlreadyRegistered,
-    HostMemoryNotRegistered,
-    HardwareStackError,
-    IllegalInstruction,
-    MisalignedAddress,
-    InvalidAddressSpace,
-    InvalidPc,
-    LaunchFailed,
-    CooperativeLaunchTooLarge,
-    NotPermitted,
-    NotSupported,
-    SystemNotReady,
-    SystemDriverMismatch,
-    CompatNotSupportedOnDevice,
-    MpsConnectionFailed,
-    MpsRpcFailure,
-    MpsServerNotReady,
-    MpsMaxClientsReached,
-    MpsMaxConnectionsReached,
-    StreamCaptureUnsupported,
-    StreamCaptureInvalidated,
-    StreamCaptureMerge,
-    StreamCaptureUnmatched,
-    StreamCaptureUnjoined,
-    StreamCaptureIsolation,
-    StreamCaptureImplicit,
-    CapturedEvent,
-    StreamCaptureWrongThread,
-    Timeout,
-    GraphExecUpdateFailure,
-    ExternalDevice,
-    Unknown,
-    UnexpectedByCudaz,
-};
-
-pub fn check(result: cu.CUresult) CudaError!void {
-    var err = switch (result) {
-        cu.CUDA_SUCCESS => return,
-        cu.CUDA_ERROR_INVALID_VALUE => error.InvalidValue,
-        cu.CUDA_ERROR_OUT_OF_MEMORY => error.OutOfMemory,
-        cu.CUDA_ERROR_NOT_INITIALIZED => error.NotInitialized,
-        cu.CUDA_ERROR_DEINITIALIZED => error.Deinitialized,
-        cu.CUDA_ERROR_PROFILER_DISABLED => error.ProfilerDisabled,
-        cu.CUDA_ERROR_PROFILER_NOT_INITIALIZED => error.ProfilerNotInitialized,
-        cu.CUDA_ERROR_PROFILER_ALREADY_STARTED => error.ProfilerAlreadyStarted,
-        cu.CUDA_ERROR_PROFILER_ALREADY_STOPPED => error.ProfilerAlreadyStopped,
-        cu.CUDA_ERROR_STUB_LIBRARY => error.StubLibrary,
-        cu.CUDA_ERROR_NO_DEVICE => error.NoDevice,
-        cu.CUDA_ERROR_INVALID_DEVICE => error.InvalidDevice,
-        cu.CUDA_ERROR_DEVICE_NOT_LICENSED => error.DeviceNotLicensed,
-        cu.CUDA_ERROR_INVALID_IMAGE => error.InvalidImage,
-        cu.CUDA_ERROR_INVALID_CONTEXT => error.InvalidContext,
-        cu.CUDA_ERROR_CONTEXT_ALREADY_CURRENT => error.ContextAlreadyCurrent,
-        cu.CUDA_ERROR_MAP_FAILED => error.MapFailed,
-        cu.CUDA_ERROR_UNMAP_FAILED => error.UnmapFailed,
-        cu.CUDA_ERROR_ARRAY_IS_MAPPED => error.ArrayIsMapped,
-        cu.CUDA_ERROR_ALREADY_MAPPED => error.AlreadyMapped,
-        cu.CUDA_ERROR_NO_BINARY_FOR_GPU => error.NoBinaryForGpu,
-        cu.CUDA_ERROR_ALREADY_ACQUIRED => error.AlreadyAcquired,
-        cu.CUDA_ERROR_NOT_MAPPED => error.NotMapped,
-        cu.CUDA_ERROR_NOT_MAPPED_AS_ARRAY => error.NotMappedAsArray,
-        cu.CUDA_ERROR_NOT_MAPPED_AS_POINTER => error.NotMappedAsPointer,
-        cu.CUDA_ERROR_ECC_UNCORRECTABLE => error.EccUncorrectable,
-        cu.CUDA_ERROR_UNSUPPORTED_LIMIT => error.UnsupportedLimit,
-        cu.CUDA_ERROR_CONTEXT_ALREADY_IN_USE => error.ContextAlreadyInUse,
-        cu.CUDA_ERROR_PEER_ACCESS_UNSUPPORTED => error.PeerAccessUnsupported,
-        cu.CUDA_ERROR_INVALID_PTX => error.InvalidPtx,
-        cu.CUDA_ERROR_INVALID_GRAPHICS_CONTEXT => error.InvalidGraphicsContext,
-        cu.CUDA_ERROR_NVLINK_UNCORRECTABLE => error.NvlinkUncorrectable,
-        cu.CUDA_ERROR_JIT_COMPILER_NOT_FOUND => error.JitCompilerNotFound,
-        cu.CUDA_ERROR_UNSUPPORTED_PTX_VERSION => error.UnsupportedPtxVersion,
-        cu.CUDA_ERROR_JIT_COMPILATION_DISABLED => error.JitCompilationDisabled,
-        cu.CUDA_ERROR_UNSUPPORTED_EXEC_AFFINITY => error.UnsupportedExecAffinity,
-        cu.CUDA_ERROR_INVALID_SOURCE => error.InvalidSource,
-        cu.CUDA_ERROR_FILE_NOT_FOUND => error.FileNotFound,
-        cu.CUDA_ERROR_SHARED_OBJECT_SYMBOL_NOT_FOUND => error.SharedObjectSymbolNotFound,
-        cu.CUDA_ERROR_SHARED_OBJECT_INIT_FAILED => error.SharedObjectInitFailed,
-        cu.CUDA_ERROR_OPERATING_SYSTEM => error.OperatingSystem,
-        cu.CUDA_ERROR_INVALID_HANDLE => error.InvalidHandle,
-        cu.CUDA_ERROR_ILLEGAL_STATE => error.IllegalState,
-        cu.CUDA_ERROR_NOT_FOUND => error.NotFound,
-        cu.CUDA_ERROR_NOT_READY => error.NotReady,
-        cu.CUDA_ERROR_ILLEGAL_ADDRESS => error.IllegalAddress,
-        cu.CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES => error.LaunchOutOfResources,
-        cu.CUDA_ERROR_LAUNCH_TIMEOUT => error.LaunchTimeout,
-        cu.CUDA_ERROR_LAUNCH_INCOMPATIBLE_TEXTURING => error.LaunchIncompatibleTexturing,
-        cu.CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => error.PeerAccessAlreadyEnabled,
-        cu.CUDA_ERROR_PEER_ACCESS_NOT_ENABLED => error.PeerAccessNotEnabled,
-        cu.CUDA_ERROR_PRIMARY_CONTEXT_ACTIVE => error.PrimaryContextActive,
-        cu.CUDA_ERROR_CONTEXT_IS_DESTROYED => error.ContextIsDestroyed,
-        cu.CUDA_ERROR_ASSERT => error.Assert,
-        cu.CUDA_ERROR_TOO_MANY_PEERS => error.TooManyPeers,
-        cu.CUDA_ERROR_HOST_MEMORY_ALREADY_REGISTERED => error.HostMemoryAlreadyRegistered,
-        cu.CUDA_ERROR_HOST_MEMORY_NOT_REGISTERED => error.HostMemoryNotRegistered,
-        cu.CUDA_ERROR_HARDWARE_STACK_ERROR => error.HardwareStackError,
-        cu.CUDA_ERROR_ILLEGAL_INSTRUCTION => error.IllegalInstruction,
-        cu.CUDA_ERROR_MISALIGNED_ADDRESS => error.MisalignedAddress,
-        cu.CUDA_ERROR_INVALID_ADDRESS_SPACE => error.InvalidAddressSpace,
-        cu.CUDA_ERROR_INVALID_PC => error.InvalidPc,
-        cu.CUDA_ERROR_LAUNCH_FAILED => error.LaunchFailed,
-        cu.CUDA_ERROR_COOPERATIVE_LAUNCH_TOO_LARGE => error.CooperativeLaunchTooLarge,
-        cu.CUDA_ERROR_NOT_PERMITTED => error.NotPermitted,
-        cu.CUDA_ERROR_NOT_SUPPORTED => error.NotSupported,
-        cu.CUDA_ERROR_SYSTEM_NOT_READY => error.SystemNotReady,
-        cu.CUDA_ERROR_SYSTEM_DRIVER_MISMATCH => error.SystemDriverMismatch,
-        cu.CUDA_ERROR_COMPAT_NOT_SUPPORTED_ON_DEVICE => error.CompatNotSupportedOnDevice,
-        cu.CUDA_ERROR_MPS_CONNECTION_FAILED => error.MpsConnectionFailed,
-        cu.CUDA_ERROR_MPS_RPC_FAILURE => error.MpsRpcFailure,
-        cu.CUDA_ERROR_MPS_SERVER_NOT_READY => error.MpsServerNotReady,
-        cu.CUDA_ERROR_MPS_MAX_CLIENTS_REACHED => error.MpsMaxClientsReached,
-        cu.CUDA_ERROR_MPS_MAX_CONNECTIONS_REACHED => error.MpsMaxConnectionsReached,
-        cu.CUDA_ERROR_STREAM_CAPTURE_UNSUPPORTED => error.StreamCaptureUnsupported,
-        cu.CUDA_ERROR_STREAM_CAPTURE_INVALIDATED => error.StreamCaptureInvalidated,
-        cu.CUDA_ERROR_STREAM_CAPTURE_MERGE => error.StreamCaptureMerge,
-        cu.CUDA_ERROR_STREAM_CAPTURE_UNMATCHED => error.StreamCaptureUnmatched,
-        cu.CUDA_ERROR_STREAM_CAPTURE_UNJOINED => error.StreamCaptureUnjoined,
-        cu.CUDA_ERROR_STREAM_CAPTURE_ISOLATION => error.StreamCaptureIsolation,
-        cu.CUDA_ERROR_STREAM_CAPTURE_IMPLICIT => error.StreamCaptureImplicit,
-        cu.CUDA_ERROR_CAPTURED_EVENT => error.CapturedEvent,
-        cu.CUDA_ERROR_STREAM_CAPTURE_WRONG_THREAD => error.StreamCaptureWrongThread,
-        cu.CUDA_ERROR_TIMEOUT => error.Timeout,
-        cu.CUDA_ERROR_GRAPH_EXEC_UPDATE_FAILURE => error.GraphExecUpdateFailure,
-        cu.CUDA_ERROR_EXTERNAL_DEVICE => error.ExternalDevice,
-        cu.CUDA_ERROR_UNKNOWN => error.Unknown,
-        else => error.UnexpectedByCudaz,
-    };
-    var err_message: [*c]const u8 = undefined;
-    const error_string_res = cu.cuGetErrorString(result, &err_message);
-    if (error_string_res == cu.CUDA_SUCCESS) {
-        log.err("Cuda error {d}: {s}", .{ err, err_message });
-    } else {
-        log.err("Cuda error {d} (no error string)", .{err});
-    }
-    if (err == error.UnexpectedByCudaz) {
-        log.err("Unknown cuda error {d}. Please open a bug against Cudaz.", .{result});
-    }
-    return err;
-}
-
 pub const Stream = struct {
     device: u8,
     _stream: *cu.CUstream_st,
 
-    pub fn init(device: u8) CudaError!Stream {
+    pub fn init(device: u8) !Stream {
         _ = try getCtx(device);
         var stream: cu.CUstream = undefined;
-        try check(cu.cuStreamCreate(&stream, cu.CU_STREAM_DEFAULT));
+        check(cu.cuStreamCreate(&stream, cu.CU_STREAM_DEFAULT)) catch |err| switch (err) {
+            error.NotSupported => return error.NotSupported,
+            else => unreachable,
+        };
         return Stream{ .device = device, ._stream = stream.? };
     }
 
@@ -321,12 +126,12 @@ pub const Stream = struct {
             // returned later on. In debug mode we want to know which
             // kernel is responsible for which error, so we have to wait
             // for this kernel to end before scheduling another.
+            // TODO use callback API to keep the asynchronous scheduling
             try self.synchronize();
         }
     }
 
     pub fn synchronize(self: *const Stream) !void {
-        // TODO: add a debug_sync to catch error in debug code
         try check(cu.cuStreamSynchronize(self._stream));
     }
 
@@ -359,14 +164,14 @@ pub fn alloc(comptime DestType: type, size: usize) ![]DestType {
                 );
                 return err;
             },
-            else => return err,
+            else => unreachable,
         }
     };
     var ptr = @intToPtr([*]DestType, int_ptr);
     return ptr[0..size];
 }
 
-// TODO:
+// TODO: move all this to stream using async variants
 pub fn free(device_ptr: anytype) void {
     var raw_ptr: *c_void = if (meta.trait.isSlice(@TypeOf(device_ptr)))
         @ptrCast(*c_void, device_ptr.ptr)
@@ -401,51 +206,39 @@ pub fn allocAndCopy(comptime DestType: type, h_source: []const DestType) ![]Dest
 
 pub fn allocAndCopyResult(
     comptime DestType: type,
-    allocator: *std.mem.Allocator,
+    host_allocator: *std.mem.Allocator,
     d_source: []const DestType,
 ) ![]DestType {
-    var h_tgt = try allocator.alloc(DestType, d_source.len);
+    var h_tgt = try host_allocator.alloc(DestType, d_source.len);
     try memcpyDtoH(DestType, h_tgt, d_source);
     return h_tgt;
 }
 
 pub fn readResult(comptime DestType: type, d_source: *const DestType) !DestType {
     var h_res: [1]DestType = undefined;
-    check(cu.cuMemcpyDtoH(
+    try check(cu.cuMemcpyDtoH(
         @ptrCast(*c_void, &h_res),
         @ptrToInt(d_source),
         @sizeOf(DestType),
-    )) catch |err| switch (err) {
-        // TODO: leverage adress spaces to make this a comptime check
-        error.InvalidValue => log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
-        else => return err,
-    };
+    ));
     return h_res[0];
 }
 
 pub fn memcpyHtoD(comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
     std.debug.assert(h_source.len == d_target.len);
-    check(cu.cuMemcpyHtoD(
+    try check(cu.cuMemcpyHtoD(
         @ptrToInt(d_target.ptr),
         @ptrCast(*const c_void, h_source.ptr),
         h_source.len * @sizeOf(DestType),
-    )) catch |err| switch (err) {
-        // TODO: leverage adress spaces to make this a comptime check
-        error.InvalidValue => log.warn("InvalidValue error while memcpyHtoD! Usage is memcpyHtoD(d_tgt, h_src)", .{}),
-        else => return err,
-    };
+    ));
 }
 pub fn memcpyDtoH(comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
     std.debug.assert(d_source.len == h_target.len);
-    check(cu.cuMemcpyDtoH(
+    try check(cu.cuMemcpyDtoH(
         @ptrCast(*c_void, h_target.ptr),
         @ptrToInt(d_source.ptr),
         d_source.len * @sizeOf(DestType),
-    )) catch |err| switch (err) {
-        // TODO: leverage adress spaces to make this a comptime check
-        error.InvalidValue => log.warn("InvalidValue error while memcpyDtoH! Usage is memcpyDtoH(h_tgt, d_src).", .{}),
-        else => return err,
-    };
+    ));
 }
 
 /// Time gpu event.
@@ -735,74 +528,3 @@ test "we use only one context per GPU" {
     try check(cu.cuCtxGetCurrent(&default_ctx));
     try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
 }
-
-fn cudaAllocFn(allocator: *std.mem.Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) std.mem.Allocator.Error![]u8 {
-    _ = allocator;
-    _ = ra;
-    _ = ptr_align;
-    _ = len_align;
-
-    return alloc(u8, n) catch |err| switch (err) {
-        error.OutOfMemory => error.OutOfMemory,
-        else => {
-            log.err("Cuda error while allocating memory: {}", .{err});
-            return error.OutOfMemory;
-        },
-    };
-}
-
-fn cudaResizeFn(allocator: *std.mem.Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ra: usize) std.mem.Allocator.Error!usize {
-    _ = allocator;
-    _ = ra;
-    _ = buf_align;
-    if (new_len == 0) {
-        free(buf);
-        return new_len;
-    }
-    if (new_len <= buf.len) {
-        return std.mem.alignAllocLen(buf.len, new_len, len_align);
-    }
-    return error.OutOfMemory;
-}
-
-// This doesn't work because Allocator.zig from std will call @memset(undefined)
-// on the returned pointer which will segfault, because we're returning a device pointer.
-// https://github.com/ziglang/zig/issues/4298 want to make the @memset optional
-// But does it make sense to have an allocator that return GPU memory ?
-// Most function that want an allocator want to read/write the returned data.
-// I think we should only have this in GPU code.
-//
-// // TODO: we could create an allocator that map the memory to the host
-// this will likely make read/write much slower though
-// https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__VA.html#group__CUDA__VA
-// fn cudaAllocMappedFn(allocator: *std.mem.Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) std.mem.Allocator.Error![]u8 {
-// }
-//
-// pub const cuda_allocator = &cuda_allocator_state;
-// var cuda_allocator_state = std.mem.Allocator{
-//     .allocFn = cudaAllocFn,
-//     .resizeFn = cudaResizeFn,
-// };
-
-// test "cuda_allocator" {
-//     _ = try Stream.init(0);
-//     // This doesn't work because testAllocator will try to write to the memory
-//     // returned by the allocator. In our case the memory is on the GPU and isn't
-//     // writable from CPU.
-//     // try std.heap.testAllocator(cuda_allocator);
-//     // TODO: find some tests to do
-// }
-
-// test "nice error when OOM" {
-//     var stream = try Stream.init(0);
-//     defer stream.deinit();
-//     var last_err: anyerror = undefined;
-//     while (true) {
-//         _ = alloc(u8, 1024 * 1024) catch |err| {
-//             last_err = err;
-//             break;
-//         };
-//     }
-//     try testing.expectEqual(last_err, error.OutOfMemory);
-//     // TODO: release the cuda memory
-// }
