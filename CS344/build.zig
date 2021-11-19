@@ -4,6 +4,7 @@ const CUDA_PATH = "/usr/local/cuda";
 
 const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
+const RunStep = std.build.RunStep;
 
 var target: std.zig.CrossTarget = undefined;
 var mode: std.builtin.Mode = undefined;
@@ -58,9 +59,12 @@ pub fn build(b: *Builder) void {
     // Pure
     const run_pure_step = b.step("run_pure", "Run the example");
     const hw1_pure = addZigHomework(b, tests, "hw1_pure");
-    const run_hw1_pure = hw1_pure.run();
-    run_hw1_pure.step.dependOn(b.getInstallStep());
-    run_pure_step.dependOn(&run_hw1_pure.step);
+    hw1_pure.step.dependOn(b.getInstallStep());
+    run_pure_step.dependOn(&hw1_pure.step);
+
+    const hw2_pure = addZigHomework(b, tests, "hw2_pure");
+    hw2_pure.step.dependOn(b.getInstallStep());
+    run_pure_step.dependOn(&hw2_pure.step);
 }
 
 fn addLibpng(exe: *LibExeObjStep) void {
@@ -85,7 +89,7 @@ fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *
     return hw;
 }
 
-fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *LibExeObjStep {
+fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *RunStep {
     const hw = b.addExecutable(name, "src/" ++ name ++ ".zig");
     hw.setTarget(target);
     hw.setBuildMode(mode);
@@ -96,7 +100,7 @@ fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8
     hw.install();
 
     _ = tests;
-    return hw;
+    return hw.run();
 }
 
 fn addLesson(b: *Builder, comptime name: []const u8) void {

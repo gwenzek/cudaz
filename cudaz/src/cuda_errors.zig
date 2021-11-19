@@ -98,6 +98,7 @@ pub fn silent_check(result: cu.CUresult) CudazError!void {
         cu.CUDA_ERROR_HARDWARE_STACK_ERROR,
         cu.CUDA_ERROR_ILLEGAL_INSTRUCTION,
         cu.CUDA_ERROR_MISALIGNED_ADDRESS,
+        cu.CUDA_ERROR_ILLEGAL_ADDRESS,
         cu.CUDA_ERROR_INVALID_ADDRESS_SPACE,
         cu.CUDA_ERROR_INVALID_PC,
         cu.CUDA_ERROR_LAUNCH_FAILED,
