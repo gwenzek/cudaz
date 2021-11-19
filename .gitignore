@@ -1,5 +1,5 @@
 zig-cache/
 zig-out/
 
-/CS344/*/output*
+/CS344/resources/*/output*
 *.o

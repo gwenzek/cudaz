@@ -115,7 +115,7 @@ pub fn main() !void {
     const d_perm_max = try reduce(&stream, k.maxU32, d_permutation);
     log.info("Permutation ranges from {} to {} (expected 0 to {})", .{ d_perm_min, d_perm_max, d_permutation.len - 1 });
 
-    try stream.synchronize();
+    stream.synchronize();
     std.log.info("Your code ran in: {d:.1} msecs.", .{timer.elapsed() * 1000});
 
     var d_out = try cuda.alloc(cu.uchar3, d_img.len);

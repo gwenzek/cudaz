@@ -17,29 +17,17 @@ pub fn build(b: *Builder) void {
     // const mode = b.standardReleaseOptions();
 
     // This isn't very useful, because we still have to declare `extern` symbols
-    // const kernel = b.addObject("kernel", "cudaz/kernel.o");
+    // const kernel = b.addObject("kernel", "src/kernel.o");
     // kernel.linkLibC();
     // kernel.addLibPath("/usr/local/cuda/lib64");
     // kernel.linkSystemLibraryName("cudart");
 
     var tests = b.step("test", "Tests");
-    const test_cuda = b.addTest("cudaz/cuda.zig");
-    sdk.addCudaz(b, test_cuda, CUDA_PATH, "cudaz/test.cu");
+    const test_cuda = b.addTest("src/cuda.zig");
+    sdk.addCudaz(b, test_cuda, CUDA_PATH, "src/test.cu");
     tests.dependOn(&test_cuda.step);
 
-    const test_nvptx = b.addTest("cudaz/test_nvptx.zig");
-    sdk.addCudazWithZigKernel(b, test_nvptx, CUDA_PATH, "cudaz/nvptx.zig");
+    const test_nvptx = b.addTest("src/test_nvptx.zig");
+    sdk.addCudazWithZigKernel(b, test_nvptx, CUDA_PATH, "src/nvptx.zig");
     tests.dependOn(&test_nvptx.step);
-
-    // TODO (Jan 2022): try zig build -ofmt=c (with master branch)
-    // maybe we could write a kernel in Zig instead of cuda,
-    // which will maybe simplify the type matching
-    // const kernel_zig = b.addStaticLibrary("kernel_zig", "cudaz/kernel.zig");
-    // kernel_zig.linkLibC();
-    // kernel_zig.addLibPath("/usr/local/cuda/lib64");
-    // kernel_zig.linkSystemLibraryName("cuda");
-    // kernel_zig.addIncludeDir("/usr/local/cuda/include");
-    // kernel_zig.setTarget(target);
-    // kernel_zig.setBuildMode(mode);
-    // kernel_zig.install();
 }

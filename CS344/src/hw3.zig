@@ -44,7 +44,6 @@ pub fn main() !void {
         @intCast(c_int, numCols),
     });
 
-    try stream.synchronize();
     const h_xyY = try allocator.alloc(cu.float3, numCols * numRows);
     try cuda.memcpyDtoH(cu.float3, h_xyY, d_xyY);
 
@@ -62,7 +61,7 @@ pub fn main() !void {
     var lum_range = min_max_lum.y - min_max_lum.x;
 
     timer.stop();
-    try stream.synchronize();
+    stream.synchronize();
     std.log.info("Your code ran in: {d:.1} msecs.", .{timer.elapsed() * 1000});
     std.log.info("Found a lum range of: {d:.5}", .{min_max_lum});
 
@@ -153,7 +152,6 @@ fn histogram_and_prefixsum(
     //      incoming d_cdf pointer which already has been allocated for you)
     var num_pixels = numRows * numCols;
     var min_max_lum = try reduceMinMaxLum(stream, d_xyY);
-    try stream.synchronize();
 
     const lum_histo = try cuda.Function("lum_histo").init();
     var d_histo = try cuda.alloc(c_uint, numBins);
@@ -182,7 +180,7 @@ fn histogram_and_prefixsum(
         cuda.Grid.init1D(numBins, numBins),
         .{ d_cdf.ptr, d_histo.ptr, @intCast(c_int, numBins) },
     );
-    try stream.synchronize();
+    stream.synchronize();
 
     return min_max_lum;
 }
@@ -208,7 +206,6 @@ fn reduceMinMaxLum(
         grid.threads.x * @sizeOf(cu.float2),
         .{ d_xyY.ptr, d_buff.ptr, @intCast(c_int, num_pixels) },
     );
-    try stream.synchronize();
 
     const one_block = cuda.Grid.init1D(d_buff.len, 0);
     const reduce_minmax = try cuda.Function("reduce_minmax").init();
@@ -218,7 +215,6 @@ fn reduceMinMaxLum(
         one_block.threads.x * @sizeOf(cu.float2),
         .{ d_buff.ptr, d_min_max_lum.ptr },
     );
-    try stream.synchronize();
     var min_max_lum = try cuda.readResult(cu.float2, &d_min_max_lum[0]);
 
     try std.testing.expect(min_max_lum.x < min_max_lum.y);

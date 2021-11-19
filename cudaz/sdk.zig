@@ -13,6 +13,7 @@ const LibExeObjStep = std.build.LibExeObjStep;
 const NVCC_OUTPUT_FORMAT = "ptx";
 const ZIG_STAGE2 = SDK_ROOT ++ "../../zig/stage2/bin/zig";
 const SDK_ROOT = sdk_root() ++ "/";
+
 /// For a given object:
 ///   1. Compile the given .cu file to a .ptx
 ///   2. Add lib C
@@ -47,7 +48,7 @@ pub fn addCudaz(
         "--display-error-number",
         "--" ++ NVCC_OUTPUT_FORMAT,
         "-I",
-        SDK_ROOT ++ "cudaz",
+        SDK_ROOT ++ "src",
         kernel_path,
         "-o",
         kernel_ptx_path,
@@ -99,7 +100,7 @@ pub fn addCudazDeps(
     exe.addLibPath(cuda_dir ++ "/lib64");
     exe.linkSystemLibraryName("cuda");
     exe.addIncludeDir(cuda_dir ++ "/include");
-    exe.addIncludeDir(SDK_ROOT ++ "cudaz");
+    exe.addIncludeDir(SDK_ROOT ++ "src");
     exe.addIncludeDir(kernel_dir);
 
     // Add cudaz package with the kernel paths.
@@ -116,13 +117,13 @@ pub fn addCudazDeps(
 
     const cudaz_pkg = std.build.Pkg{
         .name = "cudaz",
-        .path = .{ .path = SDK_ROOT ++ "cudaz/cuda.zig" },
+        .path = .{ .path = SDK_ROOT ++ "src/cuda.zig" },
         .dependencies = &[_]std.build.Pkg{
             .{ .name = "cudaz_options", .path = cudaz_options.getSource() },
         },
     };
     const root_src = exe.root_src.?;
-    if (std.mem.eql(u8, root_src.path, "cudaz/cuda.zig")) {
+    if (std.mem.eql(u8, root_src.path, "src/cuda.zig")) {
         // Don't include the package in itself
         exe.addOptions("cudaz_options", cudaz_options);
     } else {

@@ -127,12 +127,12 @@ pub const Stream = struct {
             // kernel is responsible for which error, so we have to wait
             // for this kernel to end before scheduling another.
             // TODO use callback API to keep the asynchronous scheduling
-            try self.synchronize();
+            self.synchronize();
         }
     }
 
-    pub fn synchronize(self: *const Stream) !void {
-        try check(cu.cuStreamSynchronize(self._stream));
+    pub fn synchronize(self: *const Stream) void {
+        check(cu.cuStreamSynchronize(self._stream)) catch unreachable;
     }
 
     pub fn format(

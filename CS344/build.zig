@@ -54,6 +54,13 @@ pub fn build(b: *Builder) void {
     const run_hw4 = hw4.run();
     run_hw4.step.dependOn(b.getInstallStep());
     run_step.dependOn(&run_hw4.step);
+
+    // Pure
+    const run_pure_step = b.step("run_pure", "Run the example");
+    const hw1_pure = addZigHomework(b, tests, "hw1_pure");
+    const run_hw1_pure = hw1_pure.run();
+    run_hw1_pure.step.dependOn(b.getInstallStep());
+    run_pure_step.dependOn(&run_hw1_pure.step);
 }
 
 fn addLibpng(exe: *LibExeObjStep) void {
@@ -79,11 +86,11 @@ fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *
 }
 
 fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *LibExeObjStep {
-    const hw = b.addExecutable(name, "CS344/" ++ name ++ ".zig");
+    const hw = b.addExecutable(name, "src/" ++ name ++ ".zig");
     hw.setTarget(target);
     hw.setBuildMode(mode);
 
-    cuda_sdk.addCudazWithZigKernel(b, hw, CUDA_PATH, "CS344/" ++ name ++ "_kernel.zig");
+    cuda_sdk.addCudazWithZigKernel(b, hw, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
     hw.addPackagePath("zigimg", "zigimg/zigimg.zig");
     addLibpng(hw);
     hw.install();
