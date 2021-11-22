@@ -72,9 +72,8 @@ fn benchmark_reduce(
     try cuda.memset(f32, d_intermediate, 0.0);
     try cuda.memset(f32, d_out, 0.0);
 
-    var timer = cuda.GpuTimer.init(stream);
-    defer timer.deinit();
-    timer.start();
+    var timer = cuda.GpuTimer.start(stream);
+    errdefer timer.deinit();
     var result: f32 = undefined;
     var i: usize = 0;
     while (i < iter) : (i += 1) {

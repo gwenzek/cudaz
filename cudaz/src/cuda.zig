@@ -241,6 +241,17 @@ pub fn memcpyDtoH(comptime DestType: type, h_target: []DestType, d_source: []con
     ));
 }
 
+pub fn push(value: anytype) !*@TypeOf(value) {
+    const DestType = @TypeOf(value);
+    var d_ptr = try alloc(DestType, 1);
+    try check(cu.cuMemcpyHtoD(
+        @ptrToInt(d_ptr.ptr),
+        @ptrCast(*const c_void, &value),
+        @sizeOf(DestType),
+    ));
+    return @ptrCast(*DestType, d_ptr.ptr);
+}
+
 /// Time gpu event.
 /// `deinit` is called when `elapsed` is called.
 /// Note: we don't check errors, you'll receive Nan if any error happens.
@@ -254,7 +265,7 @@ pub const GpuTimer = struct {
     stream: *const Stream,
     _elapsed: f32 = std.math.nan_f32,
 
-    pub fn init(stream: *const Stream) GpuTimer {
+    pub fn start(stream: *const Stream) GpuTimer {
         // The cuEvent are implicitly reffering to the current context.
         // We don't know if the current context is the same than the stream context.
         // Typically I'm not sure what happens with 2 streams on 2 gpus.
@@ -262,6 +273,7 @@ pub const GpuTimer = struct {
         var timer = GpuTimer{ ._start = undefined, ._stop = undefined, .stream = stream };
         _ = cu.cuEventCreate(&timer._start, 0);
         _ = cu.cuEventCreate(&timer._stop, 0);
+        _ = cu.cuEventRecord(timer._start, stream._stream);
         return timer;
     }
 
@@ -272,10 +284,6 @@ pub const GpuTimer = struct {
         self._start = null;
         _ = cu.cuEventDestroy(self._stop);
         self._stop = null;
-    }
-
-    pub fn start(self: *GpuTimer) void {
-        _ = cu.cuEventRecord(self._start, self.stream._stream);
     }
 
     pub fn stop(self: *GpuTimer) void {
@@ -370,7 +378,9 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
 
         pub fn init() !Self {
             var f: cu.CUfunction = undefined;
-            try check(cu.cuModuleGetFunction(&f, defaultModule(), name));
+            var code = cu.cuModuleGetFunction(&f, defaultModule(), name);
+            if (code != cu.CUDA_SUCCESS) log.err("Couldn't load function {s}", .{name});
+            try check(code);
             var res = Self{ .f = f };
             log.info("Loaded function {}@{}", .{ res, f });
             return res;
@@ -439,7 +449,7 @@ test "rgba_to_greyscale" {
         .{ .blocks = Dim3.init(numRows, numCols, 1) },
         .{ d_rgbaImage, d_greyImage, numRows, numCols },
     );
-    try stream.synchronize();
+    stream.synchronize();
 }
 
 test "safe kernel" {
@@ -452,7 +462,7 @@ test "safe kernel" {
     // memset(cu.uchar3, d_rgbaImage, 0xaa);
     const d_greyImage = try alloc(u8, numRows * numCols);
     try memset(u8, d_greyImage, 0);
-    try stream.synchronize();
+    stream.synchronize();
     log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
     try rgba_to_greyscale.launch(
         &stream,

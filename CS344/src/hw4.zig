@@ -104,9 +104,7 @@ pub fn main() !void {
     log.info("min_corr = {}", .{min_corr});
     debugDevice("crossCorrelation", d_scores[0..100]);
 
-    var timer = cuda.GpuTimer.init(&stream);
-    timer.start();
-
+    var timer = cuda.GpuTimer.start(&stream);
     var d_permutation = try radixSortAlloc(&stream, bitCastU32(d_scores));
     defer cuda.free(d_permutation);
     timer.stop();

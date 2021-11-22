@@ -47,7 +47,6 @@ fn _time_kernel(
     comptime array_size: u32,
 ) !void {
     const kernel = try cuda.Function(kernel_name).init();
-    var timer = cuda.GpuTimer.init(stream);
 
     // declare and allocate memory
     const h_array = try alloc.alloc(i32, array_size);
@@ -58,7 +57,7 @@ fn _time_kernel(
 
     log.info("*** Will benchmark kernel {s} ***", .{kernel_name});
     log.info("{} total threads in {} blocks writing into {} array elements", .{ num_threads, num_threads / block_width, array_size });
-    timer.start();
+    var timer = cuda.GpuTimer.start(stream);
     try kernel.launch(
         stream,
         cuda.Grid.init1D(num_threads, block_width),

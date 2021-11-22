@@ -58,7 +58,6 @@ pub fn main() anyerror!void {
     var d_out = try cuda.alloc(Rgb24, img.width * img.height);
     defer cuda.free(d_out);
 
-    var timer = cuda.GpuTimer.init(&stream);
     const separateChannels = try cuda.Function("separateChannels").init();
     const gaussianBlur = try cuda.Function("gaussian_blur").init();
     const recombineChannels = try cuda.Function("recombineChannels").init();
@@ -80,7 +79,7 @@ pub fn main() anyerror!void {
         },
     );
 
-    timer.start();
+    var timer = cuda.GpuTimer.start(&stream);
     for (d_buffers) |d_src_tgt| {
         try gaussianBlur.launch(
             &stream,

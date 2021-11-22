@@ -52,9 +52,8 @@ pub fn main() !void {
     var d_cdf = try cuda.alloc(f32, numBins);
     defer cuda.free(d_cdf);
 
-    var timer = cuda.GpuTimer.init(&stream);
-    defer timer.deinit();
-    timer.start();
+    var timer = cuda.GpuTimer.start(&stream);
+    errdefer timer.deinit();
 
     const min_max_lum = try histogram_and_prefixsum(&stream, d_xyY, d_cdf, numRows, numCols, numBins);
     var lum_min = min_max_lum.x;

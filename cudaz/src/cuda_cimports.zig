@@ -7,3 +7,5 @@ pub const cu = @cImport({
         @cInclude(cudaz_options.kernel_name);
     }
 });
+
+// pub const kernels = if (cudaz_options.cuda_cimports) struct {} else @import(cudaz_options.kernel_name);
