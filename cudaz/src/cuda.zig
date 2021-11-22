@@ -368,7 +368,7 @@ pub inline fn Function(comptime name: [:0]const u8) type {
     return FnStruct(name, @field(cu, name));
 }
 
-pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
+pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
     return struct {
         const Self = @This();
         const CpuFn = func;
@@ -378,7 +378,7 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
 
         pub fn init() !Self {
             var f: cu.CUfunction = undefined;
-            var code = cu.cuModuleGetFunction(&f, defaultModule(), name);
+            var code = cu.cuModuleGetFunction(&f, defaultModule(), @ptrCast([*c]const u8, name));
             if (code != cu.CUDA_SUCCESS) log.err("Couldn't load function {s}", .{name});
             try check(code);
             var res = Self{ .f = f };
@@ -537,4 +537,41 @@ test "we use only one context per GPU" {
     var stream_ctx: cu.CUcontext = undefined;
     try check(cu.cuCtxGetCurrent(&default_ctx));
     try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
+}
+
+pub fn Kernels(comptime module: type) type {
+    // @compileLog(@typeName(module));
+    const decls = @typeInfo(module).Struct.decls;
+    var kernels: [decls.len]TypeInfo.StructField = undefined;
+    comptime var kernels_count = 0;
+    inline for (decls) |decl| {
+        if (decl.data != .Fn or !decl.data.Fn.is_export) continue;
+        kernels[kernels_count] = .{
+            .name = decl.name,
+            .field_type = FnStruct(decl.name, decl.data.Fn.fn_type),
+            .default_value = null,
+            .is_comptime = false,
+            .alignment = @alignOf(cu.CUfunction),
+        };
+        kernels_count += 1;
+    }
+    // @compileLog(kernels_count);
+    return @Type(TypeInfo{
+        .Struct = TypeInfo.Struct{
+            .is_tuple = false,
+            .layout = .Auto,
+            .decls = &[_]TypeInfo.Declaration{},
+            .fields = kernels[0..kernels_count],
+        },
+    });
+}
+
+pub fn loadKernels(comptime module: type) Kernels(module) {
+    const KernelType = Kernels(module);
+
+    var kernels: KernelType = undefined;
+    inline for (std.meta.fields(KernelType)) |field| {
+        @field(kernels, field.name) = field.field_type.init() catch unreachable;
+    }
+    return kernels;
 }
