@@ -34,6 +34,7 @@ pub fn build(b: *Builder) void {
     addLesson(b, "lesson3");
     const hw3 = addHomework(b, tests, "hw3");
     const hw4 = addHomework(b, tests, "hw4");
+    addZigLesson(b, "lesson5");
     _ = hw1;
     _ = hw2;
     _ = hw3;
@@ -57,14 +58,14 @@ pub fn build(b: *Builder) void {
     run_step.dependOn(&run_hw4.step);
 
     // Pure
-    const run_pure_step = b.step("run_pure", "Run the example");
-    const hw1_pure = addZigHomework(b, tests, "hw1_pure");
-    hw1_pure.step.dependOn(b.getInstallStep());
-    run_pure_step.dependOn(&hw1_pure.step);
+    // const run_pure_step = b.step("run_pure", "Run the example");
+    // const hw1_pure = addZigHomework(b, tests, "hw1_pure");
+    // hw1_pure.step.dependOn(b.getInstallStep());
+    // run_pure_step.dependOn(&hw1_pure.step);
 
-    const hw2_pure = addZigHomework(b, tests, "hw2_pure");
-    hw2_pure.step.dependOn(b.getInstallStep());
-    run_pure_step.dependOn(&hw2_pure.step);
+    // const hw2_pure = addZigHomework(b, tests, "hw2_pure");
+    // hw2_pure.step.dependOn(b.getInstallStep());
+    // run_pure_step.dependOn(&hw2_pure.step);
 }
 
 fn addLibpng(exe: *LibExeObjStep) void {
@@ -106,6 +107,19 @@ fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8
 fn addLesson(b: *Builder, comptime name: []const u8) void {
     const lesson = b.addExecutable(name, "src/" ++ name ++ ".zig");
     cuda_sdk.addCudaz(b, lesson, CUDA_PATH, "src/" ++ name ++ ".cu");
+    lesson.setTarget(target);
+    lesson.setBuildMode(mode);
+    lesson.install();
+
+    const run_lesson_step = b.step(name, "Run " ++ name);
+    const run_lesson = lesson.run();
+    run_lesson.step.dependOn(b.getInstallStep());
+    run_lesson_step.dependOn(&run_lesson.step);
+}
+
+fn addZigLesson(b: *Builder, comptime name: []const u8) void {
+    const lesson = b.addExecutable(name, "src/" ++ name ++ ".zig");
+    cuda_sdk.addCudazWithZigKernel(b, lesson, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
     lesson.setTarget(target);
     lesson.setBuildMode(mode);
     lesson.install();
