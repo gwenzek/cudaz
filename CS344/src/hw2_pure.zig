@@ -10,6 +10,7 @@ const cu = cuda.cu;
 const png = @import("png.zig");
 const utils = @import("utils.zig");
 const kernels = @import("hw2_pure_kernel.zig");
+const Mat3 = kernels.Mat3;
 
 const resources_dir = "resources/hw2_resources/";
 
@@ -39,18 +40,22 @@ pub fn main() anyerror!void {
     var d_out = try cuda.alloc(Rgb24, img.width * img.height);
     defer cuda.free(d_out);
 
-    var timer = cuda.GpuTimer.init(&stream);
     const gaussianBlur = try cuda.FnStruct("gaussianBlur", kernels.gaussianBlur).init();
 
     var d_filter = try cuda.allocAndCopy(f32, &blurFilter());
     defer cuda.free(d_filter);
-
+    var img_mat = Mat3{
+        .data = std.mem.sliceAsBytes(d_img),
+        .shape = [3]i32{ @intCast(i32, img.height), @intCast(i32, img.height), 3 },
+    };
+    // var d_img_mat = try cuda.push(img_mat);
     var grid3D = cuda.Grid.init3D(img.width, img.height, 3, 32, 32, 1);
+    var timer = cuda.GpuTimer.start(&stream);
     try gaussianBlur.launch(
         &stream,
         grid3D,
         .{
-            std.mem.sliceAsBytes(d_img),
+            img_mat,
             std.mem.sliceAsBytes(d_out),
             @intCast(i32, img.width),
             @intCast(i32, img.height),
@@ -58,6 +63,7 @@ pub fn main() anyerror!void {
             @intCast(i32, blur_kernel_width),
         },
     );
+    // _ = cuda.cu.cuMemFree(@ptrToInt(d_img_mat));
     timer.stop();
     try cuda.memcpyDtoH(Rgb24, img.pixels.?.Rgb24, d_out);
     try png.writePngToFilePath(img, resources_dir ++ "output.png");

@@ -58,14 +58,12 @@ pub fn build(b: *Builder) void {
     run_step.dependOn(&run_hw4.step);
 
     // Pure
-    // const run_pure_step = b.step("run_pure", "Run the example");
-    // const hw1_pure = addZigHomework(b, tests, "hw1_pure");
-    // hw1_pure.step.dependOn(b.getInstallStep());
-    // run_pure_step.dependOn(&hw1_pure.step);
+    const run_pure_step = b.step("run_pure", "Run the example");
+    const hw1_pure = addZigHomework(b, tests, "hw1_pure");
+    run_pure_step.dependOn(&hw1_pure.step);
 
-    // const hw2_pure = addZigHomework(b, tests, "hw2_pure");
-    // hw2_pure.step.dependOn(b.getInstallStep());
-    // run_pure_step.dependOn(&hw2_pure.step);
+    const hw2_pure = addZigHomework(b, tests, "hw2_pure");
+    run_pure_step.dependOn(&hw2_pure.step);
 }
 
 fn addLibpng(exe: *LibExeObjStep) void {
