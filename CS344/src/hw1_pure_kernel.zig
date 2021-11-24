@@ -1,8 +1,9 @@
 const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
 const is_nvptx = builtin.cpu.arch == .nvptx64;
+const PtxKernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
 
-pub export fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(.PtxKernel) void {
+pub export fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(PtxKernel) void {
     const i = getId_1D();
     if (i >= greyImage.len) return;
     const px = rgbaImage[i * 3 .. i * 3 + 3];
@@ -37,6 +38,6 @@ pub inline fn gridIdX() usize {
     return @intCast(usize, ctaid);
 }
 
-pub inline fn getId_1D() usize {
+pub fn getId_1D() usize {
     return threadIdX() + threadDimX() * gridIdX();
 }

@@ -1,6 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
+const CallingConvention = @import("std").builtin.CallingConvention;
+const is_nvptx = builtin.cpu.arch == .nvptx64;
+const PtxKernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
 
-pub export fn transposeCpu(data: []const u32, trans: []u32, num_cols: usize) callconv(.PtxKernel) void {
+pub export fn transposeCpu(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
     var i: usize = 0;
     while (i < num_cols) : (i += 1) {
         var j: usize = 0;
@@ -10,7 +14,7 @@ pub export fn transposeCpu(data: []const u32, trans: []u32, num_cols: usize) cal
     }
 }
 
-pub export fn transposePerRow(data: []const u32, trans: []u32, num_cols: usize) callconv(.PtxKernel) void {
+pub export fn transposePerRow(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
     const i = getIdX();
     var j: usize = 0;
     while (j < num_cols) : (j += 1) {
@@ -18,14 +22,11 @@ pub export fn transposePerRow(data: []const u32, trans: []u32, num_cols: usize) 
     }
 }
 
-pub export fn transposePerCell(data: []const u32, trans: []u32, num_cols: usize) callconv(.PtxKernel) void {
+pub export fn transposePerCell(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
     const i = getIdX();
     const j = getIdY();
     trans[num_cols * i + j] = data[num_cols * j + i];
 }
-
-const builtin = @import("builtin");
-const is_nvptx = builtin.cpu.arch == .nvptx64;
 
 pub inline fn threadIdX() usize {
     if (!is_nvptx) return 0;

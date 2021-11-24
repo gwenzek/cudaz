@@ -68,6 +68,11 @@ pub fn silent_check(result: cu.CUresult) CudazError!void {
         cu.CUDA_ERROR_SYSTEM_NOT_READY,
         cu.CUDA_ERROR_SYSTEM_DRIVER_MISMATCH,
         cu.CUDA_ERROR_COMPAT_NOT_SUPPORTED_ON_DEVICE,
+        // LAUNCH_OUT_OF_RESOURCES can indicate either that the too many threads
+        // where requested wrt to the maximum supported by the GPU.
+        // It can also be triggered by passing too many args to a kernel,
+        // but this should be caught at compile time by Cudaz, so we will ignore this.
+        cu.CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES,
         => error.NotSupported,
         // API usage errors:
         cu.CUDA_ERROR_INVALID_VALUE => @panic("Received invalid parameters (typically device/host pointer mismatch"),

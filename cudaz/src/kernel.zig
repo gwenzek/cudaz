@@ -1,19 +1,34 @@
-const ptx = @import("nvptx.zig");
+// const ptx = @import("nvptx.zig");
 const message = []u8{ 72, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 33, 13, 10 };
 
 export fn hello(out: []u8) void {
-    const i = ptx.getId_1D();
+    const i = getId_1D();
     if (i > message.len or i > out.len) return;
-    ptx.syncThreads();
+    // ptx.syncThreads();
     out[i] = message[i];
 }
 
-// export fn rgba_to_greyscale(rgbaImage: [*][3]u8, greyImage: [*]u8) void {
-//     const i = blockIdx[0] * lockDim[0] + threadIdx[0];
-//     const px = rgbaImage[i];
-//     // const R = @intToFloat(f32, px[0]);
-//     // const G = @intToFloat(f32, px[1]);
-//     // const B = @intToFloat(f32, px[2]);
-//     // const output = (0.299 * R + 0.587 * G + 0.114 * B);
-//     greyImage[i] = px[0];
-// }
+pub inline fn threadIdX() usize {
+    var tid = asm volatile ("mov.u32 \t$0, %tid.x;"
+        : [ret] "=r" (-> u32),
+    );
+    return @intCast(usize, tid);
+}
+
+pub inline fn threadDimX() usize {
+    var ntid = asm volatile ("mov.u32 \t$0, %ntid.x;"
+        : [ret] "=r" (-> u32),
+    );
+    return @intCast(usize, ntid);
+}
+
+pub inline fn gridIdX() usize {
+    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.x;"
+        : [ret] "=r" (-> u32),
+    );
+    return @intCast(usize, ctaid);
+}
+
+pub inline fn getId_1D() usize {
+    return threadIdX() + threadDimX() * gridIdX();
+}
