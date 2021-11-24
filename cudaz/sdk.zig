@@ -77,9 +77,9 @@ pub fn addCudazWithZigKernel(
     // and manually run this command.
     const emit_bin = std.mem.join(b.allocator, "=", &[_][]const u8{ "-femit-bin", kernel_o_path }) catch unreachable;
     const zig_kernel = b.addSystemCommand(&[_][]const u8{
-        ZIG_STAGE2, "build-obj",    kernel_path,
-        "-target",  "nvptx64-cuda", "-OReleaseSafe",
-        emit_bin,
+        ZIG_STAGE2,    "build-obj",    kernel_path,
+        "-target",     "nvptx64-cuda", "-OReleaseSafe",
+        "-Dcpu=sm_30", emit_bin,
     });
     const kernel_ptx_path = std.mem.joinZ(b.allocator, "", &[_][]const u8{ kernel_o_path, ".ptx" }) catch unreachable;
     exe.step.dependOn(&zig_kernel.step);

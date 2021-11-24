@@ -5,17 +5,19 @@ const CallingConvention = @import("std").builtin.CallingConvention;
 const PtxKernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
 
 const cu = @import("cudaz").cu;
-const math = std.math;
-// TODO: importing crashes with Stage2, not sure why
-// const nvptx = @import("cudaz").nvptx;
 
-const clamp = math.clamp;
+// stage2 seems unable to compile math.min, so we roll out our own clamp
+fn clamp(x: i32, min: i32, max: i32) i32 {
+    if (x < min) return min;
+    if (x >= max) return max - 1;
+    return x;
+}
 
 pub const Mat3 = struct {
-    data: []u8,
+    data: []const u8,
     shape: [3]i32,
-    pub fn get(self: Mat3, x: i32, y: i32, z: i32) u8 {
-        return self.data[self.idx(x, y, z)];
+    pub fn getClamped(self: Mat3, x: i32, y: i32, z: i32) u8 {
+        return self.data[self.idxClamped(x, y, z)];
     }
     pub fn idx(self: Mat3, x: i32, y: i32, z: i32) usize {
         const i = (x * self.shape[1] + y) * self.shape[2] + z;
@@ -31,6 +33,24 @@ pub const Mat3 = struct {
     }
 };
 
+pub const Mat2Float = struct {
+    data: []f32,
+    shape: [2]i32,
+    pub fn getClamped(self: Mat2Float, x: i32, y: i32) f32 {
+        return self.data[self.idxClamped(x, y)];
+    }
+    pub fn idx(self: Mat2Float, x: i32, y: i32) usize {
+        const i = x * self.shape[1] + y;
+        return @intCast(usize, i);
+    }
+
+    pub fn idxClamped(self: Mat2Float, x: i32, y: i32) usize {
+        return self.idx(
+            clamp(x, 0, self.shape[0]),
+            clamp(y, 0, self.shape[1]),
+        );
+    }
+};
 inline fn clampedOffset(x: i32, step: i32, n: i32) i32 {
     if (step < 0 and -step > x) return 0;
     const x_step = x + step;
@@ -38,19 +58,41 @@ inline fn clampedOffset(x: i32, step: i32, n: i32) i32 {
     return x_step;
 }
 
-pub export fn gaussianBlur(
-    input: Mat3,
-    output: []u8,
-    num_rows: i32,
+pub const GaussianBlurArgs = struct {
+    raw_input: []const u8,
     num_cols: i32,
-    filter: []f32,
+    num_rows: i32,
+    filter: []const f32,
     filter_width: i32,
+    output: []u8,
+};
+
+pub export fn gaussianBlurStruct(args: GaussianBlurArgs) callconv(PtxKernel) void {
+    return gaussianBlurVerbose(
+        args.raw_input,
+        args.num_cols,
+        args.num_rows,
+        args.filter,
+        args.filter_width,
+        args.output,
+    );
+}
+
+pub export fn gaussianBlurVerbose(
+    raw_input: []const u8,
+    num_cols: i32,
+    num_rows: i32,
+    filter: []const f32,
+    filter_width: i32,
+    output: []u8,
 ) callconv(PtxKernel) void {
     const id = getId_3D();
+    const input = Mat3{ .data = raw_input, .shape = [_]i32{ num_cols, num_rows, 3 } };
     if (id.x >= num_cols or id.y >= num_rows)
         return;
+
     const channel_id = @intCast(usize, input.idx(id.x, id.y, id.z));
-    output[channel_id] = input.data[channel_id];
+    // output[channel_id] = input.data[channel_id];
 
     const half_width: i32 = filter_width >> 1;
     var pixel: f32 = 0.0;
@@ -59,7 +101,31 @@ pub export fn gaussianBlur(
         var c = -half_width;
         while (c <= half_width) : (c += 1) {
             const weight = filter[@intCast(usize, (r + half_width) * filter_width + c + half_width)];
-            pixel += weight * @intToFloat(f32, input.get(id.x, id.y, id.z));
+            pixel += weight * @intToFloat(f32, input.getClamped(id.x, id.y, id.z));
+        }
+    }
+    output[channel_id] = @floatToInt(u8, pixel);
+}
+
+pub export fn gaussianBlur(
+    input: Mat3,
+    filter: Mat2Float,
+    output: []u8,
+) callconv(PtxKernel) void {
+    const id = getId_3D();
+    if (id.x >= input.shape[0] or id.y >= input.shape[1])
+        return;
+    const channel_id = @intCast(usize, input.idx(id.x, id.y, id.z));
+    output[channel_id] = input.data[channel_id];
+
+    const half_width: i32 = filter.shape[0] >> 1;
+    var pixel: f32 = 0.0;
+    var r = -half_width;
+    while (r <= half_width) : (r += 1) {
+        var c = -half_width;
+        while (c <= half_width) : (c += 1) {
+            const weight = filter.getClamped(r + half_width, c + half_width);
+            pixel += weight * @intToFloat(f32, input.getClamped(id.x, id.y, id.z));
         }
     }
     output[channel_id] = @floatToInt(u8, pixel);
