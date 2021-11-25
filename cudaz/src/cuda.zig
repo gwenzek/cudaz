@@ -134,6 +134,7 @@ pub const Stream = struct {
         // before returning from cuLaunchKernel.
         _kernel_launch_config.param_buffer_ptr = @ptrToInt(args_bytes);
         _kernel_launch_config.param_buffer_len = &args_len;
+        log.debug("passing {d} bytes to kernels: {x}", .{ args_len, std.fmt.fmtSliceHexLower(args_bytes) });
         const res = cu.cuLaunchKernel(
             f,
             grid.blocks.x,

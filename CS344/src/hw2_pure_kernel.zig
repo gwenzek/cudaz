@@ -13,8 +13,8 @@ fn clamp(x: i32, min: i32, max: i32) i32 {
     return x;
 }
 
-pub const Mat3 = struct {
-    data: []const u8,
+pub const Mat3 = extern struct {
+    data: [*]const u8,
     shape: [3]i32,
     pub fn getClamped(self: Mat3, x: i32, y: i32, z: i32) u8 {
         return self.data[self.idxClamped(x, y, z)];
@@ -33,8 +33,8 @@ pub const Mat3 = struct {
     }
 };
 
-pub const Mat2Float = struct {
-    data: []f32,
+pub const Mat2Float = extern struct {
+    data: [*]f32,
     shape: [2]i32,
     pub fn getClamped(self: Mat2Float, x: i32, y: i32) f32 {
         return self.data[self.idxClamped(x, y)];
@@ -59,19 +59,17 @@ inline fn clampedOffset(x: i32, step: i32, n: i32) i32 {
 }
 
 pub const GaussianBlurArgs = struct {
-    raw_input: []const u8,
-    num_cols: i32,
-    num_rows: i32,
-    filter: []const f32,
+    img: Mat3,
+    filter: [*]const f32,
     filter_width: i32,
-    output: []u8,
+    output: [*]u8,
 };
 
 pub export fn gaussianBlurStruct(args: GaussianBlurArgs) callconv(PtxKernel) void {
     return gaussianBlurVerbose(
-        args.raw_input,
-        args.num_cols,
-        args.num_rows,
+        args.img.data,
+        args.img.shape[0],
+        args.img.shape[1],
         args.filter,
         args.filter_width,
         args.output,
@@ -79,12 +77,12 @@ pub export fn gaussianBlurStruct(args: GaussianBlurArgs) callconv(PtxKernel) voi
 }
 
 pub export fn gaussianBlurVerbose(
-    raw_input: []const u8,
+    raw_input: [*]const u8,
     num_cols: i32,
     num_rows: i32,
-    filter: []const f32,
+    filter: [*]const f32,
     filter_width: i32,
-    output: []u8,
+    output: [*]u8,
 ) callconv(PtxKernel) void {
     const id = getId_3D();
     const input = Mat3{ .data = raw_input, .shape = [_]i32{ num_cols, num_rows, 3 } };

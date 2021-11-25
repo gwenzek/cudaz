@@ -45,12 +45,12 @@ pub fn main() anyerror!void {
     const gaussianBlurVerbose = try cuda.FnStruct("gaussianBlurVerbose", kernels.gaussianBlurVerbose).init();
 
     const d_filter = Mat2Float{
-        .data = try cuda.allocAndCopy(f32, &blurFilter()),
+        .data = (try cuda.allocAndCopy(f32, &blurFilter())).ptr,
         .shape = [_]i32{ blur_kernel_width, blur_kernel_width },
     };
-    defer cuda.free(d_filter.data);
+    defer cuda.free(d_filter.data[0..@intCast(usize, d_filter.shape[0])]);
     var img_mat = Mat3{
-        .data = std.mem.sliceAsBytes(d_img),
+        .data = std.mem.sliceAsBytes(d_img).ptr,
         .shape = [3]i32{ @intCast(i32, img.width), @intCast(i32, img.height), 3 },
     };
     var grid3D = cuda.Grid.init3D(img.width, img.height, 3, 32, 32, 1);
@@ -62,23 +62,20 @@ pub fn main() anyerror!void {
             img_mat.data,
             img_mat.shape[0],
             img_mat.shape[1],
-            d_filter.data,
+            d_filter.data[0 .. blur_kernel_width * blur_kernel_width],
             @intCast(i32, blur_kernel_width),
-            std.mem.sliceAsBytes(d_out),
+            std.mem.sliceAsBytes(d_out).ptr,
         },
     );
     const blur_args = kernels.GaussianBlurArgs{
-        .raw_input = img_mat.data,
-        .num_cols = img_mat.shape[0],
-        .num_rows = img_mat.shape[1],
+        .img = img_mat,
         .filter = d_filter.data,
         .filter_width = @intCast(i32, blur_kernel_width),
-        .output = std.mem.sliceAsBytes(d_out),
+        .output = std.mem.sliceAsBytes(d_out).ptr,
     };
 
-    log.info("arg.raw_input={*}", .{blur_args.raw_input});
-    log.info("arg.num_cols={}", .{blur_args.num_cols});
-    log.info("arg.num_rows={}", .{blur_args.num_rows});
+    log.info("arg.img.data={*}", .{blur_args.img.data});
+    log.info("arg.img.shape={any}", .{blur_args.img.shape});
     log.info("arg.filter={*}", .{blur_args.filter});
     log.info("arg.filter_width={}", .{blur_args.filter_width});
     log.info("arg.output={*}", .{blur_args.output});
