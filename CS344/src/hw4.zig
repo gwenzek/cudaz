@@ -76,11 +76,11 @@ pub fn main() !void {
     try test_naive_normalized_cross_correlation(&stream, d_template, num_rows_template, num_cols_template);
     // Create a 2D grid for the image and use the last dimension for the channel (R, G, B)
     const gridWithChannel = cuda.Grid.init3D(num_cols, num_rows, 3, 32, 1, 3);
-    log.info("crossCorrelation({}, {},)", .{ gridWithChannel, gridWithChannel.sharedMemPerThread(f32, 1) });
+    log.info("crossCorrelation({}, {},)", .{ gridWithChannel, gridWithChannel.sharedMem(f32, 1) });
     try k.crossCorrelation.launchWithSharedMem(
         &stream,
         gridWithChannel,
-        gridWithChannel.sharedMemPerThread(f32, 1),
+        gridWithChannel.sharedMem(f32, 1),
         .{
             d_scores.ptr,
             d_img.ptr,
@@ -534,11 +534,11 @@ fn test_naive_normalized_cross_correlation(
 
     const gridWithChannel = cuda.Grid.init3D(num_rows, num_rows, 3, 32, 1, 3);
     // Auto cross-correlation
-    log.info("crossCorrelation({}, {},)", .{ gridWithChannel, gridWithChannel.sharedMemPerThread(f32, 1) });
+    log.info("crossCorrelation({}, {},)", .{ gridWithChannel, gridWithChannel.sharedMem(f32, 1) });
     try k.crossCorrelation.launchWithSharedMem(
         stream,
         gridWithChannel,
-        gridWithChannel.sharedMemPerThread(f32, 1),
+        gridWithChannel.sharedMem(f32, 1),
         .{
             d_scores.ptr,
             d_template.ptr,

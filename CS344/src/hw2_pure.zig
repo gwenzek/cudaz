@@ -39,23 +39,23 @@ pub fn main() anyerror!void {
     var d_out = try cuda.alloc(Rgb24, img.width * img.height);
     defer cuda.free(d_out);
 
-    var timer = cuda.GpuTimer.init(&stream);
     const gaussianBlur = try cuda.FnStruct("gaussianBlur", kernels.gaussianBlur).init();
 
     var d_filter = try cuda.allocAndCopy(f32, &blurFilter());
     defer cuda.free(d_filter);
 
     var grid3D = cuda.Grid.init3D(img.width, img.height, 3, 32, 32, 1);
+    var timer = cuda.GpuTimer.start(&stream);
     try gaussianBlur.launch(
         &stream,
         grid3D,
         .{
             std.mem.sliceAsBytes(d_img),
-            std.mem.sliceAsBytes(d_out),
             @intCast(i32, img.width),
             @intCast(i32, img.height),
             d_filter,
             @intCast(i32, blur_kernel_width),
+            std.mem.sliceAsBytes(d_out),
         },
     );
     timer.stop();

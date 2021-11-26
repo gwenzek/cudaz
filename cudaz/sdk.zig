@@ -68,21 +68,26 @@ pub fn addCudazWithZigKernel(
     const name = std.fs.path.basename(kernel_path);
     const dummy_zig_kernel = b.addObject(name, kernel_path);
     dummy_zig_kernel.setTarget(.{ .cpu_arch = .nvptx64, .os_tag = .cuda });
-    const kernel_o_path = std.fs.path.joinZ(
+    const kernel_ptx_path = std.mem.joinZ(
         b.allocator,
-        &[_][]const u8{ b.exe_dir, dummy_zig_kernel.out_filename },
+        "",
+        &[_][]const u8{ b.exe_dir, "/", dummy_zig_kernel.out_filename, ".ptx" },
     ) catch unreachable;
 
-    // Actually we need to use Stage2 here, so don't use the dummy obj,
-    // and manually run this command.
-    const emit_bin = std.mem.join(b.allocator, "=", &[_][]const u8{ "-femit-bin", kernel_o_path }) catch unreachable;
-    const zig_kernel = b.addSystemCommand(&[_][]const u8{
-        ZIG_STAGE2,    "build-obj",    kernel_path,
-        "-target",     "nvptx64-cuda", "-OReleaseSafe",
-        "-Dcpu=sm_30", emit_bin,
-    });
-    const kernel_ptx_path = std.mem.joinZ(b.allocator, "", &[_][]const u8{ kernel_o_path, ".ptx" }) catch unreachable;
-    exe.step.dependOn(&zig_kernel.step);
+    if (needRebuild(kernel_path, kernel_ptx_path)) {
+        // Actually we need to use Stage2 here, so don't use the dummy obj,
+        // and manually run this command.
+        const emit_bin = std.mem.join(b.allocator, "=", &[_][]const u8{ "-femit-bin", kernel_ptx_path[0 .. kernel_ptx_path.len - 4] }) catch unreachable;
+        const zig_kernel = b.addSystemCommand(&[_][]const u8{
+            ZIG_STAGE2,    "build-obj",    kernel_path,
+            "-target",     "nvptx64-cuda", "-OReleaseSafe",
+            "-Dcpu=sm_30", emit_bin,
+            // "--verbose-llvm-ir",
+        });
+        exe.step.dependOn(enableAddrspace(b, &zig_kernel.step, kernel_path));
+    } else {
+        std.log.warn("Kernel up-to-date {s}", .{kernel_ptx_path});
+    }
 
     addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
 }
@@ -133,4 +138,41 @@ pub fn addCudazDeps(
 
 fn sdk_root() []const u8 {
     return std.fs.path.dirname(@src().file).?;
+}
+
+fn needRebuild(kernel_path: [:0]const u8, kernel_ptx_path: [:0]const u8) bool {
+    var ptx_file = std.fs.openFileAbsoluteZ(kernel_ptx_path, .{}) catch return true;
+    var ptx_time = (ptx_file.stat() catch return true).mtime;
+
+    var zig_file = (std.fs.cwd().openFileZ(kernel_path, .{}) catch return true);
+    var zig_time = (zig_file.stat() catch return true).mtime;
+    return zig_time >= ptx_time + std.time.ns_per_s * 10;
+}
+
+/// Wraps the given step by a small text processing
+/// that enables then disables Stage2 only code.
+fn enableAddrspace(b: *Builder, step: *std.build.Step, src: [:0]const u8) *std.build.Step {
+    _ = b;
+    _ = step;
+    _ = src;
+    const enable_stage2 = b.addSystemCommand(&[_][]const u8{
+        "perl", "-nil", "-e", "s:^// (.* // stage2):$1:g ; print", src,
+    });
+    const disable_stage1 = b.addSystemCommand(&[_][]const u8{
+        "perl", "-nil", "-e", "s:^([^/]* // stage1):// $1:g ; print", src,
+    });
+
+    disable_stage1.step.dependOn(&enable_stage2.step);
+    step.dependOn(&disable_stage1.step);
+    // return step;
+    const enable_stage1 = b.addSystemCommand(&[_][]const u8{
+        "perl", "-nil", "-e", "s:^// (.* // stage1):$1:g ; print", src,
+    });
+    const disable_stage2 = b.addSystemCommand(&[_][]const u8{
+        "perl", "-nil", "-e", "s:^([^/]* // stage2):// $1:g ; print", src,
+    });
+
+    enable_stage1.step.dependOn(step);
+    disable_stage2.step.dependOn(&enable_stage1.step);
+    return &disable_stage2.step;
 }

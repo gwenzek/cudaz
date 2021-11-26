@@ -25,7 +25,42 @@ pub export fn transposePerRow(data: []const u32, trans: []u32, num_cols: usize) 
 pub export fn transposePerCell(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
     const i = getIdX();
     const j = getIdY();
+    if (i >= num_cols or j >= num_cols) return;
     trans[num_cols * i + j] = data[num_cols * j + i];
+}
+
+const block_size = 16;
+// Stage1 can't parse addrspace, so we use pre-processing tricks to only
+// set the addrspace in Stage2.
+// pub var transpose_per_block_buffer: [block_size][block_size]u32 addrspace(.fs) = undefined; // stage2
+pub var transpose_per_block_buffer: [block_size][block_size]u32 = undefined; // stage1
+
+// **** **** **** ****
+// **** **** **** ****
+// **** **** **** ****
+// **** **** **** ****
+
+// **** **** **** ****
+// **** **** **** ****
+// **** **** **** ****
+// **** **** **** ****
+
+pub export fn transposePerBlock(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
+    var buffer = &transpose_per_block_buffer;
+    const block_i = gridIdX() * block_size;
+    const block_j = gridIdY() * block_size;
+    const block_out_i = block_j;
+    const block_out_j = block_i;
+    const i = threadIdX();
+    const j = threadIdY();
+    if (i + block_i >= num_cols or j + block_j >= num_cols) return;
+
+    // coalesced read
+    buffer[j][i] = data[num_cols * (block_j + j) + (block_i + i)];
+    syncThreads();
+
+    // coalesced write
+    trans[num_cols * (block_out_j + j) + (block_out_i + i)] = buffer[i][j];
 }
 
 pub inline fn threadIdX() usize {
@@ -81,4 +116,10 @@ pub inline fn getIdX() usize {
 }
 pub inline fn getIdY() usize {
     return threadIdY() + threadDimY() * gridIdY();
+}
+
+pub inline fn syncThreads() void {
+    // @"llvm.nvvm.barrier0"();
+    if (!is_nvptx) return;
+    asm volatile ("bar.sync \t0;");
 }

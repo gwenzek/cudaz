@@ -69,8 +69,8 @@ pub const Grid = struct {
         return self.threads.x * self.threads.y * self.threads.z;
     }
 
-    pub fn sharedMemPerThread(self: *const Grid, comptime ty: type, n: usize) usize {
-        return self.threadsPerBlock() * @sizeOf(ty) * n;
+    pub fn sharedMem(self: *const Grid, comptime ty: type, per_thread: usize) usize {
+        return self.threadsPerBlock() * @sizeOf(ty) * per_thread;
     }
 };
 

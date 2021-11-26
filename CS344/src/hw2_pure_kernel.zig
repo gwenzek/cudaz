@@ -3,8 +3,8 @@ const std = @import("std");
 const is_nvptx = builtin.cpu.arch == .nvptx64;
 const cu = @import("cudaz").cu;
 const math = std.math;
-// TODO: importing crashes with Stage2, not sure why
-// const nvptx = @import("cudaz").nvptx;
+const CallingConvention = std.builtin.CallingConvention;
+const PtxKernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
 
 inline fn clampedOffset(x: i32, step: i32, n: i32) i32 {
     if (step < 0 and -step > x) return 0;
@@ -15,12 +15,12 @@ inline fn clampedOffset(x: i32, step: i32, n: i32) i32 {
 
 pub export fn gaussianBlur(
     input: []const u8,
-    output: []u8,
     num_cols: i32,
     num_rows: i32,
     filter: []f32,
     filter_width: i32,
-) callconv(.PtxKernel) void {
+    output: []u8,
+) callconv(PtxKernel) void {
     const id = getId_3D();
     if (id.x >= num_cols or id.y >= num_rows)
         return;
