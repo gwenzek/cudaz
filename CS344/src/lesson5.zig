@@ -14,7 +14,7 @@ pub fn main() !void {
     const allocator = &general_purpose_allocator.allocator;
     var random = Random.init(10298374);
 
-    const num_cols: usize = 1024;
+    const num_cols: usize = 2048;
     var data = try allocator.alloc(u32, num_cols * num_cols);
     defer allocator.free(data);
     random.fill(std.mem.sliceAsBytes(data));
@@ -46,6 +46,10 @@ pub fn main() !void {
     elapsed = try transposePerBlock(&stream, d_data, d_trans, num_cols);
     log.info("GPU transpose per block of {}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
     log.info("GPU transpose per block bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+
+    elapsed = try transposePerBlockInlined(&stream, d_data, d_trans, num_cols);
+    log.info("GPU transpose per block inlined of {}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
+    log.info("GPU transpose per block inlined bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
 }
 
 fn transposeSerial(stream: *cuda.Stream, d_data: []const u32, d_out: []u32, num_cols: usize) !f64 {
@@ -86,13 +90,27 @@ fn transposePerCell(stream: *cuda.Stream, d_data: []const u32, d_out: []u32, num
 
 fn transposePerBlock(stream: *cuda.Stream, d_data: []const u32, d_out: []u32, num_cols: usize) !f64 {
     var timer = cuda.GpuTimer.start(stream);
-    const tile_size = 16;
-    const grid = cuda.Grid.init2D(num_cols, num_cols, tile_size, tile_size);
+    const block_size = RawKernels.block_size;
+    const grid = cuda.Grid.init2D(num_cols, num_cols, 32, block_size);
     try k.transposePerBlock.launchWithSharedMem(
         stream,
         grid,
-        // grid.sharedMem(u32, tile_size * tile_size),
         @sizeOf(@TypeOf(RawKernels.transpose_per_block_buffer)),
+        .{ d_data, d_out, num_cols },
+    );
+    timer.stop();
+    try expectTransposed(d_data, d_out, num_cols);
+    return timer.elapsed();
+}
+
+fn transposePerBlockInlined(stream: *cuda.Stream, d_data: []const u32, d_out: []u32, num_cols: usize) !f64 {
+    var timer = cuda.GpuTimer.start(stream);
+    const block_size = RawKernels.block_size_inline;
+    const grid = cuda.Grid.init2D(num_cols, num_cols, 256 / block_size, block_size);
+    try k.transposePerBlockInlined.launchWithSharedMem(
+        stream,
+        grid,
+        @sizeOf(@TypeOf(RawKernels.transpose_per_block_inlined_buffer)),
         .{ d_data, d_out, num_cols },
     );
     timer.stop();
@@ -105,6 +123,7 @@ const Kernels = struct {
     transposePerRow: cuda.FnStruct("transposePerRow", RawKernels.transposePerRow),
     transposePerCell: cuda.FnStruct("transposePerCell", RawKernels.transposePerCell),
     transposePerBlock: cuda.FnStruct("transposePerBlock", RawKernels.transposePerBlock),
+    transposePerBlockInlined: cuda.FnStruct("transposePerBlockInlined", RawKernels.transposePerBlockInlined),
 };
 var k: Kernels = undefined;
 
@@ -116,6 +135,7 @@ fn initStreamAndModule(device: u8) cuda.Stream {
         .transposePerRow = @TypeOf(k.transposePerRow).init() catch unreachable,
         .transposePerCell = @TypeOf(k.transposePerCell).init() catch unreachable,
         .transposePerBlock = @TypeOf(k.transposePerBlock).init() catch unreachable,
+        .transposePerBlockInlined = @TypeOf(k.transposePerBlockInlined).init() catch unreachable,
     };
     return stream;
 }
@@ -148,12 +168,13 @@ fn expectTransposed(d_data: []const u32, d_trans: []u32, num_cols: usize) !void 
     while (i < num_cols) : (i += 1) {
         var j: usize = 0;
         while (j < num_cols) : (j += 1) {
-            std.testing.expectEqual(data[num_cols * j + i], trans[num_cols * i + j]) catch |err| {
+            std.testing.expectEqual(data[num_cols * j + i], trans[num_cols * i + j]) catch {
                 if (data.len < 100) {
                     log.err("original: {any}", .{data});
                     log.err("transposed: {any}", .{trans});
                 }
-                return err;
+                log.err("failed expectTransposed !", .{});
+                return;
             };
         }
     }

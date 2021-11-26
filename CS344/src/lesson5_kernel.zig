@@ -29,22 +29,15 @@ pub export fn transposePerCell(data: []const u32, trans: []u32, num_cols: usize)
     trans[num_cols * i + j] = data[num_cols * j + i];
 }
 
-const block_size = 16;
+pub const block_size = 16;
 // Stage1 can't parse addrspace, so we use pre-processing tricks to only
 // set the addrspace in Stage2.
 // pub var transpose_per_block_buffer: [block_size][block_size]u32 addrspace(.fs) = undefined; // stage2
 pub var transpose_per_block_buffer: [block_size][block_size]u32 = undefined; // stage1
 
-// **** **** **** ****
-// **** **** **** ****
-// **** **** **** ****
-// **** **** **** ****
-
-// **** **** **** ****
-// **** **** **** ****
-// **** **** **** ****
-// **** **** **** ****
-
+/// Each threads copy one element to the shared buffer and then back to the output
+/// The speed up comes from the fact that all threads in the block will read contiguous
+/// data and then write contiguous data.
 pub export fn transposePerBlock(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
     var buffer = &transpose_per_block_buffer;
     const block_i = gridIdX() * block_size;
@@ -61,6 +54,36 @@ pub export fn transposePerBlock(data: []const u32, trans: []u32, num_cols: usize
 
     // coalesced write
     trans[num_cols * (block_out_j + j) + (block_out_i + i)] = buffer[i][j];
+}
+
+pub const block_size_inline = 16;
+// pub var transpose_per_block_inlined_buffer: [16][block_size][block_size]u32 addrspace(.fs) = undefined; // stage2
+pub var transpose_per_block_inlined_buffer: [16][block_size][block_size]u32 = undefined; // stage1
+
+/// Each threads copy a `block_size` contiguous elements to the shared buffer
+/// and copy non-contiguous element from the buffer to a contiguous slice of the output
+pub export fn transposePerBlockInlined(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
+    var buffer = &transpose_per_block_inlined_buffer[threadIdX()];
+    const block_i = getIdX() * block_size;
+    const block_j = gridIdY() * block_size;
+    const block_out_i = block_j;
+    const block_out_j = block_i;
+    const j = threadIdY();
+    if (j + block_j >= num_cols) return;
+    var i: usize = 0;
+    // coalesced read
+    while (i < block_size and i + block_i < num_cols) : (i += 1) {
+        buffer[j][i] = data[num_cols * (block_j + j) + (block_i + i)];
+    }
+
+    syncThreads();
+
+    if (block_out_j + j >= num_cols) return;
+    // coalesced write
+    i = 0;
+    while (i < block_size and block_out_i + i < num_cols) : (i += 1) {
+        trans[num_cols * (block_out_j + j) + (block_out_i + i)] = buffer[i][j];
+    }
 }
 
 pub inline fn threadIdX() usize {
