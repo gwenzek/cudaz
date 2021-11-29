@@ -31,11 +31,11 @@ pub fn main() !void {
     log.info("GPU peek bandwith: {}MB/s", .{peekBandwith(0) * 1e-6});
     const d_data = try cuda.allocAndCopy(u32, data);
     const d_trans = try cuda.alloc(u32, data.len);
-    var elapsed = try transposeSerial(&stream, d_data, d_trans, num_cols);
-    log.info("GPU serial transpose of {}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
-    log.info("GPU serial transpose bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    // var elapsed = try transposeSerial(&stream, d_data, d_trans, num_cols);
+    // log.info("GPU serial transpose of {}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
+    // log.info("GPU serial transpose bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
 
-    elapsed = try transposePerRow(&stream, d_data, d_trans, num_cols);
+    var elapsed = try transposePerRow(&stream, d_data, d_trans, num_cols);
     log.info("GPU transpose per row of {}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
     log.info("GPU transpose per row bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
 
@@ -95,7 +95,7 @@ fn transposePerBlock(stream: *cuda.Stream, d_data: []const u32, d_out: []u32, nu
     try k.transposePerBlock.launchWithSharedMem(
         stream,
         grid,
-        @sizeOf(@TypeOf(RawKernels.transpose_per_block_buffer)),
+        @sizeOf(u32) * 16 * 16 * 16,
         .{ d_data, d_out, num_cols },
     );
     timer.stop();
@@ -107,10 +107,9 @@ fn transposePerBlockInlined(stream: *cuda.Stream, d_data: []const u32, d_out: []
     var timer = cuda.GpuTimer.start(stream);
     const block_size = RawKernels.block_size_inline;
     const grid = cuda.Grid.init2D(num_cols, num_cols, 256 / block_size, block_size);
-    try k.transposePerBlockInlined.launchWithSharedMem(
+    try k.transposePerBlockInlined.launch(
         stream,
         grid,
-        @sizeOf(@TypeOf(RawKernels.transpose_per_block_inlined_buffer)),
         .{ d_data, d_out, num_cols },
     );
     timer.stop();

@@ -32,28 +32,46 @@ pub export fn transposePerCell(data: []const u32, trans: []u32, num_cols: usize)
 pub const block_size = 16;
 // Stage1 can't parse addrspace, so we use pre-processing tricks to only
 // set the addrspace in Stage2.
-// pub var transpose_per_block_buffer: [block_size][block_size]u32 addrspace(.fs) = undefined; // stage2
-pub var transpose_per_block_buffer: [block_size][block_size]u32 = undefined; // stage1
+// In Cuda, the kernel will have access to shared memory. This memory
+// can have a compile-known size or a dynamic size.
+// In the case of dynamic size the corresponding Cuda code is:
+// extern __shared__ int buffer[];
+// In Zig, the only type with unknown size is "opaque".
+// Also note that the extern keyword is technically not correct, because the variable
+// isn't defined in another compilation unit.
+// This seems to only work for Ptx target, not sure why.
+// The generated .ll code will be:
+// `@transpose_per_block_buffer = external dso_local addrspace(3) global %lesson5_kernel.SharedMem, align 8`
+// Corresponding .ptx:
+// `.extern .shared .align 8 .b8 transpose_per_block_buffer[]`
+const SharedMem = opaque {};
+// extern var transpose_per_block_buffer: SharedMem align(8) addrspace(.fs); // stage2
+var transpose_per_block_buffer: [16][block_size]u32 = undefined; // stage1
 
 /// Each threads copy one element to the shared buffer and then back to the output
 /// The speed up comes from the fact that all threads in the block will read contiguous
 /// data and then write contiguous data.
 pub export fn transposePerBlock(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
-    var buffer = &transpose_per_block_buffer;
+    // if (!is_nvptx) return;
+    // var buffer = @ptrCast([*]addrspace(.fs) [block_size]u32, &transpose_per_block_buffer); // stage2
+    var buffer = @ptrCast([*][block_size]u32, &transpose_per_block_buffer); // stage1
     const block_i = gridIdX() * block_size;
     const block_j = gridIdY() * block_size;
     const block_out_i = block_j;
     const block_out_j = block_i;
     const i = threadIdX();
     const j = threadIdY();
-    if (i + block_i >= num_cols or j + block_j >= num_cols) return;
 
     // coalesced read
-    buffer[j][i] = data[num_cols * (block_j + j) + (block_i + i)];
+    if (i + block_i < num_cols and j + block_j < num_cols) {
+        buffer[j][i] = data[num_cols * (block_j + j) + (block_i + i)];
+    }
     syncThreads();
 
     // coalesced write
-    trans[num_cols * (block_out_j + j) + (block_out_i + i)] = buffer[i][j];
+    if (i + block_out_i < num_cols and j + block_out_j < num_cols) {
+        trans[num_cols * (block_out_j + j) + (block_out_i + i)] = buffer[i][j];
+    }
 }
 
 pub const block_size_inline = 16;
@@ -68,20 +86,20 @@ pub export fn transposePerBlockInlined(data: []const u32, trans: []u32, num_cols
     const block_j = gridIdY() * block_size;
     const block_out_i = block_j;
     const block_out_j = block_i;
-    const j = threadIdY();
-    if (j + block_j >= num_cols) return;
-    var i: usize = 0;
+    const i = threadIdY();
+    if (i + block_i >= num_cols) return;
+    var j: usize = 0;
     // coalesced read
-    while (i < block_size and i + block_i < num_cols) : (i += 1) {
+    while (j < block_size and j + block_j < num_cols) : (j += 1) {
         buffer[j][i] = data[num_cols * (block_j + j) + (block_i + i)];
     }
 
     syncThreads();
 
-    if (block_out_j + j >= num_cols) return;
+    if (block_out_i + i >= num_cols) return;
     // coalesced write
-    i = 0;
-    while (i < block_size and block_out_i + i < num_cols) : (i += 1) {
+    j = 0;
+    while (j < block_size and block_out_j + j < num_cols) : (j += 1) {
         trans[num_cols * (block_out_j + j) + (block_out_i + i)] = buffer[i][j];
     }
 }
