@@ -28,7 +28,7 @@ pub fn main() !void {
     log.info("CPU transpose of {}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed_cpu });
     var stream = initStreamAndModule(0);
 
-    log.info("GPU peek bandwith: {}MB/s", .{peekBandwith(0) * 1e-6});
+    gpuInfo(0);
     const d_data = try cuda.allocAndCopy(u32, data);
     const d_trans = try cuda.alloc(u32, data.len);
     // var elapsed = try transposeSerial(&stream, d_data, d_trans, num_cols);
@@ -139,7 +139,7 @@ fn initStreamAndModule(device: u8) cuda.Stream {
     return stream;
 }
 
-fn peekBandwith(device: u8) f64 {
+fn gpuInfo(device: u8) void {
     var d: cu.CUdevice = undefined;
     cuda.check(cu.cuDeviceGet(&d, device)) catch unreachable;
 
@@ -148,7 +148,15 @@ fn peekBandwith(device: u8) f64 {
     var mem_bus_width_bits: i32 = undefined;
     _ = cu.cuDeviceGetAttribute(&mem_bus_width_bits, cu.CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, d);
     const mem_bus_width_bytes = @intToFloat(f64, @divExact(mem_bus_width_bits, 8));
-    return @intToFloat(f64, mem_clock_rate_khz) * 1e3 * mem_bus_width_bytes;
+    const peek_bandwith = @intToFloat(f64, mem_clock_rate_khz) * 1e3 * mem_bus_width_bytes;
+    log.info("GPU peek bandwith: {}MB/s", .{peek_bandwith * 1e-6});
+
+    var l1_cache: i32 = undefined;
+    _ = cu.cuDeviceGetAttribute(&l1_cache, cu.CU_DEVICE_ATTRIBUTE_GLOBAL_L1_CACHE_SUPPORTED, d);
+    var l2_cache: i32 = undefined;
+    _ = cu.cuDeviceGetAttribute(&l2_cache, cu.CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, d);
+
+    log.info("GPU L1 cache {}, L2 cache {}", .{ l1_cache, l2_cache });
 }
 
 fn computeBandwith(elapsed_ms: f64, data: []const u32) f64 {
