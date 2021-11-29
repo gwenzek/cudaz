@@ -3,3 +3,4 @@ zig-out/
 
 output*.png
 *.o
+samples/*
