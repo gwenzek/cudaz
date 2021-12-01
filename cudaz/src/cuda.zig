@@ -69,24 +69,10 @@ pub const Grid = struct {
         return self.threads.x * self.threads.y * self.threads.z;
     }
 
-    pub fn sharedMemPerThread(self: *const Grid, comptime ty: type, n: usize) usize {
-        return self.threadsPerBlock() * @sizeOf(ty) * n;
+    pub fn sharedMem(self: *const Grid, comptime ty: type, per_thread: usize) usize {
+        return self.threadsPerBlock() * @sizeOf(ty) * per_thread;
     }
 };
-
-// In Cuda, the kernel launch config is a `[_]usize`,
-// alternating tags and pointers to value.
-// We use this struct instead where each element is a usize.
-const KernelLaunchConfig = extern struct {
-    header_param_buffer_ptr: usize = 0x01,
-    // TODO: use anypointer instead here
-    param_buffer_ptr: usize = undefined,
-    header_param_buffer_len: usize = 0x02,
-    param_buffer_len: *usize = undefined,
-    end_of_struct: usize = 0x0,
-};
-
-threadlocal var _kernel_launch_config = KernelLaunchConfig{};
 
 pub const Stream = struct {
     device: u8,
@@ -114,27 +100,12 @@ pub const Stream = struct {
     }
 
     pub fn launchWithSharedMem(self: *const Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
-        // There is two way to pass args to Cuda:
-        //   1. Array of pointers to args (Cuda knows each arg size/alignment)
-        //   2. A pointer to the args bytes (Caller need to use the proper size/alignment)
-        // We can use the second because in our case we know the correct size/alignment of args.
-        // It is better to use the second API for Zig kernels,
-        // because if Zig passes one of the parameter by reference, the kernel
-        // receives a reference to host memory.
-        // This can be mitigated by the user by explicitly passing pointers
-        // and manually moving the struct to the GPU first
-        // and de-allocate once the kernel is done (not just scheduled).
-        // This is both hard to implement correctly and inefficient.
-        // Here we let Cuda move the full arg tuple bytes to the GPU.
-        // This doesn't prevent us from accidentally passing pointers to host memory
-        // but prevents the most easy pitfall.
-        var args_bytes = std.mem.asBytes(&args);
-        var args_len = args_bytes.len;
-        // It is safe to use a shared config because Cuda will copy the content
-        // before returning from cuLaunchKernel.
-        _kernel_launch_config.param_buffer_ptr = @ptrToInt(args_bytes);
-        _kernel_launch_config.param_buffer_len = &args_len;
-        log.debug("passing {d} bytes to kernels: {x}", .{ args_len, std.fmt.fmtSliceHexLower(args_bytes) });
+        // Create an array of pointers pointing to the given args.
+        const fields: []const TypeInfo.StructField = meta.fields(@TypeOf(args));
+        var args_ptrs: [fields.len:0]usize = undefined;
+        inline for (fields) |field, i| {
+            args_ptrs[i] = @ptrToInt(&@field(args, field.name));
+        }
         const res = cu.cuLaunchKernel(
             f,
             grid.blocks.x,
@@ -145,8 +116,8 @@ pub const Stream = struct {
             grid.threads.z,
             @intCast(c_uint, shared_mem),
             self._stream,
+            @ptrCast([*c]?*c_void, &args_ptrs),
             null,
-            @ptrCast([*c]?*c_void, &_kernel_launch_config),
         );
         try check(res);
         if (builtin.mode == .Debug) {
@@ -418,6 +389,9 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
         // TODO: deinit -> CUDestroy
 
         pub fn launch(self: *const Self, stream: *const Stream, grid: Grid, args: Args) !void {
+            if (args.len != @typeInfo(Args).Struct.fields.len) {
+                @compileError("Expected more arguments");
+            }
             try self.launchWithSharedMem(stream, grid, 0, args);
         }
 

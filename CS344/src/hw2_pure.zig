@@ -42,7 +42,6 @@ pub fn main() anyerror!void {
     defer cuda.free(d_out);
 
     // const gaussianBlur = try cuda.FnStruct("gaussianBlur", kernels.gaussianBlur).init();
-    const gaussianBlurVerbose = try cuda.FnStruct("gaussianBlurVerbose", kernels.gaussianBlurVerbose).init();
 
     const d_filter = Mat2Float{
         .data = (try cuda.allocAndCopy(f32, &blurFilter())).ptr,
@@ -51,10 +50,11 @@ pub fn main() anyerror!void {
     defer cuda.free(d_filter.data[0..@intCast(usize, d_filter.shape[0])]);
     var img_mat = Mat3{
         .data = std.mem.sliceAsBytes(d_img).ptr,
-        .shape = [3]i32{ @intCast(i32, img.width), @intCast(i32, img.height), 3 },
+        .shape = [3]i32{ @intCast(i32, img.height), @intCast(i32, img.width), 3 },
     };
-    var grid3D = cuda.Grid.init3D(img.width, img.height, 3, 32, 32, 1);
+    var grid3D = cuda.Grid.init3D(img.height, img.width, 3, 32, 32, 1);
     var timer = cuda.GpuTimer.start(&stream);
+    const gaussianBlurVerbose = try cuda.FnStruct("gaussianBlurVerbose", kernels.gaussianBlurVerbose).init();
     try gaussianBlurVerbose.launch(
         &stream,
         grid3D,
@@ -69,7 +69,7 @@ pub fn main() anyerror!void {
     );
     const blur_args = kernels.GaussianBlurArgs{
         .img = img_mat,
-        .filter = d_filter.data,
+        .filter = d_filter.data[0 .. blur_kernel_width * blur_kernel_width],
         .filter_width = @intCast(i32, blur_kernel_width),
         .output = std.mem.sliceAsBytes(d_out).ptr,
     };
@@ -87,16 +87,16 @@ pub fn main() anyerror!void {
         .{blur_args},
     );
     stream.synchronize();
-    // try gaussianBlur.launch(
-    //     &stream,
-    //     grid3D,
-    //     .{
-    //         img_mat,
-    //         d_filter,
-    //         std.mem.sliceAsBytes(d_out),
-    //     },
-    // );
-    // _ = cuda.cu.cuMemFree(@ptrToInt(d_img_mat));
+    const gaussianBlur = try cuda.FnStruct("gaussianBlur", kernels.gaussianBlur).init();
+    try gaussianBlur.launch(
+        &stream,
+        grid3D,
+        .{
+            img_mat,
+            d_filter,
+            std.mem.sliceAsBytes(d_out),
+        },
+    );
     timer.stop();
     try cuda.memcpyDtoH(Rgb24, img.pixels.?.Rgb24, d_out);
     try png.writePngToFilePath(img, resources_dir ++ "output.png");

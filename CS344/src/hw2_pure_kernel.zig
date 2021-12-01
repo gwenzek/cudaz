@@ -13,7 +13,7 @@ fn clamp(x: i32, min: i32, max: i32) i32 {
     return x;
 }
 
-pub const Mat3 = extern struct {
+pub const Mat3 = struct {
     data: [*]const u8,
     shape: [3]i32,
     pub fn getClamped(self: Mat3, x: i32, y: i32, z: i32) u8 {
@@ -33,7 +33,7 @@ pub const Mat3 = extern struct {
     }
 };
 
-pub const Mat2Float = extern struct {
+pub const Mat2Float = struct {
     data: [*]f32,
     shape: [2]i32,
     pub fn getClamped(self: Mat2Float, x: i32, y: i32) f32 {
@@ -60,7 +60,7 @@ inline fn clampedOffset(x: i32, step: i32, n: i32) i32 {
 
 pub const GaussianBlurArgs = struct {
     img: Mat3,
-    filter: [*]const f32,
+    filter: []const f32,
     filter_width: i32,
     output: [*]u8,
 };
@@ -70,7 +70,7 @@ pub export fn gaussianBlurStruct(args: GaussianBlurArgs) callconv(PtxKernel) voi
         args.img.data,
         args.img.shape[0],
         args.img.shape[1],
-        args.filter,
+        args.filter.ptr,
         args.filter_width,
         args.output,
     );
@@ -90,7 +90,6 @@ pub export fn gaussianBlurVerbose(
         return;
 
     const channel_id = @intCast(usize, input.idx(id.x, id.y, id.z));
-    // output[channel_id] = input.data[channel_id];
 
     const half_width: i32 = filter_width >> 1;
     var pixel: f32 = 0.0;
@@ -99,7 +98,7 @@ pub export fn gaussianBlurVerbose(
         var c = -half_width;
         while (c <= half_width) : (c += 1) {
             const weight = filter[@intCast(usize, (r + half_width) * filter_width + c + half_width)];
-            pixel += weight * @intToFloat(f32, input.getClamped(id.x, id.y, id.z));
+            pixel += weight * @intToFloat(f32, input.getClamped(id.x + c, id.y + r, id.z));
         }
     }
     output[channel_id] = @floatToInt(u8, pixel);
@@ -114,7 +113,6 @@ pub export fn gaussianBlur(
     if (id.x >= input.shape[0] or id.y >= input.shape[1])
         return;
     const channel_id = @intCast(usize, input.idx(id.x, id.y, id.z));
-    output[channel_id] = input.data[channel_id];
 
     const half_width: i32 = filter.shape[0] >> 1;
     var pixel: f32 = 0.0;
@@ -123,7 +121,7 @@ pub export fn gaussianBlur(
         var c = -half_width;
         while (c <= half_width) : (c += 1) {
             const weight = filter.getClamped(r + half_width, c + half_width);
-            pixel += weight * @intToFloat(f32, input.getClamped(id.x, id.y, id.z));
+            pixel += weight * @intToFloat(f32, input.getClamped(id.x + c, id.y + r, id.z));
         }
     }
     output[channel_id] = @floatToInt(u8, pixel);
