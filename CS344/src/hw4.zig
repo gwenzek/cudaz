@@ -606,7 +606,7 @@ const Kernels = struct {
 };
 var k: Kernels = undefined;
 
-fn initStreamWithModule(device: u8) cuda.Stream {
+fn initStreamWithModule(device: u3) cuda.Stream {
     const stream = cuda.Stream.init(device) catch unreachable;
     // Panic if we can't load the module.
     k = Kernels{

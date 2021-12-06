@@ -8,7 +8,8 @@ const cudaz_options = @import("cudaz_options");
 pub const cu = @import("cuda_cimports.zig").cu;
 pub const cuda_errors = @import("cuda_errors.zig");
 pub const check = cuda_errors.check;
-pub const CudazError = cuda_errors.CudazError;
+pub const Error = cuda_errors.Error;
+pub const Attributes = @import("attributes.zig").Attributes;
 
 pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
 const log = std.log.scoped(.Cuda);

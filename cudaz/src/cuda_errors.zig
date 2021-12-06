@@ -3,7 +3,7 @@ const log = std.log.scoped(.Cuda);
 
 pub const cu = @import("cuda_cimports.zig").cu;
 
-pub const CudazError = error{
+pub const Error = error{
     OutOfMemory,
     LaunchOutOfResources,
     UnexpectedByCudaz,
@@ -47,14 +47,14 @@ pub const CudazError = error{
 ///     (this will only happen if you directly call cuda). Feel free to open PR
 ///     to support more parts of Cuda
 ///     -> @panic
-pub fn check(result: cu.CUresult) CudazError!void {
+pub fn check(result: cu.CUresult) Error!void {
     if (result == cu.CUDA_SUCCESS) return;
     log_err_message(result);
     return silent_check(result);
 }
 
-pub fn silent_check(result: cu.CUresult) CudazError!void {
-    var err: CudazError = switch (result) {
+pub fn silent_check(result: cu.CUresult) Error!void {
+    var err: Error = switch (result) {
         cu.CUDA_SUCCESS => return,
         // Resource errors:
         cu.CUDA_ERROR_OUT_OF_MEMORY => error.OutOfMemory,
@@ -68,12 +68,12 @@ pub fn silent_check(result: cu.CUresult) CudazError!void {
         cu.CUDA_ERROR_SYSTEM_NOT_READY,
         cu.CUDA_ERROR_SYSTEM_DRIVER_MISMATCH,
         cu.CUDA_ERROR_COMPAT_NOT_SUPPORTED_ON_DEVICE,
+        => error.NotSupported,
         // LAUNCH_OUT_OF_RESOURCES can indicate either that the too many threads
         // where requested wrt to the maximum supported by the GPU.
         // It can also be triggered by passing too many args to a kernel,
         // but this should be caught at compile time by Cudaz, so we will ignore this.
-        cu.CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES,
-        => error.NotSupported,
+        cu.CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES => error.NotSupported,
         // API usage errors:
         cu.CUDA_ERROR_INVALID_VALUE => @panic("Received invalid parameters (typically device/host pointer mismatch"),
         cu.CUDA_ERROR_NOT_INITIALIZED,
@@ -84,6 +84,7 @@ pub fn silent_check(result: cu.CUresult) CudazError!void {
         cu.CUDA_ERROR_PROFILER_DISABLED,
         cu.CUDA_ERROR_CONTEXT_ALREADY_CURRENT,
         cu.CUDA_ERROR_CONTEXT_ALREADY_IN_USE,
+        cu.CUDA_ERROR_INVALID_HANDLE,
         => @panic("Invalid API usage"),
         // Bug in Cudaz:
         cu.CUDA_ERROR_INVALID_IMAGE,
