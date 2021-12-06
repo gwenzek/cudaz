@@ -81,9 +81,14 @@ pub fn addCudazWithZigKernel(
         const zig_kernel = b.addSystemCommand(&[_][]const u8{
             ZIG_STAGE2,    "build-obj",    kernel_path,
             "-target",     "nvptx64-cuda", "-OReleaseSafe",
-            "-Dcpu=sm_30", emit_bin,       "--verbose-llvm-ir",
+            "-Dcpu=sm_30", emit_bin,
+            // "--verbose-llvm-ir",
         });
-        exe.step.dependOn(enableAddrspace(b, &zig_kernel.step, kernel_path));
+        const validate_ptx = b.addSystemCommand(
+            &[_][]const u8{ cuda_dir ++ "/bin/ptxas", kernel_ptx_path },
+        );
+        validate_ptx.step.dependOn(enableAddrspace(b, &zig_kernel.step, kernel_path));
+        exe.step.dependOn(&validate_ptx.step);
     } else {
         std.log.warn("Kernel up-to-date {s}", .{kernel_ptx_path});
     }
@@ -155,20 +160,20 @@ fn enableAddrspace(b: *Builder, step: *std.build.Step, src: [:0]const u8) *std.b
     _ = step;
     _ = src;
     const enable_stage2 = b.addSystemCommand(&[_][]const u8{
-        "perl", "-nil", "-e", "s:^( *)// (.* // stage2):$1$2:g ; print", src,
+        "perl", "-ni", "-e", "s:^( *)// (.* // stage2):$1$2:g ; print", src,
     });
     const disable_stage1 = b.addSystemCommand(&[_][]const u8{
-        "perl", "-nil", "-e", "s:^( *)([^/]+ // stage1):$1// $2:g ; print", src,
+        "perl", "-ni", "-e", "s:^( *)([^/]+ // stage1):$1// $2:g ; print", src,
     });
 
     disable_stage1.step.dependOn(&enable_stage2.step);
     step.dependOn(&disable_stage1.step);
     // return step;
     const enable_stage1 = b.addSystemCommand(&[_][]const u8{
-        "perl", "-nil", "-e", "s:^(\\s*)// (.* // stage1):$1$2:g ; print", src,
+        "perl", "-ni", "-e", "s:^(\\s*)// (.* // stage1):$1$2:g ; print", src,
     });
     const disable_stage2 = b.addSystemCommand(&[_][]const u8{
-        "perl", "-nil", "-e", "s:^(\\s*)([^/]* // stage2):$1// $2:g ; print", src,
+        "perl", "-ni", "-e", "s:^(\\s*)([^/]* // stage2):$1// $2:g ; print", src,
     });
 
     enable_stage1.step.dependOn(step);

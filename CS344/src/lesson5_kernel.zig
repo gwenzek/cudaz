@@ -45,15 +45,15 @@ pub const block_size = 16;
 // Corresponding .ptx:
 // `.extern .shared .align 8 .b8 transpose_per_block_buffer[]`
 const SharedMem = opaque {};
-// extern var transpose_per_block_buffer: SharedMem align(8) addrspace(.fs); // stage2
-var transpose_per_block_buffer: [16][block_size]u32 = undefined; // stage1
+// extern var transpose_per_block_buffer: SharedMem align(8) addrspace(.shared); // stage2
+var transpose_per_block_buffer: [block_size][block_size]u32 = undefined; // stage1
 
 /// Each threads copy one element to the shared buffer and then back to the output
 /// The speed up comes from the fact that all threads in the block will read contiguous
 /// data and then write contiguous data.
 pub export fn transposePerBlock(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
-    // if (!is_nvptx) return;
-    // var buffer = @ptrCast([*]addrspace(.fs) [block_size]u32, &transpose_per_block_buffer); // stage2
+    if (!is_nvptx) return;
+    // var buffer = @ptrCast([*]addrspace(.shared) [block_size]u32, &transpose_per_block_buffer); // stage2
     var buffer = @ptrCast([*][block_size]u32, &transpose_per_block_buffer); // stage1
     const block_i = gridIdX() * block_size;
     const block_j = gridIdY() * block_size;
@@ -74,8 +74,8 @@ pub export fn transposePerBlock(data: []const u32, trans: []u32, num_cols: usize
     }
 }
 
-pub const block_size_inline = 16;
-// pub var transpose_per_block_inlined_buffer: [16][block_size][block_size]u32 addrspace(.fs) = undefined; // stage2
+pub const block_size_inline = block_size;
+// pub var transpose_per_block_inlined_buffer: [16][block_size][block_size]u32 addrspace(.shared) = undefined; // stage2
 pub var transpose_per_block_inlined_buffer: [16][block_size][block_size]u32 = undefined; // stage1
 
 /// Each threads copy a `block_size` contiguous elements to the shared buffer

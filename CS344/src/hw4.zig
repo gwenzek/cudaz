@@ -254,7 +254,7 @@ test "sorting network" {
     try testing.expectEqual([_]f32{ 0, 1, 2, 3, 5, 6, 7, 9 }, h_out);
 }
 
-pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) cuda.CudazError!void {
+pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) cuda.Error!void {
     const n = d_values.len;
     const grid_N = cuda.Grid.init1D(n, n_threads);
     const n_blocks = grid_N.blocks.x;
