@@ -39,6 +39,7 @@ pub fn addCudaz(
         b.allocator,
         &[_][]const u8{ b.exe_dir, outfile },
     ) catch unreachable;
+    std.fs.cwd().makePath(b.exe_dir) catch @panic("Couldn't create zig-out output dir");
 
     // Use nvcc to compile the .cu file
     const nvcc = b.addSystemCommand(&[_][]const u8{
