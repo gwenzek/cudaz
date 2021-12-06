@@ -9,7 +9,9 @@ pub const cu = @import("cuda_cimports.zig").cu;
 pub const cuda_errors = @import("cuda_errors.zig");
 pub const check = cuda_errors.check;
 pub const Error = cuda_errors.Error;
-pub const Attributes = @import("attributes.zig").Attributes;
+const attributes = @import("attributes.zig");
+pub const Attributes = attributes.Attributes;
+pub const getAttr = attributes.getAttr;
 
 pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
 const log = std.log.scoped(.Cuda);
@@ -76,26 +78,101 @@ pub const Grid = struct {
 };
 
 pub const Stream = struct {
-    device: u8,
+    device: cu.CUdevice,
     _stream: *cu.CUstream_st,
 
-    pub fn init(device: u8) !Stream {
-        _ = try getCtx(device);
+    pub fn init(device: u3) !Stream {
+        const cu_dev = try getDevice(device);
+        _ = try getCtx(device, cu_dev);
         var stream: cu.CUstream = undefined;
         check(cu.cuStreamCreate(&stream, cu.CU_STREAM_DEFAULT)) catch |err| switch (err) {
             error.NotSupported => return error.NotSupported,
             else => unreachable,
         };
-        return Stream{ .device = device, ._stream = stream.? };
+        return Stream{ .device = cu_dev, ._stream = stream.? };
     }
 
     pub fn deinit(self: *Stream) void {
         // Don't handle CUDA errors here
+        _ = self.synchronize();
         _ = cu.cuStreamDestroy(self._stream);
         self._stream = undefined;
     }
 
-    // TODO: add a typesafe launch, so that we can remove launch from the Function itself
+    pub fn alloc(self: *const Stream, comptime DestType: type, size: usize) ![]DestType {
+        var int_ptr: cu.CUdeviceptr = undefined;
+        const byte_size = size * @sizeOf(DestType);
+        check(cu.cuMemAllocAsync(&int_ptr, byte_size, self._stream)) catch |err| {
+            switch (err) {
+                error.OutOfMemory => {
+                    var free_mem: usize = undefined;
+                    var total_mem: usize = undefined;
+                    const mb = 1024 * 1024;
+                    check(cu.cuMemGetInfo(&free_mem, &total_mem)) catch return err;
+                    log.err(
+                        "Cuda OutOfMemory: tried to allocate {d:.1}Mb, free {d:.1}Mb, total {d:.1}Mb",
+                        .{ byte_size / mb, free_mem / mb, total_mem / mb },
+                    );
+                    return err;
+                },
+                else => unreachable,
+            }
+        };
+        var ptr = @intToPtr([*]DestType, int_ptr);
+        return ptr[0..size];
+    }
+
+    pub fn free(self: *const Stream, device_ptr: anytype) void {
+        var raw_ptr: *c_void = if (meta.trait.isSlice(@TypeOf(device_ptr)))
+            @ptrCast(*c_void, device_ptr.ptr)
+        else
+            @ptrCast(*c_void, device_ptr);
+        _ = cu.cuMemFreeAsync(@ptrToInt(raw_ptr), self._stream);
+    }
+
+    pub fn memcpyHtoD(self: *const Stream, comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
+        std.debug.assert(h_source.len == d_target.len);
+        try check(cu.cuMemcpyHtoDAsync(
+            @ptrToInt(d_target.ptr),
+            @ptrCast(*const c_void, h_source.ptr),
+            h_source.len * @sizeOf(DestType),
+            self._stream,
+        ));
+    }
+
+    pub fn memcpyDtoH(self: *const Stream, comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
+        std.debug.assert(d_source.len == h_target.len);
+        try check(cu.cuMemcpyDtoHAsync(
+            @ptrCast(*c_void, h_target.ptr),
+            @ptrToInt(d_source.ptr),
+            d_source.len * @sizeOf(DestType),
+            self._stream,
+        ));
+    }
+
+    pub fn allocAndCopyResult(
+        self: *const Stream,
+        comptime DestType: type,
+        host_allocator: *std.mem.Allocator,
+        d_source: []const DestType,
+    ) ![]DestType {
+        var h_tgt = try host_allocator.alloc(DestType, d_source.len);
+        try self.memcpyDtoH(DestType, h_tgt, d_source);
+        return h_tgt;
+    }
+
+    pub fn memset(self: *const Stream, comptime DestType: type, slice: []DestType, value: DestType) !void {
+        var d_ptr = @ptrToInt(slice.ptr);
+        var n = slice.len;
+        var memset_res = switch (@sizeOf(DestType)) {
+            1 => cu.cuMemsetD8Async(d_ptr, @bitCast(u8, value), n, self._stream),
+            2 => cu.cuMemsetD16Async(d_ptr, @bitCast(u16, value), n, self._stream),
+            4 => cu.cuMemsetD32Async(d_ptr, @bitCast(u32, value), n, self._stream),
+            else => @compileError("memset doesn't support type: " ++ @typeName(DestType)),
+        };
+        try check(memset_res);
+    }
+
     pub inline fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args: anytype) !void {
         try self.launchWithSharedMem(f, grid, 0, args);
     }
@@ -146,7 +223,21 @@ pub const Stream = struct {
         _ = options;
         try std.fmt.format(writer, "CuStream(device={}, stream={*})", .{ self.device, self._stream });
     }
+
+    pub fn asyncWait(self: *Stream) void {
+        // We need to discard the const frame pointer to call the Cuda api.
+        suspend {
+            var frame = @frame();
+            var frame_ptr = @intToPtr(*c_void, @ptrToInt(frame));
+            check(cu.cuLaunchHostFunc(self._stream, resumeFrameAfterStream, frame_ptr)) catch unreachable;
+        }
+    }
 };
+
+fn resumeFrameAfterStream(frame_ptr: ?*c_void) callconv(.C) void {
+    const frame = @ptrCast(anyframe, @alignCast(8, frame_ptr.?));
+    resume frame;
+}
 
 // TODO: return a device pointer
 pub fn alloc(comptime DestType: type, size: usize) ![]DestType {
@@ -296,7 +387,7 @@ pub const GpuTimer = struct {
     pub fn elapsed(self: *GpuTimer) f32 {
         if (!std.math.isNan(self._elapsed)) return self._elapsed;
         var _elapsed = std.math.nan_f32;
-        _ = cu.cuEventSynchronize(self._stop);
+        // _ = cu.cuEventSynchronize(self._stop);
         _ = cu.cuEventElapsedTime(&_elapsed, self._start, self._stop);
         self.deinit();
         self._elapsed = _elapsed;
@@ -322,19 +413,30 @@ test "cuda version" {
     try testing.expectEqual(cu.cuInit(0), cu.CUDA_SUCCESS);
 }
 
-// TODO: who is responsible for destroying the context ?
-// Given that we already assume one program == one module,
-// we can also assume one program == one context per GPU
-var _ctx = [1]cu.CUcontext{null} ** 8;
-fn getCtx(device: u8) !cu.CUcontext {
-    if (_ctx[device]) |ctx| {
-        return ctx;
+var _device = [_]cu.CUdevice{-1} ** 8;
+fn getDevice(device: u3) !cu.CUdevice {
+    var cu_dev = &_device[device];
+    if (cu_dev.* == -1) {
+        try check(cu.cuInit(0));
+        try check(cu.cuDeviceGet(cu_dev, device));
     }
-    try check(cu.cuInit(0));
-    var cu_dev: cu.CUdevice = undefined;
-    try check(cu.cuDeviceGet(&cu_dev, device));
-    try check(cu.cuCtxCreate(&_ctx[device], 0, cu_dev));
-    return _ctx[device];
+    return cu_dev.*;
+}
+
+/// Returns the ctx for the given device
+/// Given that we already assume one program == one module,
+/// we can also assume one program == one context per GPU.
+/// From Nvidia doc:
+/// A host thread may have only one device context current at a time.
+// TODO: who is responsible for destroying the context ?
+// we should use cuCtxAttach and cuCtxDetach in stream init/deinit
+var _ctx = [1]cu.CUcontext{null} ** 8;
+fn getCtx(device: u3, cu_dev: cu.CUdevice) !cu.CUcontext {
+    var cu_ctx = &_ctx[device];
+    if (cu_ctx.* == null) {
+        try check(cu.cuCtxCreate(cu_ctx, 0, cu_dev));
+    }
+    return cu_ctx.*;
 }
 
 var _default_module: cu.CUmodule = null;
@@ -373,7 +475,7 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
     return struct {
         const Self = @This();
         const CpuFn = func;
-        const Args = meta.ArgsTuple(@TypeOf(Self.CpuFn));
+        pub const Args = meta.ArgsTuple(@TypeOf(Self.CpuFn));
 
         f: cu.CUfunction,
 
@@ -389,7 +491,9 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
 
         // TODO: deinit -> CUDestroy
 
-        pub fn launch(self: *const Self, stream: *const Stream, grid: Grid, args: Args) !void {
+        // Note: I'm not fond of having the primary launch be on the Function object,
+        // but it works best with Zig type inference
+        pub inline fn launch(self: *const Self, stream: *const Stream, grid: Grid, args: Args) !void {
             if (args.len != @typeInfo(Args).Struct.fields.len) {
                 @compileError("Expected more arguments");
             }
@@ -431,6 +535,25 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
 
 test "can read function signature from .cu files" {
     log.warn("My kernel: {s}", .{@TypeOf(cu.rgba_to_greyscale)});
+}
+
+test "we use only one context per GPU" {
+    var default_ctx: cu.CUcontext = undefined;
+    try check(cu.cuCtxGetCurrent(&default_ctx));
+    std.log.warn("default_ctx: {any}", .{std.mem.asBytes(&default_ctx).*});
+
+    var stream = try Stream.init(0);
+    var stream_ctx: cu.CUcontext = undefined;
+    try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
+    std.log.warn("stream_ctx: {any}", .{std.mem.asBytes(&stream_ctx).*});
+    // try testing.expectEqual(default_ctx, stream_ctx);
+
+    // Create a new stream
+    var stream2 = try Stream.init(0);
+    var stream2_ctx: cu.CUcontext = undefined;
+    try check(cu.cuStreamGetCtx(stream2._stream, &stream2_ctx));
+    std.log.warn("stream2_ctx: {any}", .{std.mem.asBytes(&stream2_ctx).*});
+    try testing.expectEqual(stream_ctx, stream2_ctx);
 }
 
 test "rgba_to_greyscale" {
@@ -520,8 +643,7 @@ test "GpuTimer" {
     try memset(u8, d_greyImage, 0);
 
     log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
-    var timer = GpuTimer.init(&stream);
-    timer.start();
+    var timer = GpuTimer.start(&stream);
     try rgba_to_greyscale.launch(
         &stream,
         .{ .blocks = Dim3.init(numCols, numRows, 1) },
@@ -530,14 +652,6 @@ test "GpuTimer" {
     timer.stop();
     log.warn("rgba_to_greyscale took: {}", .{timer.elapsed()});
     try testing.expect(timer.elapsed() > 0);
-}
-
-test "we use only one context per GPU" {
-    var stream = try Stream.init(0);
-    var default_ctx: cu.CUcontext = undefined;
-    var stream_ctx: cu.CUcontext = undefined;
-    try check(cu.cuCtxGetCurrent(&default_ctx));
-    try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
 }
 
 pub fn Kernels(comptime module: type) type {
