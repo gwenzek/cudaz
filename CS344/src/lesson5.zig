@@ -218,21 +218,14 @@ fn initStreamAndModule(device: u3) cuda.Stream {
 }
 
 fn gpuInfo(device: u8) void {
-    var d: cu.CUdevice = undefined;
-    cuda.check(cu.cuDeviceGet(&d, device)) catch unreachable;
-
-    var mem_clock_rate_khz: i32 = undefined;
-    _ = cu.cuDeviceGetAttribute(&mem_clock_rate_khz, cu.CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE, d);
-    var mem_bus_width_bits: i32 = undefined;
-    _ = cu.cuDeviceGetAttribute(&mem_bus_width_bits, cu.CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, d);
+    var mem_clock_rate_khz: i32 = cuda.getAttr(device, cuda.Attribute.MemoryClockRate);
+    var mem_bus_width_bits: i32 = cuda.getAttr(device, cuda.Attribute.GlobalMemoryBusWidth);
     const mem_bus_width_bytes = @intToFloat(f64, @divExact(mem_bus_width_bits, 8));
     const peek_bandwith = @intToFloat(f64, mem_clock_rate_khz) * 1e3 * mem_bus_width_bytes;
     base_log.info("GPU peek bandwith: {:.3}MB/s", .{peek_bandwith * 1e-6});
 
-    var l1_cache: i32 = undefined;
-    _ = cu.cuDeviceGetAttribute(&l1_cache, cu.CU_DEVICE_ATTRIBUTE_GLOBAL_L1_CACHE_SUPPORTED, d);
-    var l2_cache: i32 = undefined;
-    _ = cu.cuDeviceGetAttribute(&l2_cache, cu.CU_DEVICE_ATTRIBUTE_L2_CACHE_SIZE, d);
+    var l1_cache: i32 = cuda.getAttr(device, cuda.Attribute.GlobalL1CacheSupported);
+    var l2_cache: i32 = cuda.getAttr(device, cuda.Attribute.L2CacheSize);
 
     base_log.info("GPU L1 cache {}, L2 cache {}", .{ l1_cache, l2_cache });
 }

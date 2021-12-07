@@ -10,7 +10,7 @@ pub const cuda_errors = @import("cuda_errors.zig");
 pub const check = cuda_errors.check;
 pub const Error = cuda_errors.Error;
 const attributes = @import("attributes.zig");
-pub const Attributes = attributes.Attributes;
+pub const Attribute = attributes.Attribute;
 pub const getAttr = attributes.getAttr;
 
 pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
