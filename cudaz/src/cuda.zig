@@ -224,20 +224,16 @@ pub const Stream = struct {
         try std.fmt.format(writer, "CuStream(device={}, stream={*})", .{ self.device, self._stream });
     }
 
-    pub fn asyncWait(self: *Stream) void {
-        // We need to discard the const frame pointer to call the Cuda api.
-        suspend {
-            var frame = @frame();
-            var frame_ptr = @intToPtr(*c_void, @ptrToInt(frame));
-            check(cu.cuLaunchHostFunc(self._stream, resumeFrameAfterStream, frame_ptr)) catch unreachable;
-        }
+    // TODO: I'd like to have an async method that suspends until the stream is over.
+    // Currently the best way too achieve something like this is to `suspend {} stream.synchronize();`
+    // once the stream is scheduled, and then `resume` once you are ready to wait
+    // for the blocking `synchronize` call.
+    // Ideally we would have an event loop that poll streams to check
+    // if they are over.
+    pub fn done(self: *Stream) void {
+        self.synchronize();
     }
 };
-
-fn resumeFrameAfterStream(frame_ptr: ?*c_void) callconv(.C) void {
-    const frame = @ptrCast(anyframe, @alignCast(8, frame_ptr.?));
-    resume frame;
-}
 
 // TODO: return a device pointer
 pub fn alloc(comptime DestType: type, size: usize) ![]DestType {

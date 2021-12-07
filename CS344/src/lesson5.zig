@@ -37,7 +37,7 @@ pub fn amain() !void {
     gpuInfo(0);
     // var elapsed = try transposeSerial(&stream, d_data, d_trans, num_cols);
     // log.info("GPU serial transpose of {}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
-    // log.info("GPU serial transpose bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    // log.info("GPU serial transpose bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
 
     // This is not the best way of doing profiling cause we are
     // scheduling all kernels at the same time on the GPU
@@ -48,9 +48,13 @@ pub fn amain() !void {
     var per_block = async transposePerBlock(allocator, data, num_cols);
     var per_block_inline = async transposePerBlockInlined(allocator, data, num_cols);
 
+    resume per_row;
     try await per_row;
+    resume per_cell;
     try await per_cell;
+    resume per_block;
     try await per_block;
+    resume per_block_inline;
     try await per_block_inline;
 }
 
@@ -76,7 +80,7 @@ fn transposePerRow(allocator: *Allocator, data: []const u32, num_cols: usize) !v
     const d_out = try stream.alloc(u32, data.len);
     defer cuda.free(d_out);
     const log = std.log.scoped(.transposePerRow);
-    log.info("Scheduling transposePerRow", .{});
+    log.info("Scheduling GPU", .{});
     var timer = cuda.GpuTimer.start(&stream);
     k.transposePerRow.launch(
         &stream,
@@ -85,10 +89,12 @@ fn transposePerRow(allocator: *Allocator, data: []const u32, num_cols: usize) !v
     ) catch unreachable;
     timer.stop();
     try stream.memcpyDtoH(u32, out, d_out);
-    stream.asyncWait();
+    // Yield control to main loop
+    suspend {}
+    stream.synchronize();
     const elapsed = timer.elapsed();
     log.info("{}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
-    log.info("bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    log.info("bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
     expectTransposed(data, out, num_cols) catch {
         log.err("didn't properly transpose !", .{});
     };
@@ -113,10 +119,12 @@ fn transposePerCell(allocator: *Allocator, data: []const u32, num_cols: usize) !
     ) catch unreachable;
     timer.stop();
     try stream.memcpyDtoH(u32, out, d_out);
-    stream.asyncWait();
+    // Yield control to main loop
+    suspend {}
+    stream.synchronize();
     const elapsed = timer.elapsed();
     log.info("{}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
-    log.info("bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    log.info("bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
     expectTransposed(data, out, num_cols) catch {
         log.err("didn't properly transpose !", .{});
     };
@@ -144,10 +152,12 @@ fn transposePerBlock(allocator: *Allocator, data: []const u32, num_cols: usize) 
     );
     timer.stop();
     try stream.memcpyDtoH(u32, out, d_out);
-    stream.asyncWait();
+    // Yield control to main loop
+    suspend {}
+    stream.synchronize();
     const elapsed = timer.elapsed();
     log.info("{}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
-    log.info("bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    log.info("bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
     expectTransposed(data, out, num_cols) catch {
         log.err("didn't properly transpose !", .{});
     };
@@ -174,10 +184,12 @@ fn transposePerBlockInlined(allocator: *Allocator, data: []const u32, num_cols: 
     );
     timer.stop();
     try stream.memcpyDtoH(u32, out, d_out);
-    stream.asyncWait();
+    // Yield control to main loop
+    suspend {}
+    stream.synchronize();
     const elapsed = timer.elapsed();
     log.info("{}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
-    log.info("bandwith: {}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    log.info("bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
     expectTransposed(data, out, num_cols) catch {
         log.err("didn't properly transpose !", .{});
     };
@@ -215,7 +227,7 @@ fn gpuInfo(device: u8) void {
     _ = cu.cuDeviceGetAttribute(&mem_bus_width_bits, cu.CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH, d);
     const mem_bus_width_bytes = @intToFloat(f64, @divExact(mem_bus_width_bits, 8));
     const peek_bandwith = @intToFloat(f64, mem_clock_rate_khz) * 1e3 * mem_bus_width_bytes;
-    base_log.info("GPU peek bandwith: {}MB/s", .{peek_bandwith * 1e-6});
+    base_log.info("GPU peek bandwith: {:.3}MB/s", .{peek_bandwith * 1e-6});
 
     var l1_cache: i32 = undefined;
     _ = cu.cuDeviceGetAttribute(&l1_cache, cu.CU_DEVICE_ATTRIBUTE_GLOBAL_L1_CACHE_SUPPORTED, d);
@@ -236,13 +248,13 @@ fn expectTransposed(data: []const u32, trans: []u32, num_cols: usize) !void {
     while (i < num_cols) : (i += 1) {
         var j: usize = 0;
         while (j < num_cols) : (j += 1) {
-            std.testing.expectEqual(data[num_cols * j + i], trans[num_cols * i + j]) catch {
+            std.testing.expectEqual(data[num_cols * j + i], trans[num_cols * i + j]) catch |err| {
                 if (data.len < 100) {
                     base_log.err("original: {any}", .{data});
                     base_log.err("transposed: {any}", .{trans});
                 }
                 base_log.err("failed expectTransposed !", .{});
-                return;
+                return err;
             };
         }
     }
