@@ -54,7 +54,7 @@ const log_level = std.log.Level.warn;
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = &general_purpose_allocator.allocator;
+    const allocator = general_purpose_allocator.allocator();
     log.info("***** HW4 ******", .{});
 
     const img = try zigimg.Image.fromFilePath(allocator, resources_dir ++ "/red_eye_effect.png");

@@ -82,7 +82,7 @@ pub const Stream = struct {
     _stream: *cu.CUstream_st,
 
     pub fn init(device: u3) !Stream {
-        const cu_dev = try getDevice(device);
+        const cu_dev = try initDevice(device);
         _ = try getCtx(device, cu_dev);
         var stream: cu.CUstream = undefined;
         check(cu.cuStreamCreate(&stream, cu.CU_STREAM_DEFAULT)) catch |err| switch (err) {
@@ -99,6 +99,7 @@ pub const Stream = struct {
         self._stream = undefined;
     }
 
+    // TODO: can this OOM ? Or will the error be raised later ?
     pub fn alloc(self: *const Stream, comptime DestType: type, size: usize) ![]DestType {
         var int_ptr: cu.CUdeviceptr = undefined;
         const byte_size = size * @sizeOf(DestType);
@@ -130,30 +131,36 @@ pub const Stream = struct {
         _ = cu.cuMemFreeAsync(@ptrToInt(raw_ptr), self._stream);
     }
 
-    pub fn memcpyHtoD(self: *const Stream, comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
+    pub fn memcpyHtoD(self: *const Stream, comptime DestType: type, d_target: []DestType, h_source: []const DestType) void {
         std.debug.assert(h_source.len == d_target.len);
-        try check(cu.cuMemcpyHtoDAsync(
+        check(cu.cuMemcpyHtoDAsync(
             @ptrToInt(d_target.ptr),
             @ptrCast(*const c_void, h_source.ptr),
             h_source.len * @sizeOf(DestType),
             self._stream,
-        ));
+        )) catch unreachable;
     }
 
-    pub fn memcpyDtoH(self: *const Stream, comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
+    pub fn memcpyDtoH(self: *const Stream, comptime DestType: type, h_target: []DestType, d_source: []const DestType) void {
         std.debug.assert(d_source.len == h_target.len);
-        try check(cu.cuMemcpyDtoHAsync(
+        check(cu.cuMemcpyDtoHAsync(
             @ptrCast(*c_void, h_target.ptr),
             @ptrToInt(d_source.ptr),
             d_source.len * @sizeOf(DestType),
             self._stream,
-        ));
+        )) catch unreachable;
+    }
+
+    pub fn allocAndCopy(self: *const Stream, comptime DestType: type, h_source: []const DestType) ![]DestType {
+        var ptr = try self.alloc(DestType, h_source.len);
+        self.memcpyHtoD(DestType, ptr, h_source);
+        return ptr;
     }
 
     pub fn allocAndCopyResult(
         self: *const Stream,
         comptime DestType: type,
-        host_allocator: *std.mem.Allocator,
+        host_allocator: std.mem.Allocator,
         d_source: []const DestType,
     ) ![]DestType {
         var h_tgt = try host_allocator.alloc(DestType, d_source.len);
@@ -161,7 +168,7 @@ pub const Stream = struct {
         return h_tgt;
     }
 
-    pub fn memset(self: *const Stream, comptime DestType: type, slice: []DestType, value: DestType) !void {
+    pub fn memset(self: *const Stream, comptime DestType: type, slice: []DestType, value: DestType) void {
         var d_ptr = @ptrToInt(slice.ptr);
         var n = slice.len;
         var memset_res = switch (@sizeOf(DestType)) {
@@ -170,7 +177,7 @@ pub const Stream = struct {
             4 => cu.cuMemsetD32Async(d_ptr, @bitCast(u32, value), n, self._stream),
             else => @compileError("memset doesn't support type: " ++ @typeName(DestType)),
         };
-        try check(memset_res);
+        check(memset_res) catch unreachable;
     }
 
     pub inline fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args: anytype) !void {
@@ -198,15 +205,7 @@ pub const Stream = struct {
             null,
         );
         try check(res);
-        if (builtin.mode == .Debug) {
-            // In CUDA operation are asynchronous.
-            // The consequence is that an error in a kernel will only be
-            // returned later on. In debug mode we want to know which
-            // kernel is responsible for which error, so we have to wait
-            // for this kernel to end before scheduling another.
-            // TODO use callback API to keep the asynchronous scheduling
-            self.synchronize();
-        }
+        // TODO use callback API to keep the asynchronous scheduling
     }
 
     pub fn synchronize(self: *const Stream) void {
@@ -294,7 +293,7 @@ pub fn allocAndCopy(comptime DestType: type, h_source: []const DestType) ![]Dest
 
 pub fn allocAndCopyResult(
     comptime DestType: type,
-    host_allocator: *std.mem.Allocator,
+    host_allocator: std.mem.Allocator,
     d_source: []const DestType,
 ) ![]DestType {
     var h_tgt = try host_allocator.alloc(DestType, d_source.len);
@@ -387,6 +386,7 @@ pub const GpuTimer = struct {
         _ = cu.cuEventElapsedTime(&_elapsed, self._start, self._stop);
         self.deinit();
         self._elapsed = _elapsed;
+        if (_elapsed < 1e-3) log.warn("Cuda events only have 0.5 microseconds of resolution, so this might not be precise", .{});
         return _elapsed;
     }
 };
@@ -410,7 +410,7 @@ test "cuda version" {
 }
 
 var _device = [_]cu.CUdevice{-1} ** 8;
-fn getDevice(device: u3) !cu.CUdevice {
+pub fn initDevice(device: u3) !cu.CUdevice {
     var cu_dev = &_device[device];
     if (cu_dev.* == -1) {
         try check(cu.cuInit(0));
@@ -646,6 +646,7 @@ test "GpuTimer" {
         .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
     );
     timer.stop();
+    stream.synchronize();
     log.warn("rgba_to_greyscale took: {}", .{timer.elapsed()});
     try testing.expect(timer.elapsed() > 0);
 }

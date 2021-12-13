@@ -18,7 +18,7 @@ pub const ArenaAllocator = struct {
 
     const Node = []u8;
 
-    pub fn init(host_allocator: *Allocator) ArenaAllocator {
+    pub fn init(host_allocator: Allocator) ArenaAllocator {
         return .{ .nodes = std.ArrayList([]u8).init(host_allocator) };
     }
 
@@ -65,7 +65,7 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    pub fn resizeFn(allocator: *Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) Allocator.Error!usize {
+    pub fn resizeFn(allocator: Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ret_addr: usize) Allocator.Error!usize {
         _ = buf_align;
         _ = len_align;
         _ = ret_addr;
@@ -103,7 +103,7 @@ pub const ArenaAllocator = struct {
 // TODO: we could create an allocator that map the memory to the host
 // this will likely make read/write much slower though
 // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__VA.html#group__CUDA__VA
-// fn cudaAllocMappedFn(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
+// fn cudaAllocMappedFn(allocator: Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
 // }
 //
 pub const cuda_allocator = &cuda_allocator_state;
@@ -112,7 +112,7 @@ var cuda_allocator_state = Allocator{
     .resizeFn = cudaResizeFn,
 };
 
-fn cudaAllocFn(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
+fn cudaAllocFn(allocator: Allocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) Allocator.Error![]u8 {
     _ = allocator;
     _ = ra;
     _ = ptr_align;
@@ -130,7 +130,7 @@ fn cudaAllocFn(allocator: *Allocator, n: usize, ptr_align: u29, len_align: u29, 
     return x;
 }
 
-fn cudaResizeFn(allocator: *Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ra: usize) Allocator.Error!usize {
+fn cudaResizeFn(allocator: Allocator, buf: []u8, buf_align: u29, new_len: usize, len_align: u29, ra: usize) Allocator.Error!usize {
     _ = allocator;
     _ = ra;
     _ = buf_align;

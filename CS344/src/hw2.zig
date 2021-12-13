@@ -19,7 +19,7 @@ pub fn main() anyerror!void {
     log.info("***** HW2 ******", .{});
 
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = &general_purpose_allocator.allocator;
+    const alloc = general_purpose_allocator.allocator();
     try all_tests(alloc);
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
@@ -146,13 +146,13 @@ fn blurFilter() [blurKernelWidth * blurKernelWidth]f32 {
     return filter;
 }
 
-fn all_tests(alloc: *std.mem.Allocator) !void {
+fn all_tests(alloc: std.mem.Allocator) !void {
     var arena_alloc = std.heap.ArenaAllocator.init(alloc);
     defer arena_alloc.deinit();
-    try test_gaussianBlur(&arena_alloc.allocator);
+    try test_gaussianBlur(arena_alloc.allocator());
 }
 
-fn test_gaussianBlur(alloc: *std.mem.Allocator) !void {
+fn test_gaussianBlur(alloc: std.mem.Allocator) !void {
     // const blur_kernel_size = blurKernelWidth * blurKernelWidth;
     var cols: c_uint = 50;
     var rows: c_uint = 100;

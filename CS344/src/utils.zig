@@ -15,7 +15,7 @@ const CallingConvention = @import("std").builtin.CallingConvention;
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
 pub const kernel: CallingConvention = if (is_nvptx) .PtxKernel else .Unspecified;
 
-pub fn grayscale(allocator: *std.mem.Allocator, width: usize, height: usize) !Image {
+pub fn grayscale(allocator: std.mem.Allocator, width: usize, height: usize) !Image {
     return try Image.create(
         allocator,
         width,
@@ -25,7 +25,7 @@ pub fn grayscale(allocator: *std.mem.Allocator, width: usize, height: usize) !Im
     );
 }
 
-pub fn validate_output(alloc: *std.mem.Allocator, comptime dir: []const u8, threshold: f32) !void {
+pub fn validate_output(alloc: std.mem.Allocator, comptime dir: []const u8, threshold: f32) !void {
     const output = try Image.fromFilePath(alloc, dir ++ "output.png");
     const reference = try Image.fromFilePath(alloc, dir ++ "reference.png");
 
@@ -41,7 +41,7 @@ pub fn validate_output(alloc: *std.mem.Allocator, comptime dir: []const u8, thre
     }
 }
 
-pub fn eq_and_show_diff(alloc: *std.mem.Allocator, comptime dir: []const u8, output: Image, reference: Image) !f32 {
+pub fn eq_and_show_diff(alloc: std.mem.Allocator, comptime dir: []const u8, output: Image, reference: Image) !f32 {
     var diff = try grayscale(alloc, reference.width, reference.height);
     var out_pxls = output.iterator();
     var ref_pxls = reference.iterator();

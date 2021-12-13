@@ -16,7 +16,7 @@ const resources_dir = "resources/hw3_resources/";
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = &general_purpose_allocator.allocator;
+    const allocator = general_purpose_allocator.allocator();
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
     log.info("***** HW3 ******", .{});
@@ -91,7 +91,7 @@ pub fn main() !void {
     try std.testing.expect(lum_range > 0);
 }
 
-fn asFloat32(allocator: *std.mem.Allocator, img: zigimg.Image) ![]cu.float3 {
+fn asFloat32(allocator: std.mem.Allocator, img: zigimg.Image) ![]cu.float3 {
     var rgb = try allocator.alloc(cu.float3, img.width * img.height);
     var pixels = img.iterator();
     var i: usize = 0;
@@ -115,7 +115,7 @@ pub inline fn toColorIntClamp(comptime T: type, value: f32) T {
     return @floatToInt(T, math.round(val));
 }
 
-fn fromFloat32(allocator: *std.mem.Allocator, rgb: []cu.float3, width: usize, height: usize) !zigimg.Image {
+fn fromFloat32(allocator: std.mem.Allocator, rgb: []cu.float3, width: usize, height: usize) !zigimg.Image {
     var img = try zigimg.Image.create(allocator, width, height, .Rgb24, .Png);
     var pixels = img.pixels.?.Rgb24;
     for (rgb) |value, i| {
@@ -145,17 +145,16 @@ fn histogram_and_prefixsum(
     //   2) subtract them to find the range
     //   3) generate a histogram of all the values in the logLuminance channel using
     //      the formula: bin = (lum[i] - lumMin) / lumRange * numBins
-    // TODO: faster Cdf
     //   4) Perform an exclusive scan (prefix sum) on the histogram to get
     //      the cumulative distribution of luminance values (this should go in the
     //      incoming d_cdf pointer which already has been allocated for you)
     var num_pixels = numRows * numCols;
     var min_max_lum = try reduceMinMaxLum(stream, d_xyY);
 
-    const lum_histo = try cuda.Function("lum_histo").init();
+    const lumHisto = try cuda.Function("lum_histo").init();
     var d_histo = try cuda.alloc(c_uint, numBins);
     try cuda.memset(c_uint, d_histo, 0);
-    try lum_histo.launch(
+    try lumHisto.launch(
         stream,
         cuda.Grid.init1D(num_pixels, 1024),
         .{
@@ -167,11 +166,6 @@ fn histogram_and_prefixsum(
             @intCast(c_int, num_pixels),
         },
     );
-    // var histo = try cuda.arena.allocator.alloc(c_uint, numBins);
-    // defer cuda.arena.allocator.free(histo);
-    // try cuda.memcpyDtoH(c_uint, histo, d_histo);
-    // std.log.info("Lum histo: {any}", .{histo});
-    // try stream.synchronize();
 
     const computeCdf = try cuda.Function("blellochCdf").init();
     try computeCdf.launch(
@@ -243,11 +237,11 @@ test "histogram" {
         z(9.0),
         z(10.0),
     };
-    const lum_histo = try cuda.Function("lum_histo").init();
+    const lumHisto = try cuda.Function("lum_histo").init();
     var bins = [_]c_uint{0} ** 10;
     var d_img = try cuda.allocAndCopy(cu.float3, &img);
     var d_bins = try cuda.allocAndCopy(c_uint, &bins);
-    try lum_histo.launch(
+    try lumHisto.launch(
         &stream,
         cuda.Grid.init1D(img.len, 3),
         .{

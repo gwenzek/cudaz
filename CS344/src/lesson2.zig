@@ -7,7 +7,7 @@ const ARRAY_SIZE = 100;
 
 pub fn main() anyerror!void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = &general_purpose_allocator.allocator;
+    const alloc = general_purpose_allocator.allocator();
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 
@@ -26,7 +26,7 @@ pub fn main() anyerror!void {
 }
 
 fn time_kernel(
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     stream: *cuda.Stream,
     comptime kernel_name: [:0]const u8,
     num_threads: u32,
@@ -39,7 +39,7 @@ fn time_kernel(
 }
 
 fn _time_kernel(
-    alloc: *std.mem.Allocator,
+    alloc: std.mem.Allocator,
     stream: *cuda.Stream,
     comptime kernel_name: [:0]const u8,
     num_threads: u32,

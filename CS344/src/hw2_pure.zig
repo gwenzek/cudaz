@@ -22,7 +22,7 @@ pub fn main() anyerror!void {
     log.info("***** HW2 ******", .{});
 
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = &general_purpose_allocator.allocator;
+    const alloc = general_purpose_allocator.allocator();
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 

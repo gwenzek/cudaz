@@ -10,14 +10,14 @@ const GlobalReduce = cuda.Function("global_reduce_kernel");
 pub fn main() !void {
     log.info("***** Lesson 3 ******", .{});
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = &general_purpose_allocator.allocator;
+    const gpa = general_purpose_allocator.allocator();
     var stream = try cuda.Stream.init(0);
 
     try main_reduce(&stream, gpa);
     try main_histo(&stream, gpa);
 }
 
-fn main_reduce(stream: *const cuda.Stream, gpa: *std.mem.Allocator) !void {
+fn main_reduce(stream: *const cuda.Stream, gpa: std.mem.Allocator) !void {
     const array_size: i32 = 1 << 20;
     // generate the input array on the host
     var h_in = try gpa.alloc(f32, array_size);
@@ -131,7 +131,7 @@ fn reduce(stream: *const cuda.Stream, reduce_kernel: GlobalReduce, d_out: []f32,
     return result[0];
 }
 
-fn main_histo(stream: *const cuda.Stream, gpa: *std.mem.Allocator) !void {
+fn main_histo(stream: *const cuda.Stream, gpa: std.mem.Allocator) !void {
     const array_size = 65536;
     const bin_count = 16;
 

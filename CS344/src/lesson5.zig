@@ -1,6 +1,6 @@
 //! Compare implementations of different transpose algorithms
 //! Compile with Zig, then run: sudo /usr/local/cuda/bin/ncu ./CS344/zig-out/bin/lesson5 > ./CS344/resources/lesson5/ncu_report.txt
-//! This will generate
+//! This will generate a performance report
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Random = std.rand.DefaultPrng;
@@ -16,7 +16,7 @@ pub fn main() !void {
 
 pub fn amain() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = &general_purpose_allocator.allocator;
+    const allocator = general_purpose_allocator.allocator();
     var random = Random.init(10298374);
 
     const num_cols: usize = 2048;
@@ -31,9 +31,7 @@ pub fn amain() !void {
     const elapsed_cpu = @intToFloat(f32, timer.lap()) / std.time.ns_per_us;
 
     base_log.info("CPU transpose of {}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed_cpu });
-    var stream = initStreamAndModule(0);
-    defer stream.deinit();
-
+    try initModule(0);
     gpuInfo(0);
     // var elapsed = try transposeSerial(&stream, d_data, d_trans, num_cols);
     // log.info("GPU serial transpose of {}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
@@ -70,11 +68,11 @@ fn transposeSerial(stream: *cuda.Stream, d_data: []const u32, d_out: []u32, num_
     return timer.elapsed();
 }
 
-fn transposePerRow(allocator: *Allocator, data: []const u32, num_cols: usize) !void {
+fn transposePerRow(allocator: Allocator, data: []const u32, num_cols: usize) !void {
     var stream = cuda.Stream.init(0) catch unreachable;
     defer stream.deinit();
     const d_data = try stream.alloc(u32, data.len);
-    try stream.memcpyHtoD(u32, d_data, data);
+    stream.memcpyHtoD(u32, d_data, data);
     var out = try allocator.alloc(u32, data.len);
     defer allocator.free(out);
     const d_out = try stream.alloc(u32, data.len);
@@ -88,7 +86,7 @@ fn transposePerRow(allocator: *Allocator, data: []const u32, num_cols: usize) !v
         .{ d_data, d_out, num_cols },
     ) catch unreachable;
     timer.stop();
-    try stream.memcpyDtoH(u32, out, d_out);
+    stream.memcpyDtoH(u32, out, d_out);
     // Yield control to main loop
     suspend {}
     stream.synchronize();
@@ -100,11 +98,11 @@ fn transposePerRow(allocator: *Allocator, data: []const u32, num_cols: usize) !v
     };
 }
 
-fn transposePerCell(allocator: *Allocator, data: []const u32, num_cols: usize) !void {
+fn transposePerCell(allocator: Allocator, data: []const u32, num_cols: usize) !void {
     var stream = cuda.Stream.init(0) catch unreachable;
     defer stream.deinit();
     const d_data = try stream.alloc(u32, data.len);
-    try stream.memcpyHtoD(u32, d_data, data);
+    stream.memcpyHtoD(u32, d_data, data);
     var out = try allocator.alloc(u32, data.len);
     defer allocator.free(out);
     const d_out = try stream.alloc(u32, data.len);
@@ -118,7 +116,7 @@ fn transposePerCell(allocator: *Allocator, data: []const u32, num_cols: usize) !
         .{ d_data, d_out, num_cols },
     ) catch unreachable;
     timer.stop();
-    try stream.memcpyDtoH(u32, out, d_out);
+    stream.memcpyDtoH(u32, out, d_out);
     // Yield control to main loop
     suspend {}
     stream.synchronize();
@@ -130,13 +128,13 @@ fn transposePerCell(allocator: *Allocator, data: []const u32, num_cols: usize) !
     };
 }
 
-fn transposePerBlock(allocator: *Allocator, data: []const u32, num_cols: usize) !void {
+fn transposePerBlock(allocator: Allocator, data: []const u32, num_cols: usize) !void {
     var out = try allocator.alloc(u32, data.len);
     defer allocator.free(out);
     var stream = cuda.Stream.init(0) catch unreachable;
     defer stream.deinit();
     const d_data = try stream.alloc(u32, data.len);
-    try stream.memcpyHtoD(u32, d_data, data);
+    stream.memcpyHtoD(u32, d_data, data);
     const d_out = try stream.alloc(u32, data.len);
     defer cuda.free(d_out);
     const log = std.log.scoped(.transposePerBlock);
@@ -151,7 +149,7 @@ fn transposePerBlock(allocator: *Allocator, data: []const u32, num_cols: usize) 
         .{ d_data, d_out, num_cols },
     );
     timer.stop();
-    try stream.memcpyDtoH(u32, out, d_out);
+    stream.memcpyDtoH(u32, out, d_out);
     // Yield control to main loop
     suspend {}
     stream.synchronize();
@@ -163,13 +161,13 @@ fn transposePerBlock(allocator: *Allocator, data: []const u32, num_cols: usize) 
     };
 }
 
-fn transposePerBlockInlined(allocator: *Allocator, data: []const u32, num_cols: usize) !void {
+fn transposePerBlockInlined(allocator: Allocator, data: []const u32, num_cols: usize) !void {
     var out = try allocator.alloc(u32, data.len);
     defer allocator.free(out);
     var stream = cuda.Stream.init(0) catch unreachable;
     defer stream.deinit();
     const d_data = try stream.alloc(u32, data.len);
-    try stream.memcpyHtoD(u32, d_data, data);
+    stream.memcpyHtoD(u32, d_data, data);
     const d_out = try stream.alloc(u32, data.len);
     defer cuda.free(d_out);
     const log = std.log.scoped(.transposePerBlockInlined);
@@ -183,7 +181,7 @@ fn transposePerBlockInlined(allocator: *Allocator, data: []const u32, num_cols: 
         .{ d_data, d_out, num_cols },
     );
     timer.stop();
-    try stream.memcpyDtoH(u32, out, d_out);
+    stream.memcpyDtoH(u32, out, d_out);
     // Yield control to main loop
     suspend {}
     stream.synchronize();
@@ -204,8 +202,9 @@ const Kernels = struct {
 };
 var k: Kernels = undefined;
 
-fn initStreamAndModule(device: u3) cuda.Stream {
-    const stream = cuda.Stream.init(device) catch unreachable;
+fn initModule(device: u3) !void {
+    _ = try cuda.Stream.init(device);
+    _ = cuda.initDevice(device) catch @panic("No GPU");
     // Panic if we can't load the module.
     k = Kernels{
         .transposeCpu = @TypeOf(k.transposeCpu).init() catch unreachable,
@@ -214,7 +213,6 @@ fn initStreamAndModule(device: u3) cuda.Stream {
         .transposePerBlock = @TypeOf(k.transposePerBlock).init() catch unreachable,
         .transposePerBlockInlined = @TypeOf(k.transposePerBlockInlined).init() catch unreachable,
     };
-    return stream;
 }
 
 fn gpuInfo(device: u8) void {

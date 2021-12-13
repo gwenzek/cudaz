@@ -34,11 +34,6 @@ void rgb_to_xyY(float3* d_rgb,
   }
 }
 
-/* Copied from Mike's IPython notebook *
-   Modified just by having threads read the
-   normalization constant directly from device memory
-   instead of copying it back                          */
-
 __global__
 void normalize_cdf(unsigned int *d_input_cdf, float *d_output_cdf, int n) {
 
@@ -48,11 +43,6 @@ void normalize_cdf(unsigned int *d_input_cdf, float *d_output_cdf, int n) {
   const float normalized = 1.f / d_input_cdf[n - 1];
   d_output_cdf[myId] = d_input_cdf[myId] * normalized;
 }
-
-/* Copied from Mike's IPython notebook *
-   Modified double constants -> float  *
-   Perform tone mapping based upon new *
-   luminance scaling                   */
 
 __global__
 void tone_map(const float3* d_xyY,
