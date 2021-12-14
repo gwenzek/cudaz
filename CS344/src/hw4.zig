@@ -47,12 +47,16 @@ const cu = cuda.cu;
 const png = @import("png.zig");
 const utils = @import("utils.zig");
 
-const resources_dir = "resources/hw4_resources/";
+const resources_dir = "resources/hw4/";
 
 const log = std.log.scoped(.HW4);
 const log_level = std.log.Level.warn;
 
 pub fn main() !void {
+    try hw4();
+}
+
+pub fn hw4() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = general_purpose_allocator.allocator();
     log.info("***** HW4 ******", .{});
@@ -321,7 +325,6 @@ test "inPlaceCdf" {
 
 pub fn radixSortAlloc(stream: *const cuda.Stream, d_values: []const u32) ![]u32 {
     const n = d_values.len;
-    // TODO: I get illegal memory access when I use mask = 0b1111 and input image
     const mask: u8 = 0b1111;
     const mask_bits: u8 = 8 - @clz(u8, mask);
 
