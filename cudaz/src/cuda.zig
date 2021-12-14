@@ -12,6 +12,7 @@ pub const Error = cuda_errors.Error;
 const attributes = @import("attributes.zig");
 pub const Attribute = attributes.Attribute;
 pub const getAttr = attributes.getAttr;
+pub const algorithms = @import("algorithms.zig");
 
 pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
 const log = std.log.scoped(.Cuda);
