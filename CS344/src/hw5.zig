@@ -82,6 +82,8 @@ pub fn histogram(kernel: cu.CUfunction, data: []const u32, histo: []u32, ref_his
 const Kernels = struct {
     atomicHistogram: cuda.FnStruct("atomicHistogram", RawKernels.atomicHistogram),
     bychunkHistogram: cuda.FnStruct("bychunkHistogram", RawKernels.bychunkHistogram),
+    coarseBins: cuda.FnStruct("coarseBins", RawKernels.coarseBins),
+    shuffleCoarseBins: cuda.FnStruct("shuffleCoarseBins32", RawKernels.shuffleCoarseBins32),
 };
 var k: Kernels = undefined;
 
@@ -91,6 +93,8 @@ fn initModule(device: u3) !void {
     k = Kernels{
         .atomicHistogram = try @TypeOf(k.atomicHistogram).init(),
         .bychunkHistogram = try @TypeOf(k.bychunkHistogram).init(),
+        .coarseBins = try @TypeOf(k.coarseBins).init(),
+        .shuffleCoarseBins = try @TypeOf(k.shuffleCoarseBins).init(),
     };
 }
 
@@ -98,4 +102,87 @@ fn computeBandwith(elapsed_ms: f64, data: []const u32) f64 {
     const n = @intToFloat(f64, data.len);
     const bytes = @intToFloat(f64, @sizeOf(u32));
     return n * bytes / elapsed_ms * 1000;
+}
+
+fn fastHistogram(data: []const u32, histo: []u32, ref_histo: []const u32) !void {
+    var stream = try cuda.Stream.init(0);
+    var d_values = try stream.allocAndCopy(u32, data);
+    var d_histo = try stream.alloc(u32, histo.len);
+    stream.memset(u32, d_histo, 0);
+    var d_radix = try stream.alloc(u32, data.len * 32);
+    stream.memset(u32, d_radix, 0);
+
+    var timer = cuda.GpuTimer.start(&stream);
+
+    const n = d_values.len;
+    try cuda.memset(u32, d_radix, 0);
+    // We split the bins into 32 coarse bins.
+    const d_histo_boundaries = try stream.alloc(u32, 32);
+    const shift = 5;
+    const mask = 0b11111;
+    try k.coarseBins.launch(
+        stream,
+        cuda.Grid.init1D(n, 1024),
+        .{ d_radix.ptr, d_values.ptr, shift, mask, @intCast(c_int, n) },
+    );
+    const radix_sum = try cuda.algorithms.reduce(stream, k.sumU32, d_radix);
+    log.debug("Radix sums to {}, expected {}", .{ radix_sum, d_values.len });
+    std.debug.assert(radix_sum == d_values.len);
+    try inPlaceCdf(stream, d_radix, 1024);
+    // debugDevice("d_radix + cdf", d_radix);
+    try k.shuffleCoarseBins.launch(
+        stream,
+        cuda.Grid.init1D(n, 1024),
+        .{ d_histo.ptr, d_histo_boundaries.ptr, d_radix.ptr, d_values.ptr, shift, mask, @intCast(c_int, n) },
+    );
+    var histo_boundaries: [33]u32 = undefined;
+    stream.memcpyDtoH(u32, &histo_boundaries, d_histo_boundaries);
+    timer.stop();
+    stream.synchronize();
+    // Now we can partition d_values into coarse bins.
+    var bin: u32 = 0;
+    while (bin < 32) : (bin += 1) {
+        var bin_start = histo_boundaries[bin];
+        var bin_end = histo_boundaries[bin + 1];
+        var d_bin_values = d_histo[bin_start .. bin_end + 1];
+        // TODO histogram(d_bin_values)
+        _ = d_bin_values;
+    }
+
+    var elapsed = timer.elapsed();
+    std.testing.expectEqualSlices(u32, ref_histo, histo) catch {
+        if (ref_histo.len < 100) {
+            log.err("Histogram mismatch. Expected: {d}, got {d}", .{ ref_histo, histo });
+        }
+        // return err;
+    };
+    return elapsed;
+}
+
+// TODO: the cdf kernels should be part of cudaz
+pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) cuda.Error!void {
+    const n = d_values.len;
+    const grid_N = cuda.Grid.init1D(n, n_threads);
+    const n_blocks = grid_N.blocks.x;
+    var d_grid_bins = try cuda.alloc(u32, n_blocks);
+    defer cuda.free(d_grid_bins);
+    var n_threads_pow_2 = n_threads;
+    while (n_threads_pow_2 > 1) {
+        std.debug.assert(n_threads_pow_2 % 2 == 0);
+        n_threads_pow_2 /= 2;
+    }
+    try k.cdfIncremental.launchWithSharedMem(
+        stream,
+        grid_N,
+        n_threads * @sizeOf(u32),
+        .{ d_values.ptr, d_grid_bins.ptr, @intCast(c_int, n) },
+    );
+    if (n_blocks == 1) return;
+
+    try inPlaceCdf(stream, d_grid_bins, n_threads);
+    try k.cdfShift.launch(
+        stream,
+        grid_N,
+        .{ d_values.ptr, d_grid_bins.ptr, @intCast(c_int, n) },
+    );
 }

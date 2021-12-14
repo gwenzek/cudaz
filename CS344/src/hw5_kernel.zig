@@ -3,13 +3,14 @@ const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
 const is_nvptx = builtin.cpu.arch == .nvptx64;
 const PtxKernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
+const ku = @import("kernel_utils.zig");
 
 pub export fn atomicHistogram(d_data: []u32, d_bins: []u32) callconv(PtxKernel) void {
-    const gid = threadIdX() + blockDimX() * blockIdX();
+    const gid = ku.getIdX();
     if (gid >= d_data.len) return;
 
     const bin = d_data[gid];
-    atomicAdd(&d_bins[bin], 1);
+    ku.atomicAdd(&d_bins[bin], 1);
 }
 
 // const step: u32 = 32;
@@ -17,7 +18,7 @@ const SharedMem = opaque {};
 // extern var bychunkHistogram_shared: SharedMem align(8) addrspace(.shared); // stage2
 var bychunkHistogram_shared: [1024]u32 = undefined; // stage1
 
-const step: u32 = 32;
+const bychunkHistogram_step: u32 = 32;
 
 /// Fist accumulate into a shared histogram
 /// then accumulate to the global histogram.
@@ -25,15 +26,16 @@ const step: u32 = 32;
 pub export fn bychunkHistogram(d_data: []u32, d_bins: []u32) callconv(PtxKernel) void {
     const n = d_data.len;
     const num_bins = d_bins.len;
+    const step = bychunkHistogram_step;
     // var s_bins = @ptrCast([*]addrspace(.shared) u32, &bychunkHistogram_shared); // stage2
     var s_bins = @ptrCast([*]u32, &bychunkHistogram_shared); // stage1
-    const tid = threadIdX();
-    if (tid < num_bins) s_bins[threadIdX()] = 0;
-    syncThreads();
+    const tid = ku.threadIdX();
+    if (tid < num_bins) s_bins[ku.threadIdX()] = 0;
+    ku.syncThreads();
 
     var i: u32 = 0;
     while (i < step) : (i += 1) {
-        const offset = blockIdX() * blockDimX() * step + i * blockDimX() + tid;
+        const offset = ku.blockIdX() * ku.blockDimX() * step + i * ku.blockDimX() + tid;
         if (offset < n) {
             // Passing a .shared pointer to atomicAdd crashes stage2 here
             // atomicAdd(&s_bins[d_data[offset]], 1);
@@ -41,41 +43,39 @@ pub export fn bychunkHistogram(d_data: []u32, d_bins: []u32) callconv(PtxKernel)
         }
     }
 
-    syncThreads();
+    ku.syncThreads();
     if (tid < num_bins) {
-        atomicAdd(&d_bins[tid], s_bins[tid]);
+        ku.atomicAdd(&d_bins[tid], s_bins[tid]);
     }
 }
 
-pub inline fn threadIdX() usize {
-    if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t$0, %tid.x;"
-        : [ret] "=r" (-> u32),
-    );
-    return @intCast(usize, tid);
+pub export fn coarseBins(d_data: []u32, d_coarse_bins: []u32) callconv(PtxKernel) void {
+    const n = d_data.len;
+    const id = ku.getIdX();
+    if (id < n) {
+        const rad = d_data[id] / 32;
+        d_coarse_bins[rad * n + id] = 1;
+    }
 }
 
-pub inline fn blockDimX() usize {
-    if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t$0, %ntid.x;"
-        : [ret] "=r" (-> u32),
-    );
-    return @intCast(usize, ntid);
-}
+pub export fn shuffleCoarseBins32(
+    d_coarse_bins: []u32,
+    d_coarse_bins_boundaries: []u32,
+    d_cdf: []const u32,
+    d_in: []const u32,
+) callconv(PtxKernel) void {
+    const n = d_in.len;
+    const id = ku.getIdX();
+    if (id >= n) return;
+    const x = d_in[id];
+    const rad = x >> 5 & 0b11111;
+    const new_id = d_cdf[rad * n + id];
+    d_coarse_bins[new_id] = x;
 
-pub inline fn blockIdX() usize {
-    if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.x;"
-        : [ret] "=r" (-> u32),
-    );
-    return @intCast(usize, ctaid);
-}
-
-pub inline fn syncThreads() void {
-    if (!is_nvptx) return;
-    asm volatile ("bar.sync \t0;");
-}
-
-pub inline fn atomicAdd(x: *u32, a: u32) void {
-    _ = @atomicRmw(u32, x, .Add, a, .SeqCst);
+    if (id < 32) {
+        d_coarse_bins_boundaries[id] = d_cdf[id * n];
+    }
+    if (id == 32) {
+        d_coarse_bins_boundaries[id] = d_cdf[id * n - 1];
+    }
 }
