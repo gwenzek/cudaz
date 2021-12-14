@@ -189,7 +189,7 @@ void computeCdf(float* d_cdf, const uint *d_bins, int bin_count)
 __global__
 void blellochCdf(float* d_cdf, uint* d_bins, int n) {
     // We need synchronization across all threads so only one block
-    if (blockDim.x == 0) return;
+    if (gridDim.x > 1) return;
     int tid = threadIdx.x;
     if (tid >= n) return;
 
