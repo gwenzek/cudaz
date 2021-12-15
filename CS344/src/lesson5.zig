@@ -14,6 +14,41 @@ pub fn main() !void {
     try nosuspend amain();
 }
 
+const CudaEventLoop = struct {
+    running_streams: std.ArrayListUnmanaged(*cuda.Stream),
+    suspended_frames: std.ArrayListUnmanaged(anyframe),
+
+    pub fn initCapacity(allocator: Allocator, num: usize) !CudaEventLoop {
+        return CudaEventLoop{
+            .running_streams = try std.ArrayListUnmanaged(*cuda.Stream).initCapacity(allocator, num),
+            .suspended_frames = try std.ArrayListUnmanaged(anyframe).initCapacity(allocator, num),
+        };
+    }
+
+    pub fn registerStream(self: *CudaEventLoop, stream: *cuda.Stream, frame: anyframe) void {
+        self.running_streams.appendAssumeCapacity(stream);
+        self.suspended_frames.appendAssumeCapacity(frame);
+    }
+
+    pub fn joinStreamsAndResume(self: *CudaEventLoop) void {
+        var n_streams = self.running_streams.items.len;
+        std.debug.assert(self.suspended_frames.items.len == n_streams);
+
+        while (self.running_streams.items.len > 0) {
+            for (self.running_streams.items) |stream, i| {
+                if (stream.done()) {
+                    _ = self.running_streams.swapRemove(i);
+                    resume self.suspended_frames.swapRemove(i);
+                    // We need to break because we invalidated the iterator
+                    break;
+                }
+            } else {
+                std.time.sleep(100 * std.time.ns_per_us);
+            }
+        }
+    }
+};
+
 pub fn amain() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = general_purpose_allocator.allocator();
@@ -41,19 +76,19 @@ pub fn amain() !void {
     // scheduling all kernels at the same time on the GPU
     // and they will interfere with each others.
     // But it shows how multi streams work.
-    var per_row = async transposePerRow(allocator, data, num_cols);
-    var per_cell = async transposePerCell(allocator, data, num_cols);
-    var per_block = async transposePerBlock(allocator, data, num_cols);
-    var per_block_inline = async transposePerBlockInlined(allocator, data, num_cols);
+    var ex = try CudaEventLoop.initCapacity(allocator, 4);
+    var per_row = async transposePerRow(&ex, allocator, data, num_cols);
+    var per_cell = async transposePerCell(&ex, allocator, data, num_cols);
+    var per_block = async transposePerBlock(&ex, allocator, data, num_cols);
+    var per_block_inline = async transposePerBlockInlined(&ex, allocator, data, num_cols);
 
-    resume per_row;
-    try await per_row;
-    resume per_cell;
-    try await per_cell;
-    resume per_block;
-    try await per_block;
-    resume per_block_inline;
-    try await per_block_inline;
+    ex.joinStreamsAndResume();
+
+    // nosuspend ensure that joinStreams has correctly resumed the frames already.
+    try nosuspend await per_row;
+    try nosuspend await per_cell;
+    try nosuspend await per_block;
+    try nosuspend await per_block_inline;
 }
 
 fn transposeSerial(stream: *cuda.Stream, d_data: []const u32, d_out: []u32, num_cols: usize) !f64 {
@@ -68,7 +103,7 @@ fn transposeSerial(stream: *cuda.Stream, d_data: []const u32, d_out: []u32, num_
     return timer.elapsed();
 }
 
-fn transposePerRow(allocator: Allocator, data: []const u32, num_cols: usize) !void {
+fn transposePerRow(ex: *CudaEventLoop, allocator: Allocator, data: []const u32, num_cols: usize) !void {
     var stream = cuda.Stream.init(0) catch unreachable;
     defer stream.deinit();
     const d_data = try stream.alloc(u32, data.len);
@@ -88,7 +123,9 @@ fn transposePerRow(allocator: Allocator, data: []const u32, num_cols: usize) !vo
     timer.stop();
     stream.memcpyDtoH(u32, out, d_out);
     // Yield control to main loop
-    suspend {}
+    suspend {
+        ex.registerStream(&stream, @frame());
+    }
     stream.synchronize();
     const elapsed = timer.elapsed();
     log.info("{}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
@@ -98,7 +135,7 @@ fn transposePerRow(allocator: Allocator, data: []const u32, num_cols: usize) !vo
     };
 }
 
-fn transposePerCell(allocator: Allocator, data: []const u32, num_cols: usize) !void {
+fn transposePerCell(ex: *CudaEventLoop, allocator: Allocator, data: []const u32, num_cols: usize) !void {
     var stream = cuda.Stream.init(0) catch unreachable;
     defer stream.deinit();
     const d_data = try stream.alloc(u32, data.len);
@@ -118,7 +155,9 @@ fn transposePerCell(allocator: Allocator, data: []const u32, num_cols: usize) !v
     timer.stop();
     stream.memcpyDtoH(u32, out, d_out);
     // Yield control to main loop
-    suspend {}
+    suspend {
+        ex.registerStream(&stream, @frame());
+    }
     stream.synchronize();
     const elapsed = timer.elapsed();
     log.info("{}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
@@ -128,7 +167,7 @@ fn transposePerCell(allocator: Allocator, data: []const u32, num_cols: usize) !v
     };
 }
 
-fn transposePerBlock(allocator: Allocator, data: []const u32, num_cols: usize) !void {
+fn transposePerBlock(ex: *CudaEventLoop, allocator: Allocator, data: []const u32, num_cols: usize) !void {
     var out = try allocator.alloc(u32, data.len);
     defer allocator.free(out);
     var stream = cuda.Stream.init(0) catch unreachable;
@@ -151,7 +190,9 @@ fn transposePerBlock(allocator: Allocator, data: []const u32, num_cols: usize) !
     timer.stop();
     stream.memcpyDtoH(u32, out, d_out);
     // Yield control to main loop
-    suspend {}
+    suspend {
+        ex.registerStream(&stream, @frame());
+    }
     stream.synchronize();
     const elapsed = timer.elapsed();
     log.info("{}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });
@@ -161,7 +202,7 @@ fn transposePerBlock(allocator: Allocator, data: []const u32, num_cols: usize) !
     };
 }
 
-fn transposePerBlockInlined(allocator: Allocator, data: []const u32, num_cols: usize) !void {
+fn transposePerBlockInlined(ex: *CudaEventLoop, allocator: Allocator, data: []const u32, num_cols: usize) !void {
     var out = try allocator.alloc(u32, data.len);
     defer allocator.free(out);
     var stream = cuda.Stream.init(0) catch unreachable;
@@ -183,7 +224,9 @@ fn transposePerBlockInlined(allocator: Allocator, data: []const u32, num_cols: u
     timer.stop();
     stream.memcpyDtoH(u32, out, d_out);
     // Yield control to main loop
-    suspend {}
+    suspend {
+        ex.registerStream(&stream, @frame());
+    }
     stream.synchronize();
     const elapsed = timer.elapsed();
     log.info("{}x{} matrix took {:.3}ms", .{ num_cols, num_cols, elapsed });

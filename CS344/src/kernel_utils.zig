@@ -86,7 +86,7 @@ pub const Operator = enum { add, mul, min, max };
 // TODO: use generics once it works in Stage2
 pub fn exclusiveScan(
     comptime op: Operator,
-    data: [*]u32,
+    data: anytype,
     tid: usize,
     last_tid: usize,
 ) u32 {

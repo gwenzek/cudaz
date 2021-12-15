@@ -230,8 +230,9 @@ pub const Stream = struct {
     // for the blocking `synchronize` call.
     // Ideally we would have an event loop that poll streams to check
     // if they are over.
-    pub fn done(self: *Stream) void {
-        self.synchronize();
+    pub fn done(self: *Stream) bool {
+        const res = cu.cuStreamQuery(self._stream);
+        return res != cu.CUDA_ERROR_NOT_READY;
     }
 };
 
