@@ -22,7 +22,7 @@ pub fn build(b: *Builder) void {
 
     var tests = b.step("test", "Tests");
 
-    const test_png = b.addTest("png.zig");
+    const test_png = b.addTest("src/png.zig");
     test_png.addPackagePath("zigimg", "zigimg/zigimg.zig");
     addLibpng(test_png);
     tests.dependOn(&test_png.step);
@@ -103,7 +103,10 @@ fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8
     const hw_run = hw.run();
     hw_run.step.dependOn(b.getInstallStep());
 
-    _ = tests;
+    const test_hw = b.addTest("src/" ++ name ++ ".zig");
+    cuda_sdk.addCudazWithZigKernel(b, test_hw, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
+    tests.dependOn(&test_hw.step);
+
     return hw_run;
 }
 

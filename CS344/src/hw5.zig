@@ -1,11 +1,13 @@
 const std = @import("std");
 const log = std.log.scoped(.hw5);
 const math = std.math;
+const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const Random = std.rand.Random;
 
 const cuda = @import("cudaz");
 const cu = cuda.cu;
+const utils = @import("utils.zig");
 const RawKernels = @import("hw5_kernel.zig");
 
 pub fn main() !void {
@@ -44,6 +46,10 @@ pub fn main() !void {
     elapsed = try histogram(k.bychunkHistogram.f, data, atomic_histo, ref_histo, cuda.Grid.init1D(data.len / 32, 1024));
     log.info("bychunkHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
     log.info("bychunkHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+
+    elapsed = try fastHistogram(data, atomic_histo, ref_histo);
+    log.info("fastHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
+    log.info("fastHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
 }
 
 pub fn cpu_histogram(data: []const u32, histo: []u32) void {
@@ -84,6 +90,8 @@ const Kernels = struct {
     bychunkHistogram: cuda.FnStruct("bychunkHistogram", RawKernels.bychunkHistogram),
     coarseBins: cuda.FnStruct("coarseBins", RawKernels.coarseBins),
     shuffleCoarseBins: cuda.FnStruct("shuffleCoarseBins32", RawKernels.shuffleCoarseBins32),
+    cdfIncremental: cuda.FnStruct("cdfIncremental", RawKernels.cdfIncremental),
+    cdfIncrementalShift: cuda.FnStruct("cdfIncrementalShift", RawKernels.cdfIncrementalShift),
 };
 var k: Kernels = undefined;
 
@@ -95,6 +103,8 @@ fn initModule(device: u3) !void {
         .bychunkHistogram = try @TypeOf(k.bychunkHistogram).init(),
         .coarseBins = try @TypeOf(k.coarseBins).init(),
         .shuffleCoarseBins = try @TypeOf(k.shuffleCoarseBins).init(),
+        .cdfIncremental = try @TypeOf(k.cdfIncremental).init(),
+        .cdfIncrementalShift = try @TypeOf(k.cdfIncrementalShift).init(),
     };
 }
 
@@ -104,36 +114,35 @@ fn computeBandwith(elapsed_ms: f64, data: []const u32) f64 {
     return n * bytes / elapsed_ms * 1000;
 }
 
-fn fastHistogram(data: []const u32, histo: []u32, ref_histo: []const u32) !void {
-    var stream = try cuda.Stream.init(0);
+fn fastHistogram(data: []const u32, histo: []u32, ref_histo: []const u32) !f32 {
+    var stream = &(try cuda.Stream.init(0));
     var d_values = try stream.allocAndCopy(u32, data);
     var d_histo = try stream.alloc(u32, histo.len);
     stream.memset(u32, d_histo, 0);
     var d_radix = try stream.alloc(u32, data.len * 32);
     stream.memset(u32, d_radix, 0);
 
-    var timer = cuda.GpuTimer.start(&stream);
+    var timer = cuda.GpuTimer.start(stream);
 
     const n = d_values.len;
     try cuda.memset(u32, d_radix, 0);
     // We split the bins into 32 coarse bins.
     const d_histo_boundaries = try stream.alloc(u32, 32);
-    const shift = 5;
-    const mask = 0b11111;
+
     try k.coarseBins.launch(
         stream,
         cuda.Grid.init1D(n, 1024),
-        .{ d_radix.ptr, d_values.ptr, shift, mask, @intCast(c_int, n) },
+        .{ d_values, d_radix },
     );
-    const radix_sum = try cuda.algorithms.reduce(stream, k.sumU32, d_radix);
-    log.debug("Radix sums to {}, expected {}", .{ radix_sum, d_values.len });
-    std.debug.assert(radix_sum == d_values.len);
+    // const radix_sum = try cuda.algorithms.reduce(&stream, k.sumU32, d_radix);
+    // log.debug("Radix sums to {}, expected {}", .{ radix_sum, d_values.len });
+    // std.debug.assert(radix_sum == d_values.len);
     try inPlaceCdf(stream, d_radix, 1024);
     // debugDevice("d_radix + cdf", d_radix);
     try k.shuffleCoarseBins.launch(
         stream,
         cuda.Grid.init1D(n, 1024),
-        .{ d_histo.ptr, d_histo_boundaries.ptr, d_radix.ptr, d_values.ptr, shift, mask, @intCast(c_int, n) },
+        .{ d_histo, d_histo_boundaries, d_radix, d_values },
     );
     var histo_boundaries: [33]u32 = undefined;
     stream.memcpyDtoH(u32, &histo_boundaries, d_histo_boundaries);
@@ -171,18 +180,49 @@ pub fn inPlaceCdf(stream: *const cuda.Stream, d_values: []u32, n_threads: u32) c
         std.debug.assert(n_threads_pow_2 % 2 == 0);
         n_threads_pow_2 /= 2;
     }
+    log.warn("cdf(n={}, n_threads={}, n_blocks={})", .{ n, n_threads, n_blocks });
     try k.cdfIncremental.launchWithSharedMem(
         stream,
         grid_N,
         n_threads * @sizeOf(u32),
-        .{ d_values.ptr, d_grid_bins.ptr, @intCast(c_int, n) },
+        .{ d_values, d_grid_bins },
     );
     if (n_blocks == 1) return;
 
     try inPlaceCdf(stream, d_grid_bins, n_threads);
-    try k.cdfShift.launch(
+    try k.cdfIncrementalShift.launch(
         stream,
         grid_N,
-        .{ d_values.ptr, d_grid_bins.ptr, @intCast(c_int, n) },
+        .{ d_values, d_grid_bins },
     );
+}
+
+test "inPlaceCdf" {
+    try initModule(0);
+    var stream = try cuda.Stream.init(0);
+    defer stream.deinit();
+    const h_x = [_]u32{ 0, 2, 1, 1, 0, 1, 3, 0, 2 };
+    var h_out = [_]u32{0} ** h_x.len;
+    const h_cdf = [_]u32{ 0, 0, 2, 3, 4, 4, 5, 8, 8 };
+    const d_x = try cuda.alloc(u32, h_x.len);
+    defer cuda.free(d_x);
+
+    try cuda.memcpyHtoD(u32, d_x, &h_x);
+    try inPlaceCdf(&stream, d_x, 16);
+    try utils.expectEqualDeviceSlices(u32, &h_cdf, d_x);
+
+    try cuda.memcpyHtoD(u32, d_x, &h_x);
+    try inPlaceCdf(&stream, d_x, 8);
+    try cuda.memcpyDtoH(u32, &h_out, d_x);
+    try testing.expectEqual(h_cdf, h_out);
+
+    // Try with smaller batch sizes, forcing several passes
+    try cuda.memcpyHtoD(u32, d_x, &h_x);
+    try inPlaceCdf(&stream, d_x, 4);
+    try cuda.memcpyDtoH(u32, &h_out, d_x);
+    try testing.expectEqual(h_cdf, h_out);
+
+    try cuda.memcpyHtoD(u32, d_x, &h_x);
+    try inPlaceCdf(&stream, d_x, 2);
+    try utils.expectEqualDeviceSlices(u32, &h_cdf, d_x);
 }

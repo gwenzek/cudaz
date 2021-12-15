@@ -79,3 +79,28 @@ pub export fn shuffleCoarseBins32(
         d_coarse_bins_boundaries[id] = d_cdf[id * n - 1];
     }
 }
+
+// extern var cdfIncremental_shared: SharedMem align(8) addrspace(.shared); // stage2
+var cdfIncremental_shared: [1024]u32 = undefined; // stage1
+
+pub export fn cdfIncremental(d_glob_bins: []u32, d_block_bins: []u32) callconv(PtxKernel) void {
+    const n = d_glob_bins.len;
+    const global_id = ku.getIdX();
+    if (global_id >= n) return;
+    const tid = ku.threadIdX();
+
+    var d_bins = @ptrCast([*]addrspace(.shared) u32, &cdfIncremental_shared); // stage2
+    // var d_bins = @ptrCast([*]u32, &cdfIncremental_shared); // stage1
+    ku.syncThreads();
+    const last_tid = ku.lastTid(n);
+    const total = ku.exclusiveScan(.add, d_bins, tid, last_tid);
+    if (tid == last_tid) {
+        d_block_bins[ku.blockIdX()] = total;
+    }
+    d_glob_bins[global_id] = d_bins[tid];
+}
+
+pub export fn cdfIncrementalShift(d_glob_bins: []u32, d_block_bins: []const u32) callconv(PtxKernel) void {
+    const block_shift = d_block_bins[ku.blockIdX()];
+    d_glob_bins[ku.getIdX()] += block_shift;
+}

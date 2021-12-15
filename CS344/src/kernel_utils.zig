@@ -1,3 +1,4 @@
+// TODO: should be moved to Cudaz
 const std = @import("std");
 const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
@@ -9,7 +10,7 @@ pub fn threadIdX() usize {
     var tid = asm volatile ("mov.u32 \t$0, %tid.x;"
         : [ret] "=r" (-> u32),
     );
-    return @intCast(usize, tid);
+    return @as(usize, tid);
 }
 
 pub fn blockDimX() usize {
@@ -17,7 +18,7 @@ pub fn blockDimX() usize {
     var ntid = asm volatile ("mov.u32 \t$0, %ntid.x;"
         : [ret] "=r" (-> u32),
     );
-    return @intCast(usize, ntid);
+    return @as(usize, ntid);
 }
 
 pub fn blockIdX() usize {
@@ -25,7 +26,15 @@ pub fn blockIdX() usize {
     var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.x;"
         : [ret] "=r" (-> u32),
     );
-    return @intCast(usize, ctaid);
+    return @as(usize, ctaid);
+}
+
+pub fn gridDimX() usize {
+    if (!is_nvptx) return 0;
+    var nctaid = asm volatile ("mov.u32 \t$0, %nctaid.x;"
+        : [ret] "=r" (-> u32),
+    );
+    return @as(usize, nctaid);
 }
 
 pub fn getIdX() usize {
@@ -37,7 +46,7 @@ pub fn threadIdY() usize {
     var tid = asm volatile ("mov.u32 \t$0, %tid.y;"
         : [ret] "=r" (-> u32),
     );
-    return @intCast(usize, tid);
+    return @as(usize, tid);
 }
 
 pub fn blockDimY() usize {
@@ -45,7 +54,7 @@ pub fn blockDimY() usize {
     var ntid = asm volatile ("mov.u32 \t$0, %ntid.y;"
         : [ret] "=r" (-> u32),
     );
-    return @intCast(usize, ntid);
+    return @as(usize, ntid);
 }
 
 pub fn blockIdY() usize {
@@ -53,7 +62,7 @@ pub fn blockIdY() usize {
     var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.y;"
         : [ret] "=r" (-> u32),
     );
-    return @intCast(usize, ctaid);
+    return @as(usize, ctaid);
 }
 
 pub fn syncThreads() void {
@@ -63,4 +72,60 @@ pub fn syncThreads() void {
 
 pub fn atomicAdd(x: *u32, a: u32) void {
     _ = @atomicRmw(u32, x, .Add, a, .SeqCst);
+}
+
+pub fn lastTid(n: usize) usize {
+    var block_dim = blockDimX();
+    return if (blockIdX() == gridDimX() - 1) (n - 1) % block_dim else block_dim - 1;
+}
+
+pub const Operator = enum { add, mul, min, max };
+
+/// Exclusive scan using Blelloch algorithm
+/// Returns the total value which won't be part of the array
+// TODO: use generics once it works in Stage2
+pub fn exclusiveScan(
+    comptime op: Operator,
+    data: [*]u32,
+    tid: usize,
+    last_tid: usize,
+) u32 {
+    var step: u32 = 1;
+    while (step <= last_tid) : (step *= 2) {
+        if (tid >= step and (last_tid - tid) % (step * 2) == 0) {
+            var right = data[tid];
+            var left = data[tid - step];
+            data[tid] = switch (op) {
+                .add => right + left,
+                .mul => right * left,
+                .min => if (left < right) left else right,
+                .max => if (left > right) left else right,
+            };
+        }
+        syncThreads();
+    }
+
+    var total: u32 = 0;
+    if (tid == last_tid) {
+        total = data[tid];
+        data[tid] = 0;
+    }
+    syncThreads();
+
+    step /= 2;
+    while (step > 0) : (step /= 2) {
+        if (tid >= step and (last_tid - tid) % (step * 2) == 0) {
+            var right = data[tid];
+            var left = data[tid - step];
+            data[tid] = switch (op) {
+                .add => right + left,
+                .mul => right * left,
+                .min => if (left < right) left else right,
+                .max => if (left > right) left else right,
+            };
+            data[tid - step] = right;
+        }
+        syncThreads();
+    }
+    return total;
 }

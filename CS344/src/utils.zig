@@ -88,3 +88,19 @@ pub fn asUchar3(img: zigimg.Image) []cu.uchar3 {
     const num_pixels = img.width * img.height;
     return ptr[0..num_pixels];
 }
+
+pub fn expectEqualDeviceSlices(
+    comptime DType: type,
+    h_expected: []const DType,
+    d_values: []const DType,
+) !void {
+    const allocator = std.testing.allocator;
+    const h_values = try cuda.allocAndCopyResult(DType, allocator, d_values);
+    defer allocator.free(h_values);
+    std.testing.expectEqualSlices(DType, h_expected, h_values) catch |err| {
+        if (h_expected.len < 80) {
+            log.err("Expected: {any}, got: {any}", .{ h_expected, h_values });
+        }
+        return err;
+    };
+}

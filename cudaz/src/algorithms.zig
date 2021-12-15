@@ -1,7 +1,7 @@
 const std = @import("std");
 const math = std.math;
 
-const cuda = @import("cudaz");
+const cuda = @import("cuda.zig");
 
 /// Wrapper algorithm for a reduce kernel like min, max, sum, ...
 /// Those kernels compute the reduce operator only for a block of data.
