@@ -15,14 +15,19 @@ pub fn main() !void {
 }
 
 const CudaEventLoop = struct {
-    running_streams: std.ArrayListUnmanaged(*cuda.Stream),
-    suspended_frames: std.ArrayListUnmanaged(anyframe),
+    running_streams: std.ArrayList(*cuda.Stream),
+    suspended_frames: std.ArrayList(anyframe),
 
     pub fn initCapacity(allocator: Allocator, num: usize) !CudaEventLoop {
         return CudaEventLoop{
-            .running_streams = try std.ArrayListUnmanaged(*cuda.Stream).initCapacity(allocator, num),
-            .suspended_frames = try std.ArrayListUnmanaged(anyframe).initCapacity(allocator, num),
+            .running_streams = try std.ArrayList(*cuda.Stream).initCapacity(allocator, num),
+            .suspended_frames = try std.ArrayList(anyframe).initCapacity(allocator, num),
         };
+    }
+
+    pub fn deinit(self: *CudaEventLoop) void {
+        self.running_streams.deinit();
+        self.suspended_frames.deinit();
     }
 
     pub fn registerStream(self: *CudaEventLoop, stream: *cuda.Stream, frame: anyframe) void {
@@ -39,13 +44,14 @@ const CudaEventLoop = struct {
                 if (stream.done()) {
                     _ = self.running_streams.swapRemove(i);
                     resume self.suspended_frames.swapRemove(i);
-                    // We need to break because we invalidated the iterator
                     break;
                 }
             } else {
+                // only sleep if no frame was resumed.
                 std.time.sleep(100 * std.time.ns_per_us);
             }
         }
+        self.deinit();
     }
 };
 
