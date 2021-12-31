@@ -14,7 +14,6 @@ pub const Attribute = attributes.Attribute;
 pub const getAttr = attributes.getAttr;
 pub const algorithms = @import("algorithms.zig");
 
-pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
 const log = std.log.scoped(.Cuda);
 
 pub const Dim3 = struct {
@@ -125,10 +124,10 @@ pub const Stream = struct {
     }
 
     pub fn free(self: *const Stream, device_ptr: anytype) void {
-        var raw_ptr: *c_void = if (meta.trait.isSlice(@TypeOf(device_ptr)))
-            @ptrCast(*c_void, device_ptr.ptr)
+        var raw_ptr: *anyopaque = if (meta.trait.isSlice(@TypeOf(device_ptr)))
+            @ptrCast(*anyopaque, device_ptr.ptr)
         else
-            @ptrCast(*c_void, device_ptr);
+            @ptrCast(*anyopaque, device_ptr);
         _ = cu.cuMemFreeAsync(@ptrToInt(raw_ptr), self._stream);
     }
 
@@ -136,7 +135,7 @@ pub const Stream = struct {
         std.debug.assert(h_source.len == d_target.len);
         check(cu.cuMemcpyHtoDAsync(
             @ptrToInt(d_target.ptr),
-            @ptrCast(*const c_void, h_source.ptr),
+            @ptrCast(*const anyopaque, h_source.ptr),
             h_source.len * @sizeOf(DestType),
             self._stream,
         )) catch unreachable;
@@ -145,7 +144,7 @@ pub const Stream = struct {
     pub fn memcpyDtoH(self: *const Stream, comptime DestType: type, h_target: []DestType, d_source: []const DestType) void {
         std.debug.assert(d_source.len == h_target.len);
         check(cu.cuMemcpyDtoHAsync(
-            @ptrCast(*c_void, h_target.ptr),
+            @ptrCast(*anyopaque, h_target.ptr),
             @ptrToInt(d_source.ptr),
             d_source.len * @sizeOf(DestType),
             self._stream,
@@ -202,7 +201,7 @@ pub const Stream = struct {
             grid.threads.z,
             @intCast(c_uint, shared_mem),
             self._stream,
-            @ptrCast([*c]?*c_void, &args_ptrs),
+            @ptrCast([*c]?*anyopaque, &args_ptrs),
             null,
         );
         try check(res);
@@ -262,10 +261,10 @@ pub fn alloc(comptime DestType: type, size: usize) ![]DestType {
 
 // TODO: move all this to stream using async variants
 pub fn free(device_ptr: anytype) void {
-    var raw_ptr: *c_void = if (meta.trait.isSlice(@TypeOf(device_ptr)))
-        @ptrCast(*c_void, device_ptr.ptr)
+    var raw_ptr: *anyopaque = if (meta.trait.isSlice(@TypeOf(device_ptr)))
+        @ptrCast(*anyopaque, device_ptr.ptr)
     else
-        @ptrCast(*c_void, device_ptr);
+        @ptrCast(*anyopaque, device_ptr);
     _ = cu.cuMemFree(@ptrToInt(raw_ptr));
 }
 
@@ -306,7 +305,7 @@ pub fn allocAndCopyResult(
 pub fn readResult(comptime DestType: type, d_source: *const DestType) !DestType {
     var h_res: [1]DestType = undefined;
     try check(cu.cuMemcpyDtoH(
-        @ptrCast(*c_void, &h_res),
+        @ptrCast(*anyopaque, &h_res),
         @ptrToInt(d_source),
         @sizeOf(DestType),
     ));
@@ -317,14 +316,14 @@ pub fn memcpyHtoD(comptime DestType: type, d_target: []DestType, h_source: []con
     std.debug.assert(h_source.len == d_target.len);
     try check(cu.cuMemcpyHtoD(
         @ptrToInt(d_target.ptr),
-        @ptrCast(*const c_void, h_source.ptr),
+        @ptrCast(*const anyopaque, h_source.ptr),
         h_source.len * @sizeOf(DestType),
     ));
 }
 pub fn memcpyDtoH(comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
     std.debug.assert(d_source.len == h_target.len);
     try check(cu.cuMemcpyDtoH(
-        @ptrCast(*c_void, h_target.ptr),
+        @ptrCast(*anyopaque, h_target.ptr),
         @ptrToInt(d_source.ptr),
         d_source.len * @sizeOf(DestType),
     ));
@@ -335,7 +334,7 @@ pub fn push(value: anytype) !*@TypeOf(value) {
     var d_ptr = try alloc(DestType, 1);
     try check(cu.cuMemcpyHtoD(
         @ptrToInt(d_ptr.ptr),
-        @ptrCast(*const c_void, &value),
+        @ptrCast(*const anyopaque, &value),
         @sizeOf(DestType),
     ));
     return @ptrCast(*DestType, d_ptr.ptr);
@@ -438,6 +437,7 @@ fn getCtx(device: u3, cu_dev: cu.CUdevice) !cu.CUcontext {
 }
 
 var _default_module: cu.CUmodule = null;
+pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
 
 fn defaultModule() cu.CUmodule {
     if (_default_module != null) return _default_module;
