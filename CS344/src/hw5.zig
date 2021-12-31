@@ -116,6 +116,19 @@ fn computeBandwith(elapsed_ms: f64, data: []const u32) f64 {
 
 fn fastHistogram(data: []const u32, histo: []u32, ref_histo: []const u32) !f32 {
     var stream = &(try cuda.Stream.init(0));
+    _ = try stream.allocAndCopy(u32, data);
+    var d_histo = try stream.alloc(u32, histo.len);
+    stream.memset(u32, d_histo, 0);
+    var d_radix = try stream.alloc(u32, data.len * 32);
+    stream.memset(u32, d_radix, 0);
+
+    try cuda.memset(u32, d_radix, 0);
+    _ = ref_histo;
+    return 0.0;
+}
+
+fn fastHistogramBroken(data: []const u32, histo: []u32, ref_histo: []const u32) !f32 {
+    var stream = &(try cuda.Stream.init(0));
     var d_values = try stream.allocAndCopy(u32, data);
     var d_histo = try stream.alloc(u32, histo.len);
     stream.memset(u32, d_histo, 0);

@@ -2,8 +2,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
-const is_nvptx = builtin.cpu.arch == .nvptx64;
-const PtxKernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
+pub const is_nvptx = builtin.cpu.arch == .nvptx64;
+pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
 
 pub fn threadIdX() usize {
     if (!is_nvptx) return 0;
