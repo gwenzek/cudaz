@@ -70,9 +70,13 @@ pub fn build(b: *Builder) void {
 }
 
 fn addLibpng(exe: *LibExeObjStep) void {
-    // TODO: look at Lodepng
+    // TODO remove libc dependency
     exe.linkLibC();
-    exe.linkSystemLibraryName("png");
+    const lodepng_flags = [_][]const u8{
+        "-DLODEPNG_COMPILE_ERROR_TEXT",
+    };
+    exe.addIncludeDir("lodepng/");
+    exe.addCSourceFile("lodepng/lodepng.c", &lodepng_flags);
 }
 
 fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *LibExeObjStep {
