@@ -11,7 +11,7 @@ const LibExeObjStep = std.build.LibExeObjStep;
 /// We default to .ptx because it's more easy to distribute.
 // TODO: make this a build option
 const NVCC_OUTPUT_FORMAT = "ptx";
-const ZIG_STAGE2 = SDK_ROOT ++ "../../zig/stage2/bin/zig";
+const ZIG_STAGE2 = "zig2";
 const SDK_ROOT = sdk_root() ++ "/";
 
 /// For a given object:
@@ -83,8 +83,8 @@ pub fn addCudazWithZigKernel(
             ZIG_STAGE2,    "build-obj",    kernel_path,
             "-target",     "nvptx64-cuda", "-OReleaseSafe",
             "-Dcpu=sm_30", emit_bin,
-            // "--verbose-llvm-ir",
         });
+        // "--verbose-llvm-ir",
         const validate_ptx = b.addSystemCommand(
             &[_][]const u8{ cuda_dir ++ "/bin/ptxas", kernel_ptx_path },
         );
@@ -147,11 +147,13 @@ fn sdk_root() []const u8 {
 
 fn needRebuild(kernel_path: [:0]const u8, kernel_ptx_path: [:0]const u8) bool {
     var ptx_file = std.fs.openFileAbsoluteZ(kernel_ptx_path, .{}) catch return true;
-    var ptx_time = (ptx_file.stat() catch return true).mtime;
+    var ptx_stat = ptx_file.stat() catch return true;
+    // detect empty .ptx files
+    if (ptx_stat.size < 128) return true;
 
     var zig_file = (std.fs.cwd().openFileZ(kernel_path, .{}) catch return true);
     var zig_time = (zig_file.stat() catch return true).mtime;
-    return zig_time >= ptx_time + std.time.ns_per_s * 10;
+    return zig_time >= ptx_stat.mtime + std.time.ns_per_s * 10;
 }
 
 /// Wraps the given step by a small text processing
