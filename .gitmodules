@@ -1,6 +1,6 @@
 [submodule "CS344/zigimg"]
 	path = CS344/zigimg
 	url = https://github.com/zigimg/zigimg
-[submodule "zigimg"]
-	path = zigimg
-	url = https://github.com/zigimg/zigimg
+[submodule "CS344/lodepng"]
+	path = CS344/lodepng
+	url = https://github.com/lvandeve/lodepng
