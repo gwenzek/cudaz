@@ -23,8 +23,7 @@ pub fn build(b: *Builder) void {
     var tests = b.step("test", "Tests");
 
     const test_png = b.addTest("src/png.zig");
-    test_png.addPackagePath("zigimg", "zigimg/zigimg.zig");
-    addLibpng(test_png);
+    addLodePng(test_png);
     tests.dependOn(&test_png.step);
 
     // CS344 lessons and home works
@@ -69,7 +68,7 @@ pub fn build(b: *Builder) void {
     run_pure_step.dependOn(&hw5.step);
 }
 
-fn addLibpng(exe: *LibExeObjStep) void {
+fn addLodePng(exe: *LibExeObjStep) void {
     // TODO remove libc dependency
     exe.linkLibC();
     const lodepng_flags = [_][]const u8{
@@ -85,8 +84,7 @@ fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *
     hw.setBuildMode(mode);
 
     cuda_sdk.addCudaz(b, hw, CUDA_PATH, "src/" ++ name ++ ".cu");
-    hw.addPackagePath("zigimg", "zigimg/zigimg.zig");
-    addLibpng(hw);
+    addLodePng(hw);
     hw.install();
 
     const test_hw = b.addTest("src/" ++ name ++ ".zig");
@@ -101,8 +99,7 @@ fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8
     hw.setBuildMode(mode);
 
     cuda_sdk.addCudazWithZigKernel(b, hw, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
-    hw.addPackagePath("zigimg", "zigimg/zigimg.zig");
-    addLibpng(hw);
+    addLodePng(hw);
     hw.install();
     const hw_run = hw.run();
     hw_run.step.dependOn(b.getInstallStep());

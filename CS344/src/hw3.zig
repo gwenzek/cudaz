@@ -4,8 +4,6 @@ const math = std.math;
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const zigimg = @import("zigimg");
-
 const cuda = @import("cudaz");
 const cu = cuda.cu;
 
@@ -21,7 +19,7 @@ pub fn main() !void {
     defer stream.deinit();
     log.info("***** HW3 ******", .{});
 
-    const img = try zigimg.Image.fromFilePath(allocator, resources_dir ++ "/memorial_exr.png");
+    const img = try png.Image.fromFilePath(allocator, resources_dir ++ "/memorial_exr.png");
     const numRows = img.height;
     const numCols = img.width;
     const rgb = try asFloat32(allocator, img);
@@ -85,21 +83,21 @@ pub fn main() !void {
     try cuda.memcpyDtoH(cu.float3, rgb, d_rgb);
     var out_img = try fromFloat32(allocator, rgb, numCols, numRows);
     defer out_img.deinit();
-    try png.writePngToFilePath(out_img, resources_dir ++ "output.png");
+    try out_img.writeToFilePath(resources_dir ++ "output.png");
     try utils.validate_output(allocator, resources_dir, 2.0);
 
     try std.testing.expect(lum_range > 0);
 }
 
-fn asFloat32(allocator: std.mem.Allocator, img: zigimg.Image) ![]cu.float3 {
+fn asFloat32(allocator: std.mem.Allocator, img: png.Image) ![]cu.float3 {
     var rgb = try allocator.alloc(cu.float3, img.width * img.height);
     var pixels = img.iterator();
     var i: usize = 0;
     while (pixels.next()) |color| : (i += 1) {
         rgb[i] = .{
-            .x = color.R,
-            .y = color.G,
-            .z = color.B,
+            .x = color.r,
+            .y = color.g,
+            .z = color.b,
         };
     }
     return rgb;
@@ -115,20 +113,24 @@ pub inline fn toColorIntClamp(comptime T: type, value: f32) T {
     return @floatToInt(T, math.round(val));
 }
 
-fn fromFloat32(allocator: std.mem.Allocator, rgb: []cu.float3, width: usize, height: usize) !zigimg.Image {
-    var img = try zigimg.Image.create(allocator, width, height, .Rgb24, .Png);
-    var pixels = img.pixels.?.Rgb24;
+fn fromFloat32(allocator: std.mem.Allocator, rgb: []cu.float3, width: usize, height: usize) !png.Image {
+    var pixels = try allocator.alloc(png.Rgb24, width * height);
     for (rgb) |value, i| {
-        pixels[i] = zigimg.color.Rgb24{
-            .R = toColorIntClamp(u8, value.x),
-            .G = toColorIntClamp(u8, value.y),
-            .B = toColorIntClamp(u8, value.z),
+        pixels[i] = png.Rgb24{
+            .r = toColorIntClamp(u8, value.x),
+            .g = toColorIntClamp(u8, value.y),
+            .b = toColorIntClamp(u8, value.z),
         };
         // if (i % 100 == 0) {
         //     log.debug("{} -> {}", .{ value, pixels[i] });
         // }
     }
-    return img;
+    return png.Image{
+        .allocator = allocator,
+        .width = @intCast(u32, width),
+        .height = @intCast(u32, height),
+        .px = .{ .rgb24 = pixels },
+    };
 }
 
 fn histogram_and_prefixsum(

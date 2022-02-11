@@ -3,7 +3,6 @@ const log = std.log;
 const math = std.math;
 const assert = std.debug.assert;
 
-const zigimg = @import("zigimg");
 const cuda = @import("cudaz");
 const cu = cuda.cu;
 
@@ -15,8 +14,8 @@ const Mat2Float = kernels.Mat2Float;
 
 const resources_dir = "resources/hw2_resources/";
 
-const Rgb24 = zigimg.color.Rgb24;
-const Gray8 = zigimg.color.Grayscale8;
+const Rgb24 = png.Rgb24;
+const Gray8 = png.Grayscale8;
 
 pub fn main() anyerror!void {
     log.info("***** HW2 ******", .{});
@@ -29,13 +28,11 @@ pub fn main() anyerror!void {
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
 
-    const img = try zigimg.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
+    const img = try png.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
     defer img.deinit();
-    assert(img.image_format == .Png);
-    var max_show: usize = 10;
-    log.info("Loaded img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(img.pixels.?.Rgb24[200 .. 200 + max_show]) });
+    log.info("Loaded {}", .{img});
 
-    var d_img = try cuda.allocAndCopy(Rgb24, img.pixels.?.Rgb24);
+    var d_img = try cuda.allocAndCopy(Rgb24, img.px.rgb24);
     defer cuda.free(d_img);
 
     var d_out = try cuda.alloc(Rgb24, img.width * img.height);
@@ -98,8 +95,8 @@ pub fn main() anyerror!void {
         },
     );
     timer.stop();
-    try cuda.memcpyDtoH(Rgb24, img.pixels.?.Rgb24, d_out);
-    try png.writePngToFilePath(img, resources_dir ++ "output.png");
+    try cuda.memcpyDtoH(Rgb24, img.px.rgb24, d_out);
+    try img.writeToFilePath(resources_dir ++ "output.png");
     try utils.validate_output(alloc, resources_dir, 2.0);
 }
 
