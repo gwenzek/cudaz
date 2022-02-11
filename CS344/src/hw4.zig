@@ -39,8 +39,6 @@ const math = std.math;
 const testing = std.testing;
 const assert = std.debug.assert;
 
-const zigimg = @import("zigimg");
-
 const cuda = @import("cudaz");
 const cu = cuda.cu;
 
@@ -61,10 +59,10 @@ pub fn hw4() !void {
     const allocator = general_purpose_allocator.allocator();
     log.info("***** HW4 ******", .{});
 
-    const img = try zigimg.Image.fromFilePath(allocator, resources_dir ++ "/red_eye_effect.png");
+    const img = try png.Image.fromFilePath(allocator, resources_dir ++ "/red_eye_effect.png");
     const num_rows = img.height;
     const num_cols = img.width;
-    const template = try zigimg.Image.fromFilePath(allocator, resources_dir ++ "/red_eye_effect_template.png");
+    const template = try png.Image.fromFilePath(allocator, resources_dir ++ "/red_eye_effect_template.png");
     const num_rows_template = template.height;
     const num_cols_template = template.width;
     defer img.deinit();
@@ -134,7 +132,7 @@ pub fn hw4() !void {
     });
 
     try cuda.memcpyDtoH(cu.uchar3, utils.asUchar3(img), d_out);
-    try png.writePngToFilePath(img, resources_dir ++ "output.png");
+    try img.writeToFilePath(resources_dir ++ "output.png");
     try utils.validate_output(allocator, resources_dir, 0.1);
 }
 

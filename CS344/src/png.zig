@@ -10,32 +10,70 @@ pub const png = @cImport({
 });
 
 const testing = std.testing;
-
-const Rgb24 = extern struct { r: u8, g: u8, b: u8 };
-const Gray = u8;
-const ColorType = enum {
-    rgb24,
-    gray,
-};
-
 const log = std.log.scoped(.png);
 
-const Image = struct {
+/// Control how many pixels are printed when formatting an image.
+pub const PRINT_PIXELS = 30;
+
+pub const Rgb24 = extern struct { r: u8, g: u8, b: u8 };
+pub const Gray8 = u8;
+pub const Rgb_f32 = struct { r: f32, g: f32, b: f32, alpha: f32 = 1.0 };
+
+// TODO enable all types
+pub const ColorType = enum(c_uint) {
+    rgb24 = png.LCT_RGB,
+    gray8 = png.LCT_GREY,
+};
+
+pub fn PixelType(t: ColorType) type {
+    return switch (t) {
+        .rgb24 => Rgb24,
+        .gray8 => Gray8,
+    };
+}
+
+pub fn grayscale(allocator: std.mem.Allocator, width: u32, height: u32) !Image {
+    return Image.init(allocator, width, height, .gray8);
+}
+
+pub const Image = struct {
     width: u32,
     height: u32,
-    type: ColorType,
-    px: union(ColorType) { rgb24: []Rgb24, gray: []u8 },
+    px: union(ColorType) { rgb24: []Rgb24, gray8: []u8 },
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator, width: u32, height: u32, color_type: ColorType) !Image {
+        const n = @as(usize, width * height);
+        return Image{
+            .width = width,
+            .height = height,
+            .allocator = allocator,
+            .px = switch (color_type) {
+                .rgb24 => .{ .rgb24 = try allocator.alloc(Rgb24, n) },
+                .gray8 => .{ .gray8 = try allocator.alloc(Gray8, n) },
+            },
+        };
+    }
+
+    pub fn deinit(self: Image) void {
+        self.allocator.free(self.raw());
+    }
 
     pub fn raw(self: Image) []u8 {
         return switch (self.px) {
             .rgb24 => |px| std.mem.sliceAsBytes(px),
-            .gray => |px| std.mem.sliceAsBytes(px),
+            .gray8 => |px| std.mem.sliceAsBytes(px),
         };
     }
 
-    pub fn fromFile(allocator: Allocator, file_path: []const u8) !Image {
+    pub fn len(self: Image) usize {
+        return self.width * self.height;
+    }
+
+    pub fn fromFilePath(allocator: Allocator, file_path: []const u8) !Image {
         var img: Image = undefined;
         // TODO: use lodepng_inspect to get the image size and handle allocations ourselves
+        img.allocator = std.heap.c_allocator;
         var buffer: [*c]u8 = undefined;
 
         var resolved_path = try std.fs.path.resolve(allocator, &[_][]const u8{file_path});
@@ -43,6 +81,7 @@ const Image = struct {
         var resolved_pathZ: []u8 = try allocator.dupeZ(u8, resolved_path);
         defer allocator.free(resolved_pathZ);
 
+        // TODO: handle different color encoding
         try check(png.lodepng_decode24_file(
             &buffer,
             &img.width,
@@ -51,9 +90,7 @@ const Image = struct {
         ));
         std.debug.assert(buffer != null);
 
-        const n = img.width * img.height;
-        // TODO: handle different color encoding
-        img.px = .{ .rgb24 = @ptrCast([*]Rgb24, buffer.?)[0..n] };
+        img.px = .{ .rgb24 = @ptrCast([*]Rgb24, buffer.?)[0..img.len()] };
         return img;
     }
 
@@ -68,20 +105,58 @@ const Image = struct {
         var resolved_pathZ: []u8 = try testing.allocator.dupeZ(u8, resolved_path);
         defer testing.allocator.free(resolved_pathZ);
         // Write image data
-        // TODO: adapt to different storage
-        try check(png.lodepng_encode24_file(
+        try check(png.lodepng_encode_file(
             @ptrCast([*c]const u8, resolved_pathZ),
             self.raw().ptr,
             @intCast(c_uint, self.width),
             @intCast(c_uint, self.height),
+            @enumToInt(self.px),
+            self.lodeBitDepth(),
         ));
 
         log.info("Wrote full image {s}", .{resolved_pathZ});
         return;
     }
 
-    pub fn deinit(self: Image) void {
-        std.heap.c_allocator.free(self.raw());
+    // TODO: does it make sense to use f32 here ? shouldn't we stick with
+    pub const Iterator = struct {
+        image: Image,
+        i: usize,
+
+        fn u8_to_f32(value: u8) f32 {
+            return @intToFloat(f32, value) / 255.0;
+        }
+
+        pub fn next(self: *Iterator) ?Rgb_f32 {
+            if (self.i >= self.image.width * self.image.height) return null;
+            const px_f32 = switch (self.image.px) {
+                .rgb24 => |pixels| blk: {
+                    const px = pixels[self.i];
+                    break :blk Rgb_f32{ .r = u8_to_f32(px.r), .g = u8_to_f32(px.g), .b = u8_to_f32(px.b) };
+                },
+                .gray8 => |pixels| blk: {
+                    const gray = u8_to_f32(pixels[self.i]);
+                    break :blk Rgb_f32{ .r = gray, .g = gray, .b = gray };
+                },
+            };
+            self.i += 1;
+            return px_f32;
+        }
+    };
+
+    pub fn iterator(self: Image) Iterator {
+        return .{ .image = self, .i = 0 };
+    }
+
+    pub fn format(
+        self: *const Image,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        try std.fmt.format(writer, "Image ({s}){}x{}: (...{any}...)", .{ @tagName(self.px), self.width, self.height, self.raw()[200 .. 200 + PRINT_PIXELS] });
     }
 };
 
@@ -110,7 +185,7 @@ test "read/write/read" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
 
-    var base = try Image.fromFile(testing.allocator, "resources/hw1_resources/cinque_terre_small.png");
+    var base = try Image.fromFilePath(testing.allocator, "resources/hw1_resources/cinque_terre_small.png");
     defer base.deinit();
 
     try tmp.dir.writeFile("out.png", "hello");
@@ -118,12 +193,16 @@ test "read/write/read" {
     log.warn("will write image ({}x{}) to {s}", .{ base.width, base.height, tmp_img });
     defer testing.allocator.free(tmp_img);
 <<<<<<< HEAD
+<<<<<<< HEAD
     try base.writePngToFile(tmp_img);
 =======
     try base.writeToFilePath(tmp_img);
 >>>>>>> bb5c855 (fixup! use lodepng instead of libpng / zigimg)
+=======
+    try base.writePngToFilePath(tmp_img);
+>>>>>>> c1e9b13 (move from zigimg to png.zig and lodepng)
 
-    var loaded = try Image.fromFile(testing.allocator, tmp_img);
+    var loaded = try Image.fromFilePath(testing.allocator, tmp_img);
     defer loaded.deinit();
     try testing.expectEqualSlices(u8, base.raw(), loaded.raw());
     try testing.expect(img_eq(base, loaded));

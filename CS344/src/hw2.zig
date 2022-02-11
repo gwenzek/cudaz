@@ -3,7 +3,6 @@ const log = std.log;
 const math = std.math;
 const assert = std.debug.assert;
 
-const zigimg = @import("zigimg");
 const cuda = @import("cudaz");
 const cu = cuda.cu;
 
@@ -12,8 +11,8 @@ const utils = @import("utils.zig");
 
 const resources_dir = "resources/hw2_resources/";
 
-const Rgb24 = zigimg.color.Rgb24;
-const Gray8 = zigimg.color.Grayscale8;
+const Rgb24 = png.Rgb24;
+const Gray8 = png.Gray8;
 
 pub fn main() anyerror!void {
     log.info("***** HW2 ******", .{});
@@ -27,13 +26,13 @@ pub fn main() anyerror!void {
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
 
-    const img = try zigimg.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
+    const img = try png.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
     defer img.deinit();
-    assert(img.image_format == .Png);
+    assert(img.px == .rgb24);
     var max_show: usize = 10;
-    log.info("Loaded img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(img.pixels.?.Rgb24[200 .. 200 + max_show]) });
+    log.info("Loaded img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(img.px.rgb24[200 .. 200 + max_show]) });
 
-    var d_img = try cuda.allocAndCopy(Rgb24, img.pixels.?.Rgb24);
+    var d_img = try cuda.allocAndCopy(Rgb24, img.px.rgb24);
     defer cuda.free(d_img);
 
     var d_red = try cuda.alloc(Gray8, img.width * img.height);
@@ -95,9 +94,9 @@ pub fn main() anyerror!void {
         );
     }
     timer.stop();
-    var h_red = try utils.grayscale(alloc, img.width, img.height);
-    try cuda.memcpyDtoH(Gray8, h_red.pixels.?.Grayscale8, d_red_blured);
-    try png.writePngToFilePath(h_red, resources_dir ++ "output_red.png");
+    var h_red = try png.grayscale(alloc, img.width, img.height);
+    try cuda.memcpyDtoH(Gray8, h_red.px.gray8, d_red_blured);
+    try h_red.writeToFilePath(resources_dir ++ "output_red.png");
 
     try recombineChannels.launch(
         &stream,
@@ -112,8 +111,8 @@ pub fn main() anyerror!void {
         },
     );
 
-    try cuda.memcpyDtoH(Rgb24, img.pixels.?.Rgb24, d_out);
-    try png.writePngToFilePath(img, resources_dir ++ "output.png");
+    try cuda.memcpyDtoH(Rgb24, img.px.rgb24, d_out);
+    try img.writeToFilePath(resources_dir ++ "output.png");
     try utils.validate_output(alloc, resources_dir, 2.0);
 }
 
@@ -173,12 +172,12 @@ fn test_gaussianBlur(alloc: std.mem.Allocator) !void {
 }
 
 fn recombine(
-    img: zigimg.Image,
+    img: png.Image,
     red: []const Gray8,
     green: []const Gray8,
     blue: []const Gray8,
 ) !void {
-    for (img.pixels.?) |_, i| {
-        img.pixels.?.Rgb24[i] = Rgb24(red[i], green[i], blue[i]);
+    for (img.px) |_, i| {
+        img.px.rgb24[i] = Rgb24(red[i], green[i], blue[i]);
     }
 }

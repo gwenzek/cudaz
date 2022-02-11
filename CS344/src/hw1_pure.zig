@@ -2,7 +2,6 @@ const std = @import("std");
 const log = std.log;
 const assert = std.debug.assert;
 
-const zigimg = @import("zigimg");
 const cudaz = @import("cudaz");
 const cu = cudaz.cu;
 
@@ -23,22 +22,21 @@ pub fn main() anyerror!void {
     var stream = try cudaz.Stream.init(0);
     defer stream.deinit();
 
-    const img = try zigimg.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
+    const img = try png.Image.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
     defer img.deinit();
-    assert(img.image_format == .Png);
     var max_show: usize = 12;
-    log.info("Loaded img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(img.pixels.?.Rgb24[200 .. 200 + max_show]) });
+    log.info("Loaded img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(img.px.rgb24[200 .. 200 + max_show]) });
 
-    const Rgb24 = zigimg.color.Rgb24;
-    var d_img = try cudaz.allocAndCopy(Rgb24, img.pixels.?.Rgb24);
+    const Rgb24 = png.Rgb24;
+    var d_img = try cudaz.allocAndCopy(Rgb24, img.px.rgb24);
     defer cudaz.free(d_img);
 
-    const Gray8 = zigimg.color.Grayscale8;
-    var gray = try utils.grayscale(alloc, img.width, img.height);
+    const Gray8 = png.Gray8;
+    var gray = try png.grayscale(alloc, img.width, img.height);
     defer gray.deinit();
     var d_gray = try cudaz.alloc(Gray8, img.width * img.height);
     defer cudaz.free(d_gray);
-    try cudaz.memset(Gray8, d_gray, Gray8{ .value = 0 });
+    try cudaz.memset(Gray8, d_gray, 0);
 
     const kernel = try cudaz.FnStruct("rgba_to_greyscale", hw1_kernel.rgba_to_greyscale).init();
     var timer = cudaz.GpuTimer.start(&stream);
@@ -48,8 +46,8 @@ pub fn main() anyerror!void {
         .{ std.mem.sliceAsBytes(d_img), std.mem.sliceAsBytes(d_gray) },
     );
     timer.stop();
-    try cudaz.memcpyDtoH(Gray8, gray.pixels.?.Grayscale8, d_gray);
-    log.info("Got grayscale img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(gray.pixels.?.Grayscale8[200 .. 200 + @divExact(max_show, 3)]) });
-    try png.writePngToFilePath(gray, resources_dir ++ "output.png");
+    try cudaz.memcpyDtoH(Gray8, gray.px.gray8, d_gray);
+    log.info("Got grayscale img {}x{}: ({any}...)", .{ img.width, img.height, std.mem.sliceAsBytes(gray.px.gray8[200 .. 200 + @divExact(max_show, 3)]) });
+    try gray.writeToFilePath(resources_dir ++ "output.png");
     try utils.validate_output(alloc, resources_dir, 1.0);
 }
