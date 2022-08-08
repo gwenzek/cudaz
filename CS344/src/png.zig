@@ -192,15 +192,7 @@ test "read/write/read" {
     var tmp_img = try tmp.dir.realpathAlloc(testing.allocator, "out.png");
     log.warn("will write image ({}x{}) to {s}", .{ base.width, base.height, tmp_img });
     defer testing.allocator.free(tmp_img);
-<<<<<<< HEAD
-<<<<<<< HEAD
-    try base.writePngToFile(tmp_img);
-=======
     try base.writeToFilePath(tmp_img);
->>>>>>> bb5c855 (fixup! use lodepng instead of libpng / zigimg)
-=======
-    try base.writePngToFilePath(tmp_img);
->>>>>>> c1e9b13 (move from zigimg to png.zig and lodepng)
 
     var loaded = try Image.fromFilePath(testing.allocator, tmp_img);
     defer loaded.deinit();

@@ -33,9 +33,8 @@ This repo is divided in several parts:
     Typically code is divided in two files.
     Host code: `hw1.zig`
     Device code: `hw1.cu` or `hw1_kernel.zig`
-* [zigimg](https://github.com/zigimg/zigimg) vendored-in dependency to read images.
-  They only support reading of PNG images, 
-  so `CS344/png.zig` also contains code to write png images.
+* [lodepng](https://github.com/lvandeve/lodepng) is a dependency to read/write images.
+    * Run `git submodule init; git submodule update` to fetch it.
 
 ## Using Zig to drive the GPU
 

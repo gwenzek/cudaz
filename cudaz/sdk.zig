@@ -127,9 +127,9 @@ pub fn addCudazDeps(
 
     const cudaz_pkg = std.build.Pkg{
         .name = "cudaz",
-        .path = .{ .path = SDK_ROOT ++ "src/cuda.zig" },
+        .source = .{ .path = SDK_ROOT ++ "src/cuda.zig" },
         .dependencies = &[_]std.build.Pkg{
-            .{ .name = "cudaz_options", .path = cudaz_options.getSource() },
+            .{ .name = "cudaz_options", .source = cudaz_options.getSource() },
         },
     };
     const root_src = exe.root_src.?;
