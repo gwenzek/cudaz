@@ -133,6 +133,25 @@ pub fn getId_3D() Dim3 {
     };
 }
 
+var panic_message_buffer: ?[]u8 = null;
+
+pub export fn init_panic_message_buffer(buffer: []u8) callconv(Kernel) void {
+    panic_message_buffer = buffer;
+}
+
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+    if(!is_nvptx) @compileError("This panic handler is made for GPU");
+
+    _ = error_return_trace;
+    if (panic_message_buffer) |buffer| {
+        const len = std.math.min(usize, msg.len, buffer.len);
+        std.mem.copy(u8, buffer[0..len], msg[0..len]);
+        // TODO: this assumes nobody will try to write afterward, which I'm not sure
+        // TODO: prevent all threads wirting in the same place
+        buffer.len = len;
+    }
+}
+
 const message = "Hello World !\x00";
 
 pub export fn _test_hello_world(out: []u8) callconv(Kernel) void {
