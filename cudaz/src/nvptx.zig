@@ -140,7 +140,7 @@ pub export fn init_panic_message_buffer(buffer: []u8) callconv(Kernel) void {
 }
 
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
-    if(!is_nvptx) @compileError("This panic handler is made for GPU");
+    if (!is_nvptx) @compileError("This panic handler is made for GPU");
 
     _ = error_return_trace;
     if (panic_message_buffer) |buffer| {

@@ -1,19 +1,24 @@
 on: push
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: goto-bus-stop/setup-zig@v1
-      - name: Build cudaz
-        working-directory: ./cudaz
-        run: zig build test
-      - name: Build CS344
-        working-directory: ./CS344
-        run: zig build test
+  # TODO: allow to run tests without nvcc. Most tests don't need it.
+  # test:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: goto-bus-stop/setup-zig@v1
+  #       with:
+  #         version: 0.10.0-dev.3685+dae7aeb33
+  #     - name: Build cudaz
+  #       working-directory: ./cudaz
+  #       run: zig build test
+  #     - name: Build CS344
+  #       working-directory: ./CS344
+  #       run: zig build test
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: 0.10.0-dev.3685+dae7aeb33
       - run: zig fmt --check cudaz/src/*.zig CS344/src/*.zig
