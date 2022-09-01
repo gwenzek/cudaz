@@ -83,12 +83,12 @@ fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *
     hw.setTarget(target);
     hw.setBuildMode(mode);
 
-    cuda_sdk.addCudaz(b, hw, CUDA_PATH, "src/" ++ name ++ ".cu");
+    cuda_sdk.addCudazWithNvcc(b, hw, CUDA_PATH, "src/" ++ name ++ ".cu");
     addLodePng(hw);
     hw.install();
 
     const test_hw = b.addTest("src/" ++ name ++ ".zig");
-    cuda_sdk.addCudaz(b, test_hw, CUDA_PATH, "src/" ++ name ++ ".cu");
+    cuda_sdk.addCudazWithNvcc(b, test_hw, CUDA_PATH, "src/" ++ name ++ ".cu");
     tests.dependOn(&test_hw.step);
     return hw;
 }
@@ -113,7 +113,7 @@ fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8
 
 fn addLesson(b: *Builder, comptime name: []const u8) void {
     const lesson = b.addExecutable(name, "src/" ++ name ++ ".zig");
-    cuda_sdk.addCudaz(b, lesson, CUDA_PATH, "src/" ++ name ++ ".cu");
+    cuda_sdk.addCudazWithNvcc(b, lesson, CUDA_PATH, "src/" ++ name ++ ".cu");
     lesson.setTarget(target);
     lesson.setBuildMode(mode);
     lesson.install();

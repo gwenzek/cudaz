@@ -22,11 +22,12 @@ pub fn build(b: *Builder) void {
     // kernel.addLibPath("/usr/local/cuda/lib64");
     // kernel.linkSystemLibraryName("cudart");
 
-    var tests = b.step("test", "Tests");
+    var tests_nvcc = b.step("test_nvcc", "Tests");
     const test_cuda = b.addTest("src/cuda.zig");
-    sdk.addCudaz(b, test_cuda, CUDA_PATH, "src/test.cu");
-    tests.dependOn(&test_cuda.step);
+    sdk.addCudazWithNvcc(b, test_cuda, CUDA_PATH, "src/test.cu");
+    tests_nvcc.dependOn(&test_cuda.step);
 
+    var tests = b.step("test", "Tests");
     const test_nvptx = b.addTest("src/test_nvptx.zig");
     sdk.addCudazWithZigKernel(b, test_nvptx, CUDA_PATH, "src/nvptx.zig");
     tests.dependOn(&test_nvptx.step);

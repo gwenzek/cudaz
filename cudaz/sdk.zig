@@ -11,7 +11,7 @@ const LibExeObjStep = std.build.LibExeObjStep;
 /// We default to .ptx because it's more easy to distribute.
 // TODO: make this a build option
 const NVCC_OUTPUT_FORMAT = "ptx";
-const ZIG_STAGE2 = "zig2";
+const ZIG_STAGE2 = "/home/guw/github/zig/build/stage3/bin/zig";
 const SDK_ROOT = sdk_root() ++ "/";
 
 /// For a given object:
@@ -24,7 +24,7 @@ const SDK_ROOT = sdk_root() ++ "/";
 /// and will appear in zig-out/bin folder next to the executable.
 /// In release mode the .ptx will be embedded inside the executable
 /// so you can distribute it.
-pub fn addCudaz(
+pub fn addCudazWithNvcc(
     b: *Builder,
     exe: *LibExeObjStep,
     comptime cuda_dir: []const u8,
@@ -47,6 +47,13 @@ pub fn addCudaz(
         // In Zig spirit, promote warnings to errors.
         "--Werror=all-warnings",
         "--display-error-number",
+        // Don't require exactly gcc-11
+        "-allow-unsupported-compiler",
+        // TODO: try to use zig c++ here. For me it failed with:
+        // zig: error: CUDA version is newer than the latest supported version 11.5 [-Werror,-Wunknown-cuda-version]
+        // zig: error: cannot specify -o when generating multiple output files
+        "-ccbin",
+        "/usr/bin/gcc",
         "--" ++ NVCC_OUTPUT_FORMAT,
         "-I",
         SDK_ROOT ++ "src",
@@ -82,7 +89,8 @@ pub fn addCudazWithZigKernel(
         const zig_kernel = b.addSystemCommand(&[_][]const u8{
             ZIG_STAGE2,    "build-obj",    kernel_path,
             "-target",     "nvptx64-cuda", "-OReleaseSafe",
-            "-Dcpu=sm_30", emit_bin,
+            // Ptx 7.5 is required for debug info
+            "-mcpu=sm_32+ptx75", emit_bin,
         });
         // "--verbose-llvm-ir",
         const validate_ptx = b.addSystemCommand(
