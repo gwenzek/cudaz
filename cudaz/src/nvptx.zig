@@ -24,22 +24,22 @@ pub inline fn syncThreads() void {
 /// threadId.x
 pub inline fn threadIdX() usize {
     if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t$0, %tid.x;"
-        : [ret] "=r" (-> u32),
+    var tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, tid);
 }
 /// threadId.y
 pub inline fn threadIdY() usize {
-    var tid = asm volatile ("mov.u32 \t$0, %tid.y;"
-        : [ret] "=r" (-> u32),
+    var tid = asm volatile ("mov.u32 \t%[r], %tid.y;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, tid);
 }
 /// threadId.z
 pub inline fn threadIdZ() usize {
-    var tid = asm volatile ("mov.u32 \t$0, %tid.z;"
-        : [ret] "=r" (-> u32),
+    var tid = asm volatile ("mov.u32 \t%[r], %tid.z;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, tid);
 }
@@ -47,22 +47,22 @@ pub inline fn threadIdZ() usize {
 /// threadDim.x
 pub inline fn threadDimX() usize {
     if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t$0, %ntid.x;"
-        : [ret] "=r" (-> u32),
+    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.x;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, ntid);
 }
 /// threadDim.y
 pub inline fn threadDimY() usize {
-    var ntid = asm volatile ("mov.u32 \t$0, %ntid.y;"
-        : [ret] "=r" (-> u32),
+    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.y;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, ntid);
 }
 /// threadDim.z
 pub inline fn threadDimZ() usize {
-    var ntid = asm volatile ("mov.u32 \t$0, %ntid.z;"
-        : [ret] "=r" (-> u32),
+    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.z;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, ntid);
 }
@@ -70,44 +70,44 @@ pub inline fn threadDimZ() usize {
 /// gridId.x
 pub inline fn gridIdX() usize {
     if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.x;"
-        : [ret] "=r" (-> u32),
+    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, ctaid);
 }
 /// gridId.y
 pub inline fn gridIdY() usize {
-    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.y;"
-        : [ret] "=r" (-> u32),
+    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.y;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, ctaid);
 }
 /// gridId.z
 pub inline fn gridIdZ() usize {
-    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.z;"
-        : [ret] "=r" (-> u32),
+    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.z;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, ctaid);
 }
 
 /// gridDim.x
 pub inline fn gridDimX() usize {
-    var nctaid = asm volatile ("mov.u32 \t$0, %nctaid.x;"
-        : [ret] "=r" (-> u32),
+    var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, nctaid);
 }
 /// gridDim.y
 pub inline fn gridDimY() usize {
-    var nctaid = asm volatile ("mov.u32 \t$0, %nctaid.y;"
-        : [ret] "=r" (-> u32),
+    var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.y;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, nctaid);
 }
 /// gridDim.z
 pub inline fn gridDimZ() usize {
-    var nctaid = asm volatile ("mov.u32 \t$0, %nctaid.z;"
-        : [ret] "=r" (-> u32),
+    var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.z;"
+        : [r] "=r" (-> u32),
     );
     return @intCast(usize, nctaid);
 }
@@ -133,24 +133,29 @@ pub fn getId_3D() Dim3 {
     };
 }
 
-var panic_message_buffer: ?[]u8 = null;
+// var panic_message_buffer: ?[]u8 = null;
 
-pub export fn init_panic_message_buffer(buffer: []u8) callconv(Kernel) void {
-    panic_message_buffer = buffer;
-}
+// pub export fn init_panic_message_buffer(buffer: []u8) callconv(Kernel) void {
+//     panic_message_buffer = buffer;
+// }
+    // if (!is_nvptx) @compileError("This panic handler is made for GPU");
 
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
-    if (!is_nvptx) @compileError("This panic handler is made for GPU");
-
     _ = error_return_trace;
-    if (panic_message_buffer) |buffer| {
-        const len = std.math.min(usize, msg.len, buffer.len);
-        std.mem.copy(u8, buffer[0..len], msg[0..len]);
+    _ = msg;
+    asm volatile ("trap;");
+    // `unreachable` implictly recursively call panic and confuses ptxas.
+    unreachable;
+    // while(true) fails to compile because of "LLVM ERROR: Symbol name with unsupported characters"
+    // while(true){}
+}
+    // if (panic_message_buffer) |*buffer| {
+        // const len = std.math.min(msg.len, buffer.len);
+        // std.mem.copy(u8, buffer.*.ptr[0..len], msg[0..len]);
         // TODO: this assumes nobody will try to write afterward, which I'm not sure
         // TODO: prevent all threads wirting in the same place
-        buffer.len = len;
-    }
-}
+        // buffer.*.len = len;
+    // }
 
 const message = "Hello World !\x00";
 
