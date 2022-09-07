@@ -74,33 +74,53 @@ pub fn addCudazWithZigKernel(
     comptime kernel_path: [:0]const u8,
 ) void {
     const name = std.fs.path.basename(kernel_path);
-    const dummy_zig_kernel = b.addObject(name, kernel_path);
-    dummy_zig_kernel.setTarget(.{ .cpu_arch = .nvptx64, .os_tag = .cuda });
+    const zig_kernel = b.addObject(name, kernel_path);
+    // This yield an <error: unknown CPU: ''>
+    // const sm32ptx75 = std.Target.Cpu.Model{
+    //     .name = "sm_32",
+    //     .llvm_name = "sm_32",
+    //     .features = std.Target.nvptx.featureSet(&[_]std.Target.nvptx.Feature{
+    //         .ptx75,
+    //         .sm_32,
+    //     }),
+    // };
+    zig_kernel.setTarget(.{
+        .cpu_arch = .nvptx64,
+        .os_tag = .cuda,
+        // .cpu_model = .{ .explicit = &sm32ptx75 },
+        .cpu_model = .{ .explicit = &std.Target.nvptx.cpu.sm_32 },
+        // .cpu_features_add = std.Target.nvptx.featureSet(&[_]std.Target.nvptx.Feature{
+        //     .ptx75,
+        // }),
+    });
+    // ReleaseFast because the panic handler leads to a
+    // external dso_local constant with a name to complex for PTX
+    // TODO: try to sanitize name in the NvPtx Zig backend.
+    zig_kernel.setBuildMode(.ReleaseFast);
+    const ptx_pkg = std.build.Pkg{
+        .name = "ptx",
+        .source = .{ .path = SDK_ROOT ++ "src/nvptx.zig" },
+    };
+    if (!std.mem.eql(u8, name, "nvptx.zig")) {
+        // Don't include nvptx.zig in itself
+        // TODO: find a more robust test
+        zig_kernel.addPackage(ptx_pkg);
+    }
+
+    // Copy the .ptx next to the binary for easy review.
+    zig_kernel.setOutputDir(b.exe_dir);
     const kernel_ptx_path = std.mem.joinZ(
         b.allocator,
         "",
-        &[_][]const u8{ b.exe_dir, "/", dummy_zig_kernel.out_filename, ".ptx" },
+        &[_][]const u8{ b.exe_dir, "/", zig_kernel.out_filename, ".ptx" },
     ) catch unreachable;
 
-    if (needRebuild(kernel_path, kernel_ptx_path)) {
-        // Actually we need to use Stage2 here, so don't use the dummy obj,
-        // and manually run this command.
-        const emit_bin = std.mem.join(b.allocator, "=", &[_][]const u8{ "-femit-bin", kernel_ptx_path[0 .. kernel_ptx_path.len - 4] }) catch unreachable;
-        const zig_kernel = b.addSystemCommand(&[_][]const u8{
-            ZIG_STAGE2,    "build-obj",    kernel_path,
-            "-target",     "nvptx64-cuda", "-OReleaseSafe",
-            // Ptx 7.5 is required for debug info
-            "-mcpu=sm_32+ptx75", emit_bin,
-        });
-        // "--verbose-llvm-ir",
-        const validate_ptx = b.addSystemCommand(
-            &[_][]const u8{ cuda_dir ++ "/bin/ptxas", kernel_ptx_path },
-        );
-        validate_ptx.step.dependOn(enableAddrspace(b, &zig_kernel.step, kernel_path));
-        exe.step.dependOn(&validate_ptx.step);
-    } else {
-        std.log.warn("Kernel up-to-date {s}", .{kernel_ptx_path});
-    }
+    // TODO: we should make this optional to allow compiling without a CUDA toolchain
+    const validate_ptx = b.addSystemCommand(
+        &[_][]const u8{ cuda_dir ++ "/bin/ptxas", kernel_ptx_path },
+    );
+    validate_ptx.step.dependOn(&zig_kernel.step);
+    exe.step.dependOn(&validate_ptx.step);
 
     addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
 }
@@ -162,32 +182,4 @@ fn needRebuild(kernel_path: [:0]const u8, kernel_ptx_path: [:0]const u8) bool {
     var zig_file = (std.fs.cwd().openFileZ(kernel_path, .{}) catch return true);
     var zig_time = (zig_file.stat() catch return true).mtime;
     return zig_time >= ptx_stat.mtime + std.time.ns_per_s * 10;
-}
-
-/// Wraps the given step by a small text processing
-/// that enables then disables Stage2 only code.
-fn enableAddrspace(b: *Builder, step: *std.build.Step, src: [:0]const u8) *std.build.Step {
-    _ = b;
-    _ = step;
-    _ = src;
-    const enable_stage2 = b.addSystemCommand(&[_][]const u8{
-        "perl", "-ni", "-e", "s:^( *)// (.* // stage2):$1$2:g ; print", src,
-    });
-    const disable_stage1 = b.addSystemCommand(&[_][]const u8{
-        "perl", "-ni", "-e", "s:^( *)([^/]+ // stage1):$1// $2:g ; print", src,
-    });
-
-    disable_stage1.step.dependOn(&enable_stage2.step);
-    step.dependOn(&disable_stage1.step);
-    // return step;
-    const enable_stage1 = b.addSystemCommand(&[_][]const u8{
-        "perl", "-ni", "-e", "s:^(\\s*)// (.* // stage1):$1$2:g ; print", src,
-    });
-    const disable_stage2 = b.addSystemCommand(&[_][]const u8{
-        "perl", "-ni", "-e", "s:^(\\s*)([^/]* // stage2):$1// $2:g ; print", src,
-    });
-
-    enable_stage1.step.dependOn(step);
-    disable_stage2.step.dependOn(&enable_stage1.step);
-    return &disable_stage2.step;
 }

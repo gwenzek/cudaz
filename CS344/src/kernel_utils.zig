@@ -5,6 +5,13 @@ const CallingConvention = @import("std").builtin.CallingConvention;
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
 pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
 
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+    _ = error_return_trace;
+    _ = msg;
+    asm volatile ("trap;");
+    unreachable;
+}
+
 pub fn threadIdX() usize {
     if (!is_nvptx) return 0;
     var tid = asm volatile ("mov.u32 \t$0, %tid.x;"

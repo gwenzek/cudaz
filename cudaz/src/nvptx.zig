@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
-pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
+pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Win64;
 
 // Equivalent of Cuda's __syncthreads()
 /// Wait to all the threads in this block to reach this barrier
@@ -138,24 +138,29 @@ pub fn getId_3D() Dim3 {
 // pub export fn init_panic_message_buffer(buffer: []u8) callconv(Kernel) void {
 //     panic_message_buffer = buffer;
 // }
-    // if (!is_nvptx) @compileError("This panic handler is made for GPU");
+// if (!is_nvptx) @compileError("This panic handler is made for GPU");
 
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     _ = error_return_trace;
     _ = msg;
     asm volatile ("trap;");
-    // `unreachable` implictly recursively call panic and confuses ptxas.
+    // `unreachable` implictly calls panic recursively and confuses ptxas.
     unreachable;
+    // `noreturn` crashes LLVM because "Basic Block in function 'nvptx.panic' does not have terminator!"
+    // This seems to be a bad .ll generation
+    // return asm volatile ("trap;"
+    //     : [r] "=r" (-> noreturn),
+    // );
     // while(true) fails to compile because of "LLVM ERROR: Symbol name with unsupported characters"
     // while(true){}
 }
-    // if (panic_message_buffer) |*buffer| {
-        // const len = std.math.min(msg.len, buffer.len);
-        // std.mem.copy(u8, buffer.*.ptr[0..len], msg[0..len]);
-        // TODO: this assumes nobody will try to write afterward, which I'm not sure
-        // TODO: prevent all threads wirting in the same place
-        // buffer.*.len = len;
-    // }
+// if (panic_message_buffer) |*buffer| {
+// const len = std.math.min(msg.len, buffer.len);
+// std.mem.copy(u8, buffer.*.ptr[0..len], msg[0..len]);
+// TODO: this assumes nobody will try to write afterward, which I'm not sure
+// TODO: prevent all threads wirting in the same place
+// buffer.*.len = len;
+// }
 
 const message = "Hello World !\x00";
 

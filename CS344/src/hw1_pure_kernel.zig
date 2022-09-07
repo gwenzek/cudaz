@@ -3,6 +3,9 @@ const CallingConvention = @import("std").builtin.CallingConvention;
 const is_nvptx = builtin.cpu.arch == .nvptx64;
 const PtxKernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
 
+const ptx = @import("kernel_utils.zig");
+pub const panic = ptx.panic;
+
 pub export fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(PtxKernel) void {
     const i = getId_1D();
     if (i >= greyImage.len) return;

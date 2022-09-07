@@ -472,8 +472,8 @@ pub inline fn Function(comptime name: [:0]const u8) type {
 pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
     return struct {
         const Self = @This();
-        const CpuFn = func;
-        pub const Args = meta.ArgsTuple(@TypeOf(Self.CpuFn));
+        const CpuFn = *const @TypeOf(func);
+        pub const Args = meta.ArgsTuple(meta.Child(Self.CpuFn));
 
         f: cu.CUfunction,
 
@@ -504,13 +504,13 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
             try stream.launchWithSharedMem(self.f, grid, shared_mem, args);
         }
 
-        pub fn debugCpuCall(grid: Grid, point: Grid, args: Args) void {
-            cu.threadIdx = point.threads.dim3();
-            cu.blockDim = grid.threads.dim3();
-            cu.blockIdx = point.blocks.dim3();
-            cu.gridDim = grid.blocks.dim3();
-            _ = @call(.{}, CpuFn, args);
-        }
+        // pub fn debugCpuCall(grid: Grid, point: Grid, args: Args) void {
+        //     cu.threadIdx = point.threads.dim3();
+        //     cu.blockDim = grid.threads.dim3();
+        //     cu.blockIdx = point.blocks.dim3();
+        //     cu.gridDim = grid.blocks.dim3();
+        //     _ = @call(.{}, CpuFn, args);
+        // }
 
         pub fn format(
             self: *const Self,
