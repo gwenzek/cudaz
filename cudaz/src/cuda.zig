@@ -149,6 +149,8 @@ pub const Stream = struct {
             d_source.len * @sizeOf(DestType),
             self._stream,
         )) catch unreachable;
+        // The only cause of failures here are segfaults or hardware issues,
+        // can't recover.
     }
 
     pub fn allocAndCopy(self: *const Stream, comptime DestType: type, h_source: []const DestType) ![]DestType {
@@ -164,7 +166,7 @@ pub const Stream = struct {
         d_source: []const DestType,
     ) ![]DestType {
         var h_tgt = try host_allocator.alloc(DestType, d_source.len);
-        try self.memcpyDtoH(DestType, h_tgt, d_source);
+        self.memcpyDtoH(DestType, h_tgt, d_source);
         return h_tgt;
     }
 
@@ -448,11 +450,12 @@ fn defaultModule() cu.CUmodule {
         // Note: I tried to make this a path relative to the executable but failed because
         // the main executable and the test executable are in different folder
         // but refer to the same .ptx file.
-        check(cu.cuModuleLoad(&_default_module, file)) catch |err| {
+        check(cu.cuModuleLoad(&_default_module, @ptrCast([*c]const u8, file))) catch |err| {
             std.debug.panic("Couldn't load cuda module: {s}: {}", .{ file, err });
         };
     } else {
         log.info("Loading Cuda module from embedded file.", .{});
+        // TODO see if we can use nvPTXCompiler to explicitly compile it ourselve
         check(cu.cuModuleLoadData(&_default_module, kernel_ptx_content)) catch |err| {
             std.debug.panic("Couldn't load embedded cuda module. Originally file was at {s}: {}", .{ file, err });
         };
@@ -483,7 +486,7 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
             if (code != cu.CUDA_SUCCESS) log.err("Couldn't load function {s}", .{name});
             try check(code);
             var res = Self{ .f = f };
-            log.info("Loaded function {}@{}", .{ res, f });
+            log.info("Loaded function {}@{any}", .{ res, f });
             return res;
         }
 

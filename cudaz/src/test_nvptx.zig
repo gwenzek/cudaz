@@ -12,7 +12,7 @@ test "hello_world" {
 
     const gpu_hello_world = try cuda.FnStruct("_test_hello_world", nvptx._test_hello_world).init();
     try gpu_hello_world.launch(&stream, cuda.Grid.init1D(d_buffer.len, 0), .{d_buffer});
-    var h_buffer = try cuda.allocAndCopyResult(u8, testing.allocator, d_buffer);
+    var h_buffer = try stream.allocAndCopyResult(u8, testing.allocator, d_buffer);
     defer testing.allocator.free(h_buffer);
 
     var expected = "Hello World !";

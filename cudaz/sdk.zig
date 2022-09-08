@@ -137,8 +137,8 @@ pub fn addCudazDeps(
     exe.linkLibC();
     exe.addLibPath(cuda_dir ++ "/lib64");
     exe.linkSystemLibraryName("cuda");
-    exe.addIncludeDir(cuda_dir ++ "/include");
     exe.addIncludeDir(SDK_ROOT ++ "src");
+    exe.addIncludeDir(cuda_dir ++ "/include");
     exe.addIncludeDir(kernel_dir);
 
     // Add cudaz package with the kernel paths.

@@ -68,6 +68,7 @@ pub fn silent_check(result: cu.CUresult) Error!void {
         cu.CUDA_ERROR_SYSTEM_NOT_READY,
         cu.CUDA_ERROR_SYSTEM_DRIVER_MISMATCH,
         cu.CUDA_ERROR_COMPAT_NOT_SUPPORTED_ON_DEVICE,
+        cu.CUDA_ERROR_JIT_COMPILER_NOT_FOUND,
         => error.NotSupported,
         // LAUNCH_OUT_OF_RESOURCES can indicate either that the too many threads
         // where requested wrt to the maximum supported by the GPU.
