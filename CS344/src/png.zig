@@ -100,10 +100,10 @@ pub const Image = struct {
     }
 
     pub fn writeToFilePath(self: Image, file_path: []const u8) !void {
-        var resolved_path = try std.fs.path.resolve(testing.allocator, &[_][]const u8{file_path});
-        defer testing.allocator.free(resolved_path);
-        var resolved_pathZ: []u8 = try testing.allocator.dupeZ(u8, resolved_path);
-        defer testing.allocator.free(resolved_pathZ);
+        var resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        defer self.allocator.free(resolved_path);
+        var resolved_pathZ: []u8 = try self.allocator.dupeZ(u8, resolved_path);
+        defer self.allocator.free(resolved_pathZ);
         // Write image data
         try check(png.lodepng_encode_file(
             @ptrCast([*c]const u8, resolved_pathZ),

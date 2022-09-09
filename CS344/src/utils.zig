@@ -44,7 +44,7 @@ pub fn eq_and_show_diff(alloc: std.mem.Allocator, comptime dir: []const u8, outp
         if (ref_pxl == null) break;
         var out_pxl = out_pxls.next();
         var d = ref_pxl.?.r - out_pxl.?.r;
-        d = std.math.absFloat(d);
+        d = std.math.fabs(d);
         min_val = std.math.min(min_val, d);
         max_val = std.math.max(max_val, d);
         i += 1;
@@ -58,7 +58,7 @@ pub fn eq_and_show_diff(alloc: std.mem.Allocator, comptime dir: []const u8, outp
         if (ref_pxl == null) break;
         var out_pxl = out_pxls.next();
         var d = ref_pxl.?.r - out_pxl.?.r;
-        d = std.math.absFloat(d);
+        d = std.math.fabs(d);
         const centered_d = 255.0 * (d - min_val) / (max_val - min_val);
         diff_pxls[i] = @floatToInt(u8, centered_d);
         i += 1;
@@ -82,7 +82,8 @@ pub fn expectEqualDeviceSlices(
     h_expected: []const DType,
     d_values: []const DType,
 ) !void {
-    const allocator = std.testing.allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
     const h_values = try cuda.allocAndCopyResult(DType, allocator, d_values);
     defer allocator.free(h_values);
     std.testing.expectEqualSlices(DType, h_expected, h_values) catch |err| {

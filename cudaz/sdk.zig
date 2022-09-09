@@ -15,7 +15,7 @@ const ZIG_STAGE2 = "/home/guw/github/zig/build/stage3/bin/zig";
 const SDK_ROOT = sdk_root() ++ "/";
 
 /// For a given object:
-///   1. Compile the given .cu file to a .ptx
+///   1. Compile the given .cu file to a .ptx with `nvcc`
 ///   2. Add lib C
 ///   3. Add cuda headers, and cuda lib path
 ///   4. Add Cudaz package with the given .cu file that will get imported as C code.
@@ -97,6 +97,7 @@ pub fn addCudazWithZigKernel(
     // external dso_local constant with a name to complex for PTX
     // TODO: try to sanitize name in the NvPtx Zig backend.
     zig_kernel.setBuildMode(.ReleaseFast);
+    // Adding the nvptx.zig package doesn't seem to work
     const ptx_pkg = std.build.Pkg{
         .name = "ptx",
         .source = .{ .path = SDK_ROOT ++ "src/nvptx.zig" },
@@ -136,7 +137,13 @@ pub fn addCudazDeps(
     // Add libc and cuda headers / lib, and our own .cu files
     exe.linkLibC();
     exe.addLibPath(cuda_dir ++ "/lib64");
-    exe.linkSystemLibraryName("cuda");
+    exe.linkSystemLibraryNeeded("cuda");
+    // If nvidia-ptxjitcompiler is not found on your system,
+    // check that there is a libnvidia-ptxjitcompiler.so, or create a symlink
+    // to the right version.
+    // We don't need to link ptxjit compiler, since it's loaded at runtime,
+    // but this should warn the user that something is wrong.
+    exe.linkSystemLibraryNeeded("nvidia-ptxjitcompiler");
     exe.addIncludeDir(SDK_ROOT ++ "src");
     exe.addIncludeDir(cuda_dir ++ "/include");
     exe.addIncludeDir(kernel_dir);

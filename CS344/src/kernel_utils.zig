@@ -3,7 +3,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
-pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
+pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Win64;
 
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     _ = error_return_trace;
@@ -14,32 +14,32 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
 
 pub fn threadIdX() usize {
     if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t$0, %tid.x;"
-        : [ret] "=r" (-> u32),
+    var tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
+        : [r] "=r" (-> u32),
     );
     return @as(usize, tid);
 }
 
 pub fn blockDimX() usize {
     if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t$0, %ntid.x;"
-        : [ret] "=r" (-> u32),
+    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.x;"
+        : [r] "=r" (-> u32),
     );
     return @as(usize, ntid);
 }
 
 pub fn blockIdX() usize {
     if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.x;"
-        : [ret] "=r" (-> u32),
+    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
+        : [r] "=r" (-> u32),
     );
     return @as(usize, ctaid);
 }
 
 pub fn gridDimX() usize {
     if (!is_nvptx) return 0;
-    var nctaid = asm volatile ("mov.u32 \t$0, %nctaid.x;"
-        : [ret] "=r" (-> u32),
+    var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
+        : [r] "=r" (-> u32),
     );
     return @as(usize, nctaid);
 }
