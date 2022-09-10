@@ -60,7 +60,7 @@ pub fn main() !void {
     timer.stop();
     stream.synchronize();
     std.log.info("Your code ran in: {d:.1} msecs.", .{timer.elapsed() * 1000});
-    std.log.info("Found a lum range of: {d:.5}", .{min_max_lum});
+    std.log.info("Found a lum range of: ({d:.5}, {d:.5})", min_max_lum);
 
     var h_cdf = try cuda.allocAndCopyResult(f32, allocator, d_cdf);
     std.log.info("Lum cdf: {d:.3}", .{h_cdf});
@@ -208,7 +208,7 @@ fn reduceMinMaxLum(
         stream,
         one_block,
         one_block.threads.x * @sizeOf(cu.float2),
-        .{ d_buff.ptr, d_min_max_lum.ptr },
+        .{ d_buff.ptr, d_min_max_lum.ptr, @intCast(c_int, num_pixels) },
     );
     var min_max_lum = try cuda.readResult(cu.float2, &d_min_max_lum[0]);
 

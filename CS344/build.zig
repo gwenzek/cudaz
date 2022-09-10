@@ -31,26 +31,26 @@ pub fn build(b: *Builder) void {
     addLesson(b, "lesson2");
     const hw2 = addHomework(b, tests, "hw2");
     // addLesson(b, "lesson3");
-    // const hw3 = addHomework(b, tests, "hw3");
+    const hw3 = addHomework(b, tests, "hw3");
     // const hw4 = addHomework(b, tests, "hw4");
     // addZigLesson(b, "lesson5");
     _ = hw1;
     _ = hw2;
-    // _ = hw3;
+    _ = hw3;
     // _ = hw4;
 
-    // const run_step = b.step("run", "Run the example");
-    // const run_hw1 = hw1.run();
-    // run_hw1.step.dependOn(b.getInstallStep());
-    // run_step.dependOn(&run_hw1.step);
+    const run_step = b.step("run", "Run the example");
+    const run_hw1 = hw1.run();
+    run_hw1.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_hw1.step);
 
-    // const run_hw2 = hw2.run();
-    // run_hw2.step.dependOn(b.getInstallStep());
-    // run_step.dependOn(&run_hw2.step);
+    const run_hw2 = hw2.run();
+    run_hw2.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_hw2.step);
 
-    // const run_hw3 = hw3.run();
-    // run_hw3.step.dependOn(b.getInstallStep());
-    // run_step.dependOn(&run_hw3.step);
+    const run_hw3 = hw3.run();
+    run_hw3.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&run_hw3.step);
 
     // const run_hw4 = hw4.run();
     // run_hw4.step.dependOn(b.getInstallStep());

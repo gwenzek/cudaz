@@ -490,7 +490,6 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
             if (code != cu.CUDA_SUCCESS) log.err("Couldn't load function {s}", .{name});
             try check(code);
             var res = Self{ .f = f };
-            log.info("Loaded function {}@{any}", .{ res, f });
             return res;
         }
 
