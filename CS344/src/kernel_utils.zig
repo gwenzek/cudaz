@@ -1,9 +1,14 @@
 // TODO: should be moved to Cudaz
 const std = @import("std");
 const builtin = @import("builtin");
+const TypeInfo = std.builtin.TypeInfo;
 const CallingConvention = @import("std").builtin.CallingConvention;
+
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
-pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Win64;
+pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
+
+// Size for storing a thread id
+pub const utid = u32;
 
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     _ = error_return_trace;
@@ -12,66 +17,89 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
     unreachable;
 }
 
-pub fn threadIdX() usize {
+pub fn threadIdX() utid {
     if (!is_nvptx) return 0;
     var tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
-        : [r] "=r" (-> u32),
+        : [r] "=r" (-> utid),
     );
-    return @as(usize, tid);
+    return tid;
 }
 
-pub fn blockDimX() usize {
+pub fn blockDimX() utid {
     if (!is_nvptx) return 0;
     var ntid = asm volatile ("mov.u32 \t%[r], %ntid.x;"
-        : [r] "=r" (-> u32),
+        : [r] "=r" (-> utid),
     );
-    return @as(usize, ntid);
+    return ntid;
 }
 
-pub fn blockIdX() usize {
+pub fn blockIdX() utid {
     if (!is_nvptx) return 0;
     var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
-        : [r] "=r" (-> u32),
+        : [r] "=r" (-> utid),
     );
-    return @as(usize, ctaid);
+    return ctaid;
 }
 
-pub fn gridDimX() usize {
+pub fn gridDimX() utid {
     if (!is_nvptx) return 0;
     var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
-        : [r] "=r" (-> u32),
+        : [r] "=r" (-> utid),
     );
-    return @as(usize, nctaid);
+    return nctaid;
 }
 
-pub fn getIdX() usize {
+pub fn getIdX() utid {
     return threadIdX() + blockDimX() * blockIdX();
 }
 
-pub fn threadIdY() usize {
+pub fn threadIdY() utid {
     if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t$0, %tid.y;"
-        : [ret] "=r" (-> u32),
+    var tid = asm volatile ("mov.u32 \t%[r], %tid.y;"
+        : [r] "=r" (-> utid),
     );
-    return @as(usize, tid);
+    return tid;
 }
 
-pub fn blockDimY() usize {
+pub fn blockDimY() utid {
     if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t$0, %ntid.y;"
-        : [ret] "=r" (-> u32),
+    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.y;"
+        : [r] "=r" (-> utid),
     );
-    return @as(usize, ntid);
+    return ntid;
 }
 
-pub fn blockIdY() usize {
+pub fn blockIdY() utid {
     if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.y;"
-        : [ret] "=r" (-> u32),
+    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.y;"
+        : [r] "=r" (-> utid),
     );
-    return @as(usize, ctaid);
+    return ctaid;
 }
 
+pub fn threadIdZ() utid {
+    if (!is_nvptx) return 0;
+    var tid = asm volatile ("mov.u32 \t%[r], %tid.z;"
+        : [r] "=r" (-> utid),
+    );
+    return tid;
+}
+
+pub fn blockDimZ() utid {
+    if (!is_nvptx) return 0;
+    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.z;"
+        : [r] "=r" (-> utid),
+    );
+    return ntid;
+}
+
+pub fn blockIdZ() utid {
+    if (!is_nvptx) return 0;
+    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.z;"
+        : [r] "=r" (-> utid),
+    );
+    return ctaid;
+}
 pub fn syncThreads() void {
     if (!is_nvptx) return;
     asm volatile ("bar.sync \t0;");
@@ -81,10 +109,38 @@ pub fn atomicAdd(x: *u32, a: u32) void {
     _ = @atomicRmw(u32, x, .Add, a, .SeqCst);
 }
 
-pub fn lastTid(n: usize) usize {
+pub fn lastTid(n: usize) u32 {
     var block_dim = blockDimX();
     return if (blockIdX() == gridDimX() - 1) (n - 1) % block_dim else block_dim - 1;
 }
+
+const Dim2 = struct { x: usize, y: usize };
+pub fn getId_2D() Dim2 {
+    return Dim2{
+        .x = threadIdX() + blockDimX() * blockIdX(),
+        .y = threadIdY() + blockDimY() * blockIdY(),
+    };
+}
+
+const Dim3 = struct { x: u32, y: u32, z: u32 };
+pub fn getId_3D() Dim3 {
+    return Dim3{
+        .x = threadIdX() + blockDimX() * blockIdX(),
+        .y = threadIdY() + blockDimY() * blockIdY(),
+        .z = threadIdZ() + blockDimZ() * blockIdZ(),
+    };
+}
+
+// pub fn exportModule(comptime Module: anytype, comptime Exports: anytype) void {
+//     if (!is_nvptx) return;
+//     // TODO assert call conv
+//     const fields: []const TypeInfo.StructField = std.meta.fields(Exports);
+//     // var args_ptrs: [fields.len:0]usize = undefined;
+//     // https://github.com/ziglang/zig/issues/12532
+//     inline for (fields) |field, i| {
+//         @export(@field(Module, field.name), .{ .name = field.name, .linkage = .Strong });
+//     }
+// }
 
 pub const Operator = enum { add, mul, min, max };
 

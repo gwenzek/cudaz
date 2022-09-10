@@ -30,31 +30,31 @@ pub fn build(b: *Builder) void {
     const hw1 = addHomework(b, tests, "hw1");
     addLesson(b, "lesson2");
     const hw2 = addHomework(b, tests, "hw2");
-    addLesson(b, "lesson3");
-    const hw3 = addHomework(b, tests, "hw3");
-    const hw4 = addHomework(b, tests, "hw4");
-    addZigLesson(b, "lesson5");
+    // addLesson(b, "lesson3");
+    // const hw3 = addHomework(b, tests, "hw3");
+    // const hw4 = addHomework(b, tests, "hw4");
+    // addZigLesson(b, "lesson5");
     _ = hw1;
     _ = hw2;
-    _ = hw3;
-    _ = hw4;
+    // _ = hw3;
+    // _ = hw4;
 
-    const run_step = b.step("run", "Run the example");
-    const run_hw1 = hw1.run();
-    run_hw1.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw1.step);
+    // const run_step = b.step("run", "Run the example");
+    // const run_hw1 = hw1.run();
+    // run_hw1.step.dependOn(b.getInstallStep());
+    // run_step.dependOn(&run_hw1.step);
 
-    const run_hw2 = hw2.run();
-    run_hw2.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw2.step);
+    // const run_hw2 = hw2.run();
+    // run_hw2.step.dependOn(b.getInstallStep());
+    // run_step.dependOn(&run_hw2.step);
 
-    const run_hw3 = hw3.run();
-    run_hw3.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw3.step);
+    // const run_hw3 = hw3.run();
+    // run_hw3.step.dependOn(b.getInstallStep());
+    // run_step.dependOn(&run_hw3.step);
 
-    const run_hw4 = hw4.run();
-    run_hw4.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw4.step);
+    // const run_hw4 = hw4.run();
+    // run_hw4.step.dependOn(b.getInstallStep());
+    // run_step.dependOn(&run_hw4.step);
 
     // Pure
     const run_pure_step = b.step("run_pure", "Run the example");
@@ -64,8 +64,8 @@ pub fn build(b: *Builder) void {
     const hw2_pure = addZigHomework(b, tests, "hw2_pure");
     run_pure_step.dependOn(&hw2_pure.step);
 
-    const hw5 = addZigHomework(b, tests, "hw5");
-    run_pure_step.dependOn(&hw5.step);
+    // const hw5 = addZigHomework(b, tests, "hw5");
+    // run_pure_step.dependOn(&hw5.step);
 }
 
 fn addLodePng(exe: *LibExeObjStep) void {

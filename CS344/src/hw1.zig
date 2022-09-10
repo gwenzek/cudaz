@@ -35,8 +35,8 @@ pub fn main() anyerror!void {
     defer cudaz.free(d_gray);
     try cudaz.memset(png.Gray8, d_gray, 0);
 
-    const kernel = try cudaz.Function("rgba_to_greyscale").init();
-    // const kernel = try cudaz.FnStruct("rgba_to_greyscale", hw1_kernel.rgba_to_greyscale).init();
+    const kernel = try cudaz.CudaKernel("rgba_to_greyscale").init();
+    // const kernel = try cudaz.ZigStruct(hw1_kernel, "rgba_to_greyscale").init();
     var timer = cudaz.GpuTimer.start(&stream);
     try kernel.launch(
         &stream,

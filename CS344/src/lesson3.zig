@@ -4,8 +4,8 @@ const log = std.log;
 const cuda = @import("cudaz");
 const cu = cuda.cu;
 
-const ShmemReduce = cuda.Function("shmem_reduce_kernel");
-const GlobalReduce = cuda.Function("global_reduce_kernel");
+const ShmemReduce = cuda.CudaKernel("shmem_reduce_kernel");
+const GlobalReduce = cuda.CudaKernel("global_reduce_kernel");
 
 pub fn main() !void {
     log.info("***** Lesson 3 ******", .{});
@@ -23,11 +23,12 @@ fn main_reduce(stream: *const cuda.Stream, gpa: std.mem.Allocator) !void {
     var h_in = try gpa.alloc(f32, array_size);
     defer gpa.free(h_in);
     log.debug("h_in = {*}", .{h_in.ptr});
-    var prng = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    const random = prng.random();
     var sum: f32 = 0.0;
     for (h_in) |*value| {
         // generate random float in [-1.0f, 1.0f]
-        var v = -1.0 + prng.float(f32) * 2.0;
+        var v = -1.0 + random.float(f32) * 2.0;
         value.* = v;
         sum += v;
     }
@@ -153,14 +154,14 @@ fn main_histo(stream: *const cuda.Stream, gpa: std.mem.Allocator) !void {
 
     log.info("Running naive histo", .{});
     const grid = cuda.Grid{ .blocks = .{ .x = @divExact(array_size, 64) }, .threads = .{ .x = 64 } };
-    const naive_histo = try cuda.Function("naive_histo").init();
+    const naive_histo = try cuda.CudaKernel("naive_histo").init();
     try naive_histo.launch(stream, grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
     try cuda.memcpyDtoH(i32, &naive_bins, d_bins);
     log.info("naive bins: {any}", .{naive_bins});
 
     log.info("Running simple histo", .{});
     try cuda.memcpyHtoD(i32, d_bins, &simple_bins);
-    const simple_histo = try cuda.Function("simple_histo").init();
+    const simple_histo = try cuda.CudaKernel("simple_histo").init();
     try simple_histo.launch(stream, grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
     try cuda.memcpyDtoH(i32, &simple_bins, d_bins);
     log.info("simple bins: {any}", .{simple_bins});

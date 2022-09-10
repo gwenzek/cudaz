@@ -33,7 +33,7 @@ pub fn main() !void {
     const threads = cuda.Dim3.init(32, 16, 1);
     const blocks = cuda.Dim3.init((numCols + threads.x - 1) / threads.x, (numRows + threads.y - 1) / threads.y, 1);
     const grid = cuda.Grid{ .blocks = blocks, .threads = threads };
-    const rgb_to_xyY = try cuda.Function("rgb_to_xyY").init();
+    const rgb_to_xyY = try cuda.CudaKernel("rgb_to_xyY").init();
     try rgb_to_xyY.launch(&stream, grid, .{
         d_rgb.ptr,
         d_xyY.ptr,
@@ -65,7 +65,7 @@ pub fn main() !void {
     var h_cdf = try cuda.allocAndCopyResult(f32, allocator, d_cdf);
     std.log.info("Lum cdf: {d:.3}", .{h_cdf});
 
-    const tone_map = try cuda.Function("tone_map").init();
+    const tone_map = try cuda.CudaKernel("tone_map").init();
     try tone_map.launch(
         &stream,
         grid,
@@ -153,7 +153,7 @@ fn histogram_and_prefixsum(
     var num_pixels = numRows * numCols;
     var min_max_lum = try reduceMinMaxLum(stream, d_xyY);
 
-    const lumHisto = try cuda.Function("lum_histo").init();
+    const lumHisto = try cuda.CudaKernel("lum_histo").init();
     var d_histo = try cuda.alloc(c_uint, numBins);
     try cuda.memset(c_uint, d_histo, 0);
     try lumHisto.launch(
@@ -169,7 +169,7 @@ fn histogram_and_prefixsum(
         },
     );
 
-    const computeCdf = try cuda.Function("blellochCdf").init();
+    const computeCdf = try cuda.CudaKernel("blellochCdf").init();
     try computeCdf.launch(
         stream,
         cuda.Grid.init1D(numBins, numBins),
@@ -186,7 +186,7 @@ fn reduceMinMaxLum(
 ) !cu.float2 {
     // TODO: the results seems to change between runs
     const num_pixels = d_xyY.len;
-    const reduce_minmax_lum = try cuda.Function("reduce_minmax_lum").init();
+    const reduce_minmax_lum = try cuda.CudaKernel("reduce_minmax_lum").init();
 
     const grid = cuda.Grid.init1D(num_pixels, 1024);
     var d_buff = try cuda.alloc(cu.float2, grid.blocks.x);
@@ -203,7 +203,7 @@ fn reduceMinMaxLum(
     );
 
     const one_block = cuda.Grid.init1D(d_buff.len, 0);
-    const reduce_minmax = try cuda.Function("reduce_minmax").init();
+    const reduce_minmax = try cuda.CudaKernel("reduce_minmax").init();
     try reduce_minmax.launchWithSharedMem(
         stream,
         one_block,
@@ -239,7 +239,7 @@ test "histogram" {
         z(9.0),
         z(10.0),
     };
-    const lumHisto = try cuda.Function("lum_histo").init();
+    const lumHisto = try cuda.CudaKernel("lum_histo").init();
     var bins = [_]c_uint{0} ** 10;
     var d_img = try cuda.allocAndCopy(cu.float3, &img);
     var d_bins = try cuda.allocAndCopy(c_uint, &bins);
@@ -264,7 +264,7 @@ test "histogram" {
     );
 }
 
-const ReduceMinmaxLum = cuda.Function("reduce_minmax_lum");
+const ReduceMinmaxLum = cuda.CudaKernel("reduce_minmax_lum");
 
 fn test_min_max_lum(stream: *cuda.Stream, f: ReduceMinmaxLum, d_img: []cu.float3, expected: []const cu.float2) !void {
     var num_blocks = expected.len;
@@ -339,7 +339,7 @@ test "cdf" {
     inline for ([_][:0]const u8{ "computeCdf", "blellochCdf" }) |variant| {
         log.warn("Testing Cdf implementation: {s}", .{variant});
         var bins = [_]c_uint{ 2, 1, 1, 4, 1, 0, 1, 1, 1, 3 };
-        const computeCdf = try cuda.Function(variant).init();
+        const computeCdf = try cuda.CudaKernel(variant).init();
         var cdf = [_]f32{0.0} ** 10;
         var d_bins = try cuda.allocAndCopy(c_uint, &bins);
         var d_cdf = try cuda.allocAndCopy(f32, &cdf);

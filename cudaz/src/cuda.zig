@@ -468,8 +468,12 @@ fn defaultModule() cu.CUmodule {
 
 /// Create a function with the correct signature for a cuda Kernel.
 /// The kernel must come from the default .cu file
-pub inline fn Function(comptime name: [:0]const u8) type {
+pub inline fn CudaKernel(comptime name: [:0]const u8) type {
     return FnStruct(name, @field(cu, name));
+}
+
+pub inline fn ZigKernel(comptime Module: anytype, comptime name: [:0]const u8) type {
+    return FnStruct(name, @field(Module, name));
 }
 
 pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
@@ -561,7 +565,7 @@ test "rgba_to_greyscale" {
     var stream = try Stream.init(0);
     defer stream.deinit();
     log.warn("cuda: {}", .{stream});
-    const rgba_to_greyscale = try Function("rgba_to_greyscale").init();
+    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
     const numRows: u32 = 10;
     const numCols: u32 = 20;
     const d_rgbaImage = try alloc([4]u8, numRows * numCols);
@@ -578,7 +582,7 @@ test "rgba_to_greyscale" {
 }
 
 test "safe kernel" {
-    const rgba_to_greyscale = try Function("rgba_to_greyscale").init();
+    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
     var stream = try Stream.init(0);
     defer stream.deinit();
     const numRows: u32 = 10;
@@ -612,7 +616,7 @@ test "run the kernel on CPU" {
     // globals blockIdx and threadIdx.
     // I think it could be useful to detect out of bound errors that Cuda
     // tend to ignore.
-    const rgba_to_greyscale = Function("rgba_to_greyscale");
+    const rgba_to_greyscale = CudaKernel("rgba_to_greyscale");
     const rgbImage = [_]cu.uchar3{
         .{ .x = 0x2D, .y = 0x24, .z = 0x1F },
         .{ .x = 0xEB, .y = 0x82, .z = 0x48 },
@@ -633,7 +637,7 @@ test "run the kernel on CPU" {
 }
 
 test "GpuTimer" {
-    const rgba_to_greyscale = try Function("rgba_to_greyscale").init();
+    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
     var stream = try Stream.init(0);
     defer stream.deinit();
     const numRows: u32 = 10;

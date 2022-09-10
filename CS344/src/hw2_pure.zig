@@ -47,7 +47,7 @@ pub fn main() anyerror!void {
     defer cuda.free(d_filter.data[0..@intCast(usize, d_filter.shape[0])]);
     var img_mat = Mat3{
         .data = std.mem.sliceAsBytes(d_img).ptr,
-        .shape = [3]i32{ @intCast(i32, img.height), @intCast(i32, img.width), 3 },
+        .shape = [3]u32{ @intCast(u32, img.height), @intCast(u32, img.width), 3 },
     };
     var grid3D = cuda.Grid.init3D(img.height, img.width, 3, 32, 32, 1);
     var timer = cuda.GpuTimer.start(&stream);

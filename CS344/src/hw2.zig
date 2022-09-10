@@ -57,9 +57,9 @@ pub fn main() anyerror!void {
     var d_out = try cuda.alloc(Rgb24, img.width * img.height);
     defer cuda.free(d_out);
 
-    const separateChannels = try cuda.Function("separateChannels").init();
-    const gaussianBlur = try cuda.Function("gaussian_blur").init();
-    const recombineChannels = try cuda.Function("recombineChannels").init();
+    const separateChannels = try cuda.CudaKernel("separateChannels").init();
+    const gaussianBlur = try cuda.CudaKernel("gaussian_blur").init();
+    const recombineChannels = try cuda.CudaKernel("recombineChannels").init();
 
     var d_filter = try cuda.allocAndCopy(f32, &blurFilter());
     defer cuda.free(d_filter);

@@ -46,7 +46,7 @@ fn _time_kernel(
     block_width: u32,
     comptime array_size: u32,
 ) !void {
-    const kernel = try cuda.Function(kernel_name).init();
+    const kernel = try cuda.CudaKernel(kernel_name).init();
 
     // declare and allocate memory
     const h_array = try alloc.alloc(i32, array_size);

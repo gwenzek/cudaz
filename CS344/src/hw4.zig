@@ -324,7 +324,7 @@ test "inPlaceCdf" {
 pub fn radixSortAlloc(stream: *const cuda.Stream, d_values: []const u32) ![]u32 {
     const n = d_values.len;
     const mask: u8 = 0b1111;
-    const mask_bits: u8 = 8 - @clz(u8, mask);
+    const mask_bits: u8 = 8 - @clz(mask);
 
     const d_radix = try cuda.alloc(u32, n * (mask + 1));
     defer cuda.free(d_radix);
@@ -590,20 +590,20 @@ fn debugDevice(
 
 // TODO: generate this when the kernel is written in Zig.
 const Kernels = struct {
-    addConstant: cuda.Function("add_constant"),
-    cdfIncremental: cuda.Function("cdf_incremental"),
-    cdfShift: cuda.Function("cdf_incremental_shift"),
-    crossCorrelation: cuda.Function("naive_normalized_cross_correlation"),
-    findRadixSplitted: cuda.Function("find_radix_splitted"),
-    rangeFn: cuda.Function("range"),
-    min: cuda.Function("reduce_min"),
-    max: cuda.Function("reduce_max"),
-    minU32: cuda.Function("reduce_min_u32"),
-    maxU32: cuda.Function("reduce_max_u32"),
-    removeRedness: cuda.Function("remove_redness"),
-    sortNet: cuda.Function("sort_network"),
-    sumU32: cuda.Function("reduce_sum_u32"),
-    updatePermutation: cuda.Function("update_permutation"),
+    addConstant: cuda.CudaKernel("add_constant"),
+    cdfIncremental: cuda.CudaKernel("cdf_incremental"),
+    cdfShift: cuda.CudaKernel("cdf_incremental_shift"),
+    crossCorrelation: cuda.CudaKernel("naive_normalized_cross_correlation"),
+    findRadixSplitted: cuda.CudaKernel("find_radix_splitted"),
+    rangeFn: cuda.CudaKernel("range"),
+    min: cuda.CudaKernel("reduce_min"),
+    max: cuda.CudaKernel("reduce_max"),
+    minU32: cuda.CudaKernel("reduce_min_u32"),
+    maxU32: cuda.CudaKernel("reduce_max_u32"),
+    removeRedness: cuda.CudaKernel("remove_redness"),
+    sortNet: cuda.CudaKernel("sort_network"),
+    sumU32: cuda.CudaKernel("reduce_sum_u32"),
+    updatePermutation: cuda.CudaKernel("update_permutation"),
 };
 var k: Kernels = undefined;
 
