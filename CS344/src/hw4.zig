@@ -104,7 +104,7 @@ pub fn hw4() !void {
         .{ d_scores.ptr, -min_corr, @intCast(c_uint, d_scores.len) },
     );
     log.info("min_corr = {}", .{min_corr});
-    debugDevice("crossCorrelation", d_scores[0..100]);
+    debugDevice(allocator, "crossCorrelation", d_scores[0..100]);
 
     var timer = cuda.GpuTimer.start(&stream);
     var d_permutation = try radixSortAlloc(&stream, bitCastU32(d_scores));
@@ -119,7 +119,7 @@ pub fn hw4() !void {
     std.log.info("Your code ran in: {d:.1} msecs.", .{timer.elapsed() * 1000});
 
     var d_out = try cuda.alloc(cu.uchar3, d_img.len);
-    debugDevice("d_perm", d_permutation[20000..21000]);
+    debugDevice(allocator, "d_perm", d_permutation[20000..21000]);
     try k.removeRedness.launch(&stream, cuda.Grid.init1D(d_img.len, 64), .{
         d_permutation.ptr,
         d_img.ptr,
@@ -360,8 +360,8 @@ fn _radixSort(
 ) !void {
     const n = d_values.len;
     try cuda.memset(u32, d_radix, 0);
-    // debugDevice("d_values", d_values);
-    // debugDevice("d_perm0", d_perm0);
+    // debugDevice(allocator, "d_values", d_values);
+    // debugDevice(allocator, "d_perm0", d_perm0);
     log.debug("radixSort(n={}, shift={}, mask={})", .{ n, shift, mask });
     try k.findRadixSplitted.launch(
         stream,
@@ -372,13 +372,13 @@ fn _radixSort(
     log.debug("Radix sums to {}, expected {}", .{ radix_sum, d_values.len });
     std.debug.assert(radix_sum == d_values.len);
     try inPlaceCdf(stream, d_radix, 1024);
-    // debugDevice("d_radix + cdf", d_radix);
+    // debugDevice(allocator, "d_radix + cdf", d_radix);
     try k.updatePermutation.launch(
         stream,
         cuda.Grid.init1D(n, 1024),
         .{ d_perm1.ptr, d_radix.ptr, d_values.ptr, d_perm0.ptr, shift, mask, @intCast(c_int, n) },
     );
-    // debugDevice("d_perm1", d_perm1);
+    // debugDevice(allocator, "d_perm1", d_perm1);
 }
 
 test "findRadixSplitted" {
@@ -553,7 +553,7 @@ fn test_naive_normalized_cross_correlation(
             @intCast(c_int, num_rows * num_rows),
         },
     );
-    debugDevice("auto_corr", d_scores);
+    // debugDevice(allocator, "auto_corr", d_scores);
     // Should be maximal at the center
     const center_corr = try cuda.readResult(f32, &d_scores[num_rows * half_height + half_height]);
     const max_corr = try reduce(stream, k.max, d_scores);
@@ -579,12 +579,13 @@ fn expectEqualDeviceSlices(
 }
 
 fn debugDevice(
+    allocator: std.mem.Allocator,
     name: []const u8,
     d_values: anytype,
 ) void {
     const DType = std.meta.Elem(@TypeOf(d_values));
-    var h = cuda.allocAndCopyResult(DType, testing.allocator, d_values) catch unreachable;
-    defer testing.allocator.free(h);
+    var h = cuda.allocAndCopyResult(DType, allocator, d_values) catch unreachable;
+    defer allocator.free(h);
     log.debug("{s} -> {any}", .{ name, h });
 }
 
