@@ -21,7 +21,8 @@ pub fn main() !void {
 
     var data = try allocator.alloc(u32, num_elems);
     defer allocator.free(data);
-    var random = std.rand.DefaultPrng.init(387418298).random();
+    var prng = std.rand.DefaultPrng.init(387418298);
+    const random = prng.random();
 
     // make the mean unpredictable, but close enough to the middle
     // so that timings are unaffected

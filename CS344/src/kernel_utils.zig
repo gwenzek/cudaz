@@ -109,9 +109,13 @@ pub fn atomicAdd(x: *u32, a: u32) void {
     _ = @atomicRmw(u32, x, .Add, a, .SeqCst);
 }
 
-pub fn lastTid(n: usize) u32 {
+pub fn lastTid(n: usize) utid {
     var block_dim = blockDimX();
-    return if (blockIdX() == gridDimX() - 1) (n - 1) % block_dim else block_dim - 1;
+    if (blockIdX() == gridDimX() - 1) {
+        return @intCast(utid, (n - 1) % block_dim);
+    } else {
+        return block_dim - 1;
+    }
 }
 
 const Dim2 = struct { x: usize, y: usize };

@@ -60,8 +60,8 @@ pub fn build(b: *Builder) void {
     const hw2_pure = addZigHomework(b, tests, "hw2_pure");
     run_pure_step.dependOn(&hw2_pure.step);
 
-    // const hw5 = addZigHomework(b, tests, "hw5");
-    // run_pure_step.dependOn(&hw5.step);
+    const hw5 = addZigHomework(b, tests, "hw5");
+    run_pure_step.dependOn(&hw5.step);
 }
 
 fn addLodePng(exe: *LibExeObjStep) void {
