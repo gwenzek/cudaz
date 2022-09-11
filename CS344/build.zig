@@ -30,14 +30,10 @@ pub fn build(b: *Builder) void {
     const hw1 = addHomework(b, tests, "hw1");
     addLesson(b, "lesson2");
     const hw2 = addHomework(b, tests, "hw2");
-    // addLesson(b, "lesson3");
+    addLesson(b, "lesson3");
     const hw3 = addHomework(b, tests, "hw3");
     const hw4 = addHomework(b, tests, "hw4");
     // addZigLesson(b, "lesson5");
-    _ = hw1;
-    _ = hw2;
-    _ = hw3;
-    // _ = hw4;
 
     const run_step = b.step("run", "Run the example");
     const run_hw1 = hw1.run();

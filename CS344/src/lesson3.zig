@@ -155,14 +155,14 @@ fn main_histo(stream: *const cuda.Stream, gpa: std.mem.Allocator) !void {
     log.info("Running naive histo", .{});
     const grid = cuda.Grid{ .blocks = .{ .x = @divExact(array_size, 64) }, .threads = .{ .x = 64 } };
     const naive_histo = try cuda.CudaKernel("naive_histo").init();
-    try naive_histo.launch(stream, grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
+    try naive_histo.launch(stream, grid, .{ d_bins.ptr, d_in.ptr, bin_count });
     try cuda.memcpyDtoH(i32, &naive_bins, d_bins);
     log.info("naive bins: {any}", .{naive_bins});
 
     log.info("Running simple histo", .{});
     try cuda.memcpyHtoD(i32, d_bins, &simple_bins);
     const simple_histo = try cuda.CudaKernel("simple_histo").init();
-    try simple_histo.launch(stream, grid, .{ .@"0" = d_bins.ptr, .@"1" = d_in.ptr, .@"2" = bin_count });
+    try simple_histo.launch(stream, grid, .{ d_bins.ptr, d_in.ptr, bin_count });
     try cuda.memcpyDtoH(i32, &simple_bins, d_bins);
     log.info("simple bins: {any}", .{simple_bins});
 }
