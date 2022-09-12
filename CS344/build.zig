@@ -27,30 +27,30 @@ pub fn build(b: *Builder) void {
     tests.dependOn(&test_png.step);
 
     // CS344 lessons and home works
-    const hw1 = addHomework(b, tests, "hw1");
-    addLesson(b, "lesson2");
-    const hw2 = addHomework(b, tests, "hw2");
-    addLesson(b, "lesson3");
-    const hw3 = addHomework(b, tests, "hw3");
-    const hw4 = addHomework(b, tests, "hw4");
+    const hw1 = addNvccHomework(b, tests, "hw1");
+    addNvccLesson(b, "lesson2");
+    const hw2 = addNvccHomework(b, tests, "hw2");
+    addNvccLesson(b, "lesson3");
+    const hw3 = addNvccHomework(b, tests, "hw3");
+    const hw4 = addNvccHomework(b, tests, "hw4");
     // addZigLesson(b, "lesson5");
 
-    const run_step = b.step("run", "Run the example");
+    const run_nvcc_step = b.step("run_nvcc", "Run the example");
     const run_hw1 = hw1.run();
     run_hw1.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw1.step);
+    run_nvcc_step.dependOn(&run_hw1.step);
 
     const run_hw2 = hw2.run();
     run_hw2.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw2.step);
+    run_nvcc_step.dependOn(&run_hw2.step);
 
     const run_hw3 = hw3.run();
     run_hw3.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw3.step);
+    run_nvcc_step.dependOn(&run_hw3.step);
 
     const run_hw4 = hw4.run();
     run_hw4.step.dependOn(b.getInstallStep());
-    run_step.dependOn(&run_hw4.step);
+    run_nvcc_step.dependOn(&run_hw4.step);
 
     // Pure
     const run_pure_step = b.step("run_pure", "Run the example");
@@ -74,17 +74,18 @@ fn addLodePng(exe: *LibExeObjStep) void {
     exe.addCSourceFile("lodepng/lodepng.c", &lodepng_flags);
 }
 
-fn addHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *LibExeObjStep {
-    const hw = b.addExecutable(name, "src/" ++ name ++ ".zig");
+fn addNvccHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *LibExeObjStep {
+    const src = "src/nvcc/";
+    const hw = b.addExecutable(name, src ++ name ++ ".zig");
     hw.setTarget(target);
     hw.setBuildMode(mode);
 
-    cuda_sdk.addCudazWithNvcc(b, hw, CUDA_PATH, "src/" ++ name ++ ".cu");
+    cuda_sdk.addCudazWithNvcc(b, hw, CUDA_PATH, src ++ name ++ ".cu");
     addLodePng(hw);
     hw.install();
 
-    const test_hw = b.addTest("src/" ++ name ++ ".zig");
-    cuda_sdk.addCudazWithNvcc(b, test_hw, CUDA_PATH, "src/" ++ name ++ ".cu");
+    const test_hw = b.addTest(src ++ name ++ ".zig");
+    cuda_sdk.addCudazWithNvcc(b, test_hw, CUDA_PATH, src ++ name ++ ".cu");
     tests.dependOn(&test_hw.step);
     return hw;
 }
@@ -107,9 +108,10 @@ fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8
     return hw_run;
 }
 
-fn addLesson(b: *Builder, comptime name: []const u8) void {
-    const lesson = b.addExecutable(name, "src/" ++ name ++ ".zig");
-    cuda_sdk.addCudazWithNvcc(b, lesson, CUDA_PATH, "src/" ++ name ++ ".cu");
+fn addNvccLesson(b: *Builder, comptime name: []const u8) void {
+    const src = "src/nvcc/";
+    const lesson = b.addExecutable(name, src ++ name ++ ".zig");
+    cuda_sdk.addCudazWithNvcc(b, lesson, CUDA_PATH, src ++ name ++ ".cu");
     lesson.setTarget(target);
     lesson.setBuildMode(mode);
     lesson.install();
