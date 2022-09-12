@@ -26,42 +26,42 @@ pub fn build(b: *Builder) void {
     addLodePng(test_png);
     tests.dependOn(&test_png.step);
 
+    // Pure
+    const run_step = b.step("run", "Run the examples");
+    const hw1 = addZigHomework(b, tests, "hw1");
+    run_step.dependOn(&hw1.step);
+
+    const hw2 = addZigHomework(b, tests, "hw2");
+    run_step.dependOn(&hw2.step);
+
+    const hw5 = addZigHomework(b, tests, "hw5");
+    run_step.dependOn(&hw5.step);
+
     // CS344 lessons and home works
-    const hw1 = addNvccHomework(b, tests, "hw1");
+    const hw1_nvcc = addNvccHomework(b, tests, "hw1");
     addNvccLesson(b, "lesson2");
-    const hw2 = addNvccHomework(b, tests, "hw2");
+    const hw2_nvcc = addNvccHomework(b, tests, "hw2");
     addNvccLesson(b, "lesson3");
-    const hw3 = addNvccHomework(b, tests, "hw3");
-    const hw4 = addNvccHomework(b, tests, "hw4");
+    const hw3_nvcc = addNvccHomework(b, tests, "hw3");
+    const hw4_nvcc = addNvccHomework(b, tests, "hw4");
     // addZigLesson(b, "lesson5");
 
     const run_nvcc_step = b.step("run_nvcc", "Run the example");
-    const run_hw1 = hw1.run();
-    run_hw1.step.dependOn(b.getInstallStep());
-    run_nvcc_step.dependOn(&run_hw1.step);
+    const run_hw1_nvcc = hw1_nvcc.run();
+    run_hw1_nvcc.step.dependOn(b.getInstallStep());
+    run_nvcc_step.dependOn(&run_hw1_nvcc.step);
 
-    const run_hw2 = hw2.run();
-    run_hw2.step.dependOn(b.getInstallStep());
-    run_nvcc_step.dependOn(&run_hw2.step);
+    const run_hw2_nvcc = hw2_nvcc.run();
+    run_hw2_nvcc.step.dependOn(b.getInstallStep());
+    run_nvcc_step.dependOn(&run_hw2_nvcc.step);
 
-    const run_hw3 = hw3.run();
-    run_hw3.step.dependOn(b.getInstallStep());
-    run_nvcc_step.dependOn(&run_hw3.step);
+    const run_hw3_nvcc = hw3_nvcc.run();
+    run_hw3_nvcc.step.dependOn(b.getInstallStep());
+    run_nvcc_step.dependOn(&run_hw3_nvcc.step);
 
-    const run_hw4 = hw4.run();
-    run_hw4.step.dependOn(b.getInstallStep());
-    run_nvcc_step.dependOn(&run_hw4.step);
-
-    // Pure
-    const run_pure_step = b.step("run_pure", "Run the example");
-    const hw1_pure = addZigHomework(b, tests, "hw1_pure");
-    run_pure_step.dependOn(&hw1_pure.step);
-
-    const hw2_pure = addZigHomework(b, tests, "hw2_pure");
-    run_pure_step.dependOn(&hw2_pure.step);
-
-    const hw5 = addZigHomework(b, tests, "hw5");
-    run_pure_step.dependOn(&hw5.step);
+    const run_hw4_nvcc = hw4_nvcc.run();
+    run_hw4_nvcc.step.dependOn(b.getInstallStep());
+    run_nvcc_step.dependOn(&run_hw4_nvcc.step);
 }
 
 fn addLodePng(exe: *LibExeObjStep) void {

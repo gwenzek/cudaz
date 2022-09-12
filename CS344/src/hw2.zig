@@ -8,7 +8,7 @@ const cu = cuda.cu;
 
 const png = @import("png.zig");
 const utils = @import("utils.zig");
-const kernels = @import("hw2_pure_kernel.zig");
+const kernels = @import("hw2_kernel.zig");
 const Mat3 = kernels.Mat3;
 const Mat2Float = kernels.Mat2Float;
 

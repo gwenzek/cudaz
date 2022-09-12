@@ -7,7 +7,7 @@ const cu = cudaz.cu;
 
 const png = @import("png.zig");
 const utils = @import("utils.zig");
-const hw1_kernel = @import("hw1_pure_kernel.zig");
+const hw1_kernel = @import("hw1_kernel.zig");
 
 const resources_dir = "resources/hw1_resources/";
 
