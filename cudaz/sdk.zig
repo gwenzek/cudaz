@@ -75,28 +75,22 @@ pub fn addCudazWithZigKernel(
 ) void {
     const name = std.fs.path.basename(kernel_path);
     const zig_kernel = b.addObject(name, kernel_path);
-    // This yield an <error: unknown CPU: ''>
-    // const sm32ptx75 = std.Target.Cpu.Model{
-    //     .name = "sm_32",
-    //     .llvm_name = "sm_32",
-    //     .features = std.Target.nvptx.featureSet(&[_]std.Target.nvptx.Feature{
-    //         .ptx75,
-    //         .sm_32,
-    //     }),
-    // };
     zig_kernel.setTarget(.{
         .cpu_arch = .nvptx64,
         .os_tag = .cuda,
-        // .cpu_model = .{ .explicit = &sm32ptx75 },
         .cpu_model = .{ .explicit = &std.Target.nvptx.cpu.sm_32 },
-        // .cpu_features_add = std.Target.nvptx.featureSet(&[_]std.Target.nvptx.Feature{
-        //     .ptx75,
-        // }),
+        .cpu_features_add = std.Target.nvptx.featureSet(&[_]std.Target.nvptx.Feature{
+            .ptx75,
+        }),
     });
-    // ReleaseFast because the panic handler leads to a
-    // external dso_local constant with a name to complex for PTX
-    // TODO: try to sanitize name in the NvPtx Zig backend.
-    zig_kernel.setBuildMode(.ReleaseFast);
+    // Debug doesn't work, because some `u2` global will end-up in the ptx
+    // which don't exist in PTX.
+    // It only seems to happen with globals.
+    // A local `u2` will get lowered to a `u8`.
+    // This looks like a bug in LLVM backend.
+    // TODO: check it's still there in LLVM15
+    const build_mode = if (exe.build_mode == .Debug) .ReleaseSafe else exe.build_mode;
+    zig_kernel.setBuildMode(build_mode);
     // Adding the nvptx.zig package doesn't seem to work
     const ptx_pkg = std.build.Pkg{
         .name = "ptx",
@@ -116,11 +110,7 @@ pub fn addCudazWithZigKernel(
         &[_][]const u8{ b.exe_dir, "/", zig_kernel.out_filename, ".ptx" },
     ) catch unreachable;
 
-    // TODO: we should make this optional to allow compiling without a CUDA toolchain
-    const validate_ptx = b.addSystemCommand(
-        &[_][]const u8{ cuda_dir ++ "/bin/ptxas", kernel_ptx_path },
-    );
-    validate_ptx.step.dependOn(&zig_kernel.step);
+    const validate_ptx = validate_ptx_file(b, zig_kernel, cuda_dir, kernel_ptx_path);
     exe.step.dependOn(&validate_ptx.step);
 
     addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
@@ -180,13 +170,29 @@ fn sdk_root() []const u8 {
     return std.fs.path.dirname(@src().file).?;
 }
 
-fn needRebuild(kernel_path: [:0]const u8, kernel_ptx_path: [:0]const u8) bool {
-    var ptx_file = std.fs.openFileAbsoluteZ(kernel_ptx_path, .{}) catch return true;
-    var ptx_stat = ptx_file.stat() catch return true;
-    // detect empty .ptx files
-    if (ptx_stat.size < 128) return true;
-
-    var zig_file = (std.fs.cwd().openFileZ(kernel_path, .{}) catch return true);
-    var zig_time = (zig_file.stat() catch return true).mtime;
-    return zig_time >= ptx_stat.mtime + std.time.ns_per_s * 10;
+/// Uses ptxas to validate the file
+fn validate_ptx_file(
+    b: *Builder,
+    zig_kernel: *LibExeObjStep,
+    comptime cuda_dir: []const u8,
+    kernel_ptx_path: []const u8,
+) *std.build.RunStep {
+    const suppress_stack_size_warning = "--suppress-stack-size-warning";
+    var full_ptxas_cmd = [_][]const u8{
+        cuda_dir ++ "/bin/ptxas",
+        kernel_ptx_path,
+        // This might be a little bit aggressive
+        "--warning-as-error",
+        "--warn-on-double-precision-use",
+        "--warn-on-spills",
+    };
+    if (zig_kernel.build_mode == .ReleaseSafe or zig_kernel.build_mode == .Debug) {
+        // The default panicOutOfBound handler always trigger the register spill and stack-size warnings.
+        // TODO: fix panicExtra to not call itself
+        full_ptxas_cmd[4] = suppress_stack_size_warning;
+    }
+    // TODO: we should make this optional to allow compiling without a CUDA toolchain
+    const validate_ptx = b.addSystemCommand(&full_ptxas_cmd);
+    validate_ptx.step.dependOn(&zig_kernel.step);
+    return validate_ptx;
 }

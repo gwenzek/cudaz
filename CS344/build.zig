@@ -44,7 +44,8 @@ pub fn build(b: *Builder) void {
     addNvccLesson(b, "lesson3");
     const hw3_nvcc = addNvccHomework(b, tests, "hw3");
     const hw4_nvcc = addNvccHomework(b, tests, "hw4");
-    // addZigLesson(b, "lesson5");
+    // lesson5 is an experiment to make use of Zig async.
+    addAsyncZigLesson(b, "lesson5");
 
     const run_nvcc_step = b.step("run_nvcc", "Run the example");
     const run_hw1_nvcc = hw1_nvcc.run();
@@ -127,6 +128,20 @@ fn addZigLesson(b: *Builder, comptime name: []const u8) void {
     cuda_sdk.addCudazWithZigKernel(b, lesson, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
     lesson.setTarget(target);
     lesson.setBuildMode(mode);
+    lesson.install();
+
+    const run_lesson_step = b.step(name, "Run " ++ name);
+    const run_lesson = lesson.run();
+    run_lesson.step.dependOn(b.getInstallStep());
+    run_lesson_step.dependOn(&run_lesson.step);
+}
+
+fn addAsyncZigLesson(b: *Builder, comptime name: []const u8) void {
+    const lesson = b.addExecutable(name, "src/" ++ name ++ ".zig");
+    cuda_sdk.addCudazWithZigKernel(b, lesson, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
+    lesson.setTarget(target);
+    lesson.setBuildMode(mode);
+    lesson.use_stage1 = true;
     lesson.install();
 
     const run_lesson_step = b.step(name, "Run " ++ name);
