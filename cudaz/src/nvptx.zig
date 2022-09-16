@@ -165,9 +165,29 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
 
 const message = "Hello World !\x00";
 
-pub export fn _test_hello_world(out: []u8) callconv(Kernel) void {
+pub export fn test_hello_world(out: []u8) callconv(Kernel) void {
     const i = getIdX();
     if (i > message.len or i > out.len) return;
     syncThreads();
     out[i] = message[i];
+}
+
+var shared_buffer: [2]u8 align(8) addrspace(.shared) = undefined;
+
+pub fn test_swap2_with_shared_buff(src: []const u8, tgt: []u8) callconv(Kernel) void {
+    if (!is_nvptx) return;
+    var buffer = &shared_buffer; // stage2
+    const i = threadIdX();
+    const x = getIdX();
+    buffer[i] = src[x];
+    syncThreads();
+    tgt[x] = buffer[1 - i % 2];
+}
+
+comptime {
+    if (is_nvptx) {
+        if (std.builtin.panic != panic)
+            @compileError("panic is the wrong panic");
+        @export(test_swap2_with_shared_buff, .{ .name = "test_swap2_with_shared_buff" });
+    }
 }

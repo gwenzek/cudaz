@@ -1,10 +1,9 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const CallingConvention = @import("std").builtin.CallingConvention;
-const is_nvptx = builtin.cpu.arch == .nvptx64;
-const PtxKernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
+const ptx = @import("kernel_utils.zig");
+pub const panic = ptx.panic;
 
-pub export fn transposeCpu(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
+pub fn transposeCpu(data: []const u32, trans: []u32, num_cols: usize) callconv(ptx.Kernel) void {
     var i: usize = 0;
     while (i < num_cols) : (i += 1) {
         var j: usize = 0;
@@ -14,24 +13,23 @@ pub export fn transposeCpu(data: []const u32, trans: []u32, num_cols: usize) cal
     }
 }
 
-pub export fn transposePerRow(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
-    const i = getIdX();
+pub fn transposePerRow(data: []const u32, trans: []u32, num_cols: usize) callconv(ptx.Kernel) void {
+    const i = ptx.getIdX();
     var j: usize = 0;
     while (j < num_cols) : (j += 1) {
         trans[num_cols * i + j] = data[num_cols * j + i];
     }
 }
 
-pub export fn transposePerCell(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
-    const i = getIdX();
-    const j = getIdY();
+pub fn transposePerCell(data: []const u32, trans: []u32, num_cols: usize) callconv(ptx.Kernel) void {
+    const coord = ptx.getId_2D();
+    const i = coord.x;
+    const j = coord.y;
     if (i >= num_cols or j >= num_cols) return;
     trans[num_cols * i + j] = data[num_cols * j + i];
 }
 
 pub const block_size = 16;
-// Stage1 can't parse addrspace, so we use pre-processing tricks to only
-// set the addrspace in Stage2.
 // In Cuda, the kernel will have access to shared memory. This memory
 // can have a compile-known size or a dynamic size.
 // In the case of dynamic size the corresponding Cuda code is:
@@ -51,22 +49,22 @@ var transpose_per_block_buffer: [block_size][block_size]u32 = undefined; // stag
 /// Each threads copy one element to the shared buffer and then back to the output
 /// The speed up comes from the fact that all threads in the block will read contiguous
 /// data and then write contiguous data.
-pub export fn transposePerBlock(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
-    if (!is_nvptx) return;
+pub fn transposePerBlock(data: []const u32, trans: []u32, num_cols: usize) callconv(ptx.Kernel) void {
     // var buffer = @ptrCast([*]addrspace(.shared) [block_size]u32, &transpose_per_block_buffer); // stage2
     var buffer = @ptrCast([*][block_size]u32, &transpose_per_block_buffer); // stage1
-    const block_i = gridIdX() * block_size;
-    const block_j = gridIdY() * block_size;
+    // var buffer = &transpose_per_block_buffer;
+    const block_i = ptx.blockIdX() * block_size;
+    const block_j = ptx.blockIdY() * block_size;
     const block_out_i = block_j;
     const block_out_j = block_i;
-    const i = threadIdX();
-    const j = threadIdY();
+    const i = ptx.threadIdX();
+    const j = ptx.threadIdY();
 
     // coalesced read
     if (i + block_i < num_cols and j + block_j < num_cols) {
         buffer[j][i] = data[num_cols * (block_j + j) + (block_i + i)];
     }
-    syncThreads();
+    ptx.syncThreads();
 
     // coalesced write
     if (i + block_out_i < num_cols and j + block_out_j < num_cols) {
@@ -80,13 +78,13 @@ pub var transpose_per_block_inlined_buffer: [16][block_size][block_size]u32 = un
 
 /// Each threads copy a `block_size` contiguous elements to the shared buffer
 /// and copy non-contiguous element from the buffer to a contiguous slice of the output
-pub export fn transposePerBlockInlined(data: []const u32, trans: []u32, num_cols: usize) callconv(PtxKernel) void {
-    var buffer = &transpose_per_block_inlined_buffer[threadIdX()];
-    const block_i = getIdX() * block_size;
-    const block_j = gridIdY() * block_size;
+pub fn transposePerBlockInlined(data: []const u32, trans: []u32, num_cols: usize) callconv(ptx.Kernel) void {
+    var buffer = &transpose_per_block_inlined_buffer[ptx.threadIdX()];
+    const block_i = ptx.getIdX() * block_size;
+    const block_j = ptx.blockIdY() * block_size;
     const block_out_i = block_j;
     const block_out_j = block_i;
-    const i = threadIdY();
+    const i = ptx.threadIdY();
     if (i + block_i >= num_cols) return;
     var j: usize = 0;
     // coalesced read
@@ -94,7 +92,7 @@ pub export fn transposePerBlockInlined(data: []const u32, trans: []u32, num_cols
         buffer[j][i] = data[num_cols * (block_j + j) + (block_i + i)];
     }
 
-    syncThreads();
+    ptx.syncThreads();
 
     if (block_out_i + i >= num_cols) return;
     // coalesced write
@@ -104,63 +102,12 @@ pub export fn transposePerBlockInlined(data: []const u32, trans: []u32, num_cols
     }
 }
 
-pub inline fn threadIdX() usize {
-    if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t$0, %tid.x;"
-        : [ret] "=r" (-> u32),
-    );
-    return @intCast(usize, tid);
-}
-
-pub inline fn threadDimX() usize {
-    if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t$0, %ntid.x;"
-        : [ret] "=r" (-> u32),
-    );
-    return @intCast(usize, ntid);
-}
-
-pub inline fn gridIdX() usize {
-    if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.x;"
-        : [ret] "=r" (-> u32),
-    );
-    return @intCast(usize, ctaid);
-}
-
-pub inline fn threadIdY() usize {
-    if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t$0, %tid.y;"
-        : [ret] "=r" (-> u32),
-    );
-    return @intCast(usize, tid);
-}
-
-pub inline fn threadDimY() usize {
-    if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t$0, %ntid.y;"
-        : [ret] "=r" (-> u32),
-    );
-    return @intCast(usize, ntid);
-}
-
-pub inline fn gridIdY() usize {
-    if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t$0, %ctaid.y;"
-        : [ret] "=r" (-> u32),
-    );
-    return @intCast(usize, ctaid);
-}
-
-pub inline fn getIdX() usize {
-    return threadIdX() + threadDimX() * gridIdX();
-}
-pub inline fn getIdY() usize {
-    return threadIdY() + threadDimY() * gridIdY();
-}
-
-pub inline fn syncThreads() void {
-    // @"llvm.nvvm.barrier0"();
-    if (!is_nvptx) return;
-    asm volatile ("bar.sync \t0;");
+comptime {
+    if (ptx.is_nvptx) {
+        @export(transposeCpu, .{ .name = "transposeCpu" });
+        @export(transposePerRow, .{ .name = "transposePerRow" });
+        @export(transposePerCell, .{ .name = "transposePerCell" });
+        @export(transposePerBlock, .{ .name = "transposePerBlock" });
+        @export(transposePerBlockInlined, .{ .name = "transposePerBlockInlined" });
+    }
 }

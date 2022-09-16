@@ -3,6 +3,7 @@ const std = @import("std");
 const math = std.math;
 
 const ptx = @import("kernel_utils.zig");
+pub const panic = ptx.panic;
 
 fn clamp(x: i32, min: i32, max: i32) i32 {
     if (x < min) return min;

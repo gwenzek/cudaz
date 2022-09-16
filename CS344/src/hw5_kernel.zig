@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const ptx = @import("kernel_utils.zig");
+pub const panic = ptx.panic;
 
 pub fn atomicHistogram(d_data: []u32, d_bins: []u32) callconv(ptx.Kernel) void {
     const gid = ptx.getIdX();

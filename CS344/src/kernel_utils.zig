@@ -10,11 +10,17 @@ pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvent
 // Size for storing a thread id
 pub const utid = u32;
 
+// Note: I normally avoid llvm builtin, since I might want to drop LLVM at some point,
+// but if I call "trap" through inline asm, I can't specify it's a noreturn.
+extern fn @"llvm.trap"() noreturn;
+
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+    @setCold(true);
+    @setRuntimeSafety(false);
     _ = error_return_trace;
+    // TODO: copy the message on a shared buffer accessible by the CPU
     _ = msg;
-    asm volatile ("trap;");
-    unreachable;
+    @"llvm.trap"();
 }
 
 pub fn threadIdX() utid {
