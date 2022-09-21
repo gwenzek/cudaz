@@ -4,7 +4,7 @@ const ptx = @import("kernel_utils.zig");
 pub const panic = ptx.panic;
 
 pub fn atomicHistogram(d_data: []u32, d_bins: []u32) callconv(ptx.Kernel) void {
-    const gid = ptx.getIdX();
+    const gid = ptx.getId_1D();
     if (gid >= d_data.len) return;
 
     const bin = d_data[gid];
@@ -49,7 +49,7 @@ pub fn bychunkHistogram(d_data: []u32, d_bins: []u32) callconv(ptx.Kernel) void 
 
 pub fn coarseBins(d_data: []u32, d_coarse_bins: []u32) callconv(ptx.Kernel) void {
     const n = d_data.len;
-    const id = ptx.getIdX();
+    const id = ptx.getId_1D();
     if (id < n) {
         const rad = d_data[id] / 32;
         d_coarse_bins[rad * n + id] = 1;
@@ -63,7 +63,7 @@ pub fn shuffleCoarseBins32(
     d_in: []const u32,
 ) callconv(ptx.Kernel) void {
     const n = d_in.len;
-    const id = ptx.getIdX();
+    const id = ptx.getId_1D();
     if (id >= n) return;
     const x = d_in[id];
     const rad = x >> 5 & 0b11111;
@@ -83,7 +83,7 @@ var cdfIncremental_shared: [1024]u32 = undefined; // stage1
 
 pub fn cdfIncremental(d_glob_bins: []u32, d_block_bins: []u32) callconv(ptx.Kernel) void {
     const n = d_glob_bins.len;
-    const global_id = ptx.getIdX();
+    const global_id = ptx.getId_1D();
     if (global_id >= n) return;
     const tid = ptx.threadIdX();
 
@@ -100,11 +100,11 @@ pub fn cdfIncremental(d_glob_bins: []u32, d_block_bins: []u32) callconv(ptx.Kern
 
 pub fn cdfIncrementalShift(d_glob_bins: []u32, d_block_bins: []const u32) callconv(ptx.Kernel) void {
     const block_shift = d_block_bins[ptx.blockIdX()];
-    d_glob_bins[ptx.getIdX()] += block_shift;
+    d_glob_bins[ptx.getId_1D()] += block_shift;
 }
 
 comptime {
-    if (ptx.is_nvptx) {
+    if (ptx.is_device) {
         @export(atomicHistogram, .{ .name = "atomicHistogram" });
         @export(bychunkHistogram, .{ .name = "bychunkHistogram" });
         @export(coarseBins, .{ .name = "coarseBins" });

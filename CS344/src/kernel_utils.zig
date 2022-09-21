@@ -4,8 +4,8 @@ const builtin = @import("builtin");
 const TypeInfo = std.builtin.TypeInfo;
 const CallingConvention = @import("std").builtin.CallingConvention;
 
-pub const is_nvptx = builtin.cpu.arch == .nvptx64;
-pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
+pub const is_device = builtin.cpu.arch == .nvptx64;
+pub const Kernel = if (is_device) CallingConvention.PtxKernel else CallingConvention.Inline;
 
 // Size for storing a thread id
 pub const utid = u32;
@@ -24,90 +24,90 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
 }
 
 pub fn threadIdX() utid {
-    if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
+    if (!is_device) return 0;
+    var tid = asm ("mov.u32 \t%[r], %tid.x;"
         : [r] "=r" (-> utid),
     );
     return tid;
 }
 
 pub fn blockDimX() utid {
-    if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.x;"
+    if (!is_device) return 0;
+    var ntid = asm ("mov.u32 \t%[r], %ntid.x;"
         : [r] "=r" (-> utid),
     );
     return ntid;
 }
 
 pub fn blockIdX() utid {
-    if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
+    if (!is_device) return 0;
+    var ctaid = asm ("mov.u32 \t%[r], %ctaid.x;"
         : [r] "=r" (-> utid),
     );
     return ctaid;
 }
 
 pub fn gridDimX() utid {
-    if (!is_nvptx) return 0;
-    var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
+    if (!is_device) return 0;
+    var nctaid = asm ("mov.u32 \t%[r], %nctaid.x;"
         : [r] "=r" (-> utid),
     );
     return nctaid;
 }
 
-pub fn getIdX() utid {
+pub fn getId_1D() utid {
     return threadIdX() + blockDimX() * blockIdX();
 }
 
 pub fn threadIdY() utid {
-    if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t%[r], %tid.y;"
+    if (!is_device) return 0;
+    var tid = asm ("mov.u32 \t%[r], %tid.y;"
         : [r] "=r" (-> utid),
     );
     return tid;
 }
 
 pub fn blockDimY() utid {
-    if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.y;"
+    if (!is_device) return 0;
+    var ntid = asm ("mov.u32 \t%[r], %ntid.y;"
         : [r] "=r" (-> utid),
     );
     return ntid;
 }
 
 pub fn blockIdY() utid {
-    if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.y;"
+    if (!is_device) return 0;
+    var ctaid = asm ("mov.u32 \t%[r], %ctaid.y;"
         : [r] "=r" (-> utid),
     );
     return ctaid;
 }
 
 pub fn threadIdZ() utid {
-    if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t%[r], %tid.z;"
+    if (!is_device) return 0;
+    var tid = asm ("mov.u32 \t%[r], %tid.z;"
         : [r] "=r" (-> utid),
     );
     return tid;
 }
 
 pub fn blockDimZ() utid {
-    if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.z;"
+    if (!is_device) return 0;
+    var ntid = asm ("mov.u32 \t%[r], %ntid.z;"
         : [r] "=r" (-> utid),
     );
     return ntid;
 }
 
 pub fn blockIdZ() utid {
-    if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.z;"
+    if (!is_device) return 0;
+    var ctaid = asm ("mov.u32 \t%[r], %ctaid.z;"
         : [r] "=r" (-> utid),
     );
     return ctaid;
 }
 pub fn syncThreads() void {
-    if (!is_nvptx) return;
+    if (!is_device) return;
     asm volatile ("bar.sync \t0;");
 }
 
@@ -142,7 +142,7 @@ pub fn getId_3D() Dim3 {
 }
 
 // pub fn exportModule(comptime Module: anytype, comptime Exports: anytype) void {
-//     if (!is_nvptx) return;
+//     if (!is_device) return;
 //     // TODO assert call conv
 //     const fields: []const TypeInfo.StructField = std.meta.fields(Exports);
 //     // var args_ptrs: [fields.len:0]usize = undefined;

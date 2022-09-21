@@ -1,15 +1,8 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const math = std.math;
 
 const ptx = @import("kernel_utils.zig");
 pub const panic = ptx.panic;
-
-fn clamp(x: i32, min: i32, max: i32) i32 {
-    if (x < min) return min;
-    if (x >= max) return max - 1;
-    return x;
-}
 
 pub const Mat3 = struct {
     data: [*]const u8,
@@ -25,9 +18,9 @@ pub const Mat3 = struct {
 
     pub fn idxClamped(self: Mat3, x: i32, y: i32, z: i32) usize {
         return self.idx(
-            clamp(x, 0, self.shape[0]),
-            clamp(y, 0, self.shape[1]),
-            clamp(z, 0, self.shape[2]),
+            math.clamp(x, 0, self.shape[0] - 1),
+            math.clamp(y, 0, self.shape[1] - 1),
+            math.clamp(z, 0, self.shape[2] - 1),
         );
     }
 };
@@ -45,8 +38,8 @@ pub const Mat2Float = struct {
 
     pub fn idxClamped(self: Mat2Float, x: i32, y: i32) usize {
         return self.idx(
-            clamp(x, 0, self.shape[0]),
-            clamp(y, 0, self.shape[1]),
+            math.clamp(x, 0, self.shape[0] - 1),
+            math.clamp(y, 0, self.shape[1] - 1),
         );
     }
 };
@@ -69,6 +62,9 @@ pub const GaussianBlurArgs = struct {
     output: [*]u8,
 };
 
+/// Compares 3 ways of making a gaussianBlur kernel:
+/// by using a c-like API, by passing one struct will args,
+/// and a more fluent version that uses 3 "Matrix" struct.
 pub fn gaussianBlurStruct(args: GaussianBlurArgs) callconv(ptx.Kernel) void {
     return gaussianBlurVerbose(
         args.img.data,
@@ -140,7 +136,7 @@ pub fn gaussianBlur(
 }
 
 comptime {
-    if (ptx.is_nvptx) {
+    if (ptx.is_device) {
         @export(gaussianBlur, .{ .name = "gaussianBlur" });
         @export(gaussianBlurStruct, .{ .name = "gaussianBlurStruct" });
         @export(gaussianBlurVerbose, .{ .name = "gaussianBlurVerbose" });

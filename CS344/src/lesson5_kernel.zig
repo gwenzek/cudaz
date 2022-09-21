@@ -14,7 +14,7 @@ pub fn transposeCpu(data: []const u32, trans: []u32, num_cols: usize) callconv(p
 }
 
 pub fn transposePerRow(data: []const u32, trans: []u32, num_cols: usize) callconv(ptx.Kernel) void {
-    const i = ptx.getIdX();
+    const i = ptx.getId_1D();
     var j: usize = 0;
     while (j < num_cols) : (j += 1) {
         trans[num_cols * i + j] = data[num_cols * j + i];
@@ -80,7 +80,7 @@ pub var transpose_per_block_inlined_buffer: [16][block_size][block_size]u32 = un
 /// and copy non-contiguous element from the buffer to a contiguous slice of the output
 pub fn transposePerBlockInlined(data: []const u32, trans: []u32, num_cols: usize) callconv(ptx.Kernel) void {
     var buffer = &transpose_per_block_inlined_buffer[ptx.threadIdX()];
-    const block_i = ptx.getIdX() * block_size;
+    const block_i = ptx.getId_1D() * block_size;
     const block_j = ptx.blockIdY() * block_size;
     const block_out_i = block_j;
     const block_out_j = block_i;
@@ -103,7 +103,7 @@ pub fn transposePerBlockInlined(data: []const u32, trans: []u32, num_cols: usize
 }
 
 comptime {
-    if (ptx.is_nvptx) {
+    if (ptx.is_device) {
         @export(transposeCpu, .{ .name = "transposeCpu" });
         @export(transposePerRow, .{ .name = "transposePerRow" });
         @export(transposePerCell, .{ .name = "transposePerCell" });

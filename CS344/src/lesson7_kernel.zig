@@ -6,7 +6,7 @@ pub export fn quicksort(d_out: []f32) callconv(.Kernel) void {
     // TODO: this should be a "no-divergence point", mark it as such
     if (d_out.len == 1) return;
 
-    const tid = ku.getIdX();
+    const tid = ku.getId_1D();
 
     // TODO actual run partitionning
     const pivot_id = d_out.len / 2;
