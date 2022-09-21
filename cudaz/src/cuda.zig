@@ -8,6 +8,7 @@ const cudaz_options = @import("cudaz_options");
 pub const cu = @import("cuda_cimports.zig").cu;
 pub const cuda_errors = @import("cuda_errors.zig");
 pub const check = cuda_errors.check;
+pub const errorName = cuda_errors.error_name;
 pub const Error = cuda_errors.Error;
 const attributes = @import("attributes.zig");
 pub const Attribute = attributes.Attribute;
@@ -124,11 +125,15 @@ pub const Stream = struct {
     }
 
     pub fn free(self: *const Stream, device_ptr: anytype) void {
+        check(self._free(device_ptr)) catch unreachable;
+    }
+
+    pub fn _free(self: *const Stream, device_ptr: anytype) cu.CUresult {
         var raw_ptr: *anyopaque = if (meta.trait.isSlice(@TypeOf(device_ptr)))
             @ptrCast(*anyopaque, device_ptr.ptr)
         else
             @ptrCast(*anyopaque, device_ptr);
-        _ = cu.cuMemFreeAsync(@ptrToInt(raw_ptr), self._stream);
+        return cu.cuMemFreeAsync(@ptrToInt(raw_ptr), self._stream);
     }
 
     pub fn memcpyHtoD(self: *const Stream, comptime DestType: type, d_target: []DestType, h_source: []const DestType) void {
@@ -171,15 +176,18 @@ pub const Stream = struct {
     }
 
     pub fn memset(self: *const Stream, comptime DestType: type, slice: []DestType, value: DestType) void {
+        check(self._memset(DestType, slice, value)) catch unreachable;
+    }
+
+    pub fn _memset(self: *const Stream, comptime DestType: type, slice: []DestType, value: DestType) cu.CUresult {
         var d_ptr = @ptrToInt(slice.ptr);
         var n = slice.len;
-        var memset_res = switch (@sizeOf(DestType)) {
+        return switch (@sizeOf(DestType)) {
             1 => cu.cuMemsetD8Async(d_ptr, @bitCast(u8, value), n, self._stream),
             2 => cu.cuMemsetD16Async(d_ptr, @bitCast(u16, value), n, self._stream),
             4 => cu.cuMemsetD32Async(d_ptr, @bitCast(u32, value), n, self._stream),
             else => @compileError("memset doesn't support type: " ++ @typeName(DestType)),
         };
-        check(memset_res) catch unreachable;
     }
 
     pub inline fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args: anytype) !void {
@@ -210,8 +218,12 @@ pub const Stream = struct {
         // TODO use callback API to keep the asynchronous scheduling
     }
 
+    pub fn _synchronize(self: *const Stream) cu.CUresult {
+        return cu.cuStreamSynchronize(self._stream);
+    }
+
     pub fn synchronize(self: *const Stream) void {
-        check(cu.cuStreamSynchronize(self._stream)) catch unreachable;
+        check(self._synchronize()) catch unreachable;
     }
 
     pub fn format(
