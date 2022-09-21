@@ -1,15 +1,15 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
-pub const is_nvptx = builtin.cpu.arch == .nvptx64;
-pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Win64;
+pub const is_device = builtin.cpu.arch == .nvptx64;
+pub const Kernel = if (is_device) CallingConvention.PtxKernel else CallingConvention.Inline;
 
 // Equivalent of Cuda's __syncthreads()
 /// Wait to all the threads in this block to reach this barrier
 /// before going on.
 pub inline fn syncThreads() void {
     // @"llvm.nvvm.barrier0"();
-    if (!is_nvptx) return;
+    if (!is_device) return;
     asm volatile ("bar.sync \t0;");
 }
 
@@ -22,7 +22,7 @@ pub inline fn syncThreads() void {
 // extern fn @"llvm.nvvm.read.ptx.sreg.ntid.x"() i32;
 
 pub fn threadIdX() usize {
-    if (!is_nvptx) return 0;
+    if (!is_device) return 0;
     var tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
         : [r] "=r" (-> u32),
     );
@@ -30,7 +30,7 @@ pub fn threadIdX() usize {
 }
 
 pub fn blockDimX() usize {
-    if (!is_nvptx) return 0;
+    if (!is_device) return 0;
     var ntid = asm volatile ("mov.u32 \t%[r], %ntid.x;"
         : [r] "=r" (-> u32),
     );
@@ -38,7 +38,7 @@ pub fn blockDimX() usize {
 }
 
 pub fn blockIdX() usize {
-    if (!is_nvptx) return 0;
+    if (!is_device) return 0;
     var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
         : [r] "=r" (-> u32),
     );
@@ -46,7 +46,7 @@ pub fn blockIdX() usize {
 }
 
 pub fn gridDimX() usize {
-    if (!is_nvptx) return 0;
+    if (!is_device) return 0;
     var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
         : [r] "=r" (-> u32),
     );
@@ -139,21 +139,16 @@ pub fn getId_3D() Dim3 {
 // pub export fn init_panic_message_buffer(buffer: []u8) callconv(Kernel) void {
 //     panic_message_buffer = buffer;
 // }
-// if (!is_nvptx) @compileError("This panic handler is made for GPU");
+// if (!is_device) @compileError("This panic handler is made for GPU");
 
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     _ = error_return_trace;
     _ = msg;
+    @setCold(true);
+    // Disable runtime safety to not introduce a recursive call to panic on "unreachable".
+    @setRuntimeSafety(false);
     asm volatile ("trap;");
-    // `unreachable` implictly calls panic recursively and confuses ptxas.
     unreachable;
-    // `noreturn` crashes LLVM because "Basic Block in function 'nvptx.panic' does not have terminator!"
-    // This seems to be a bad .ll generation
-    // return asm volatile ("trap;"
-    //     : [r] "=r" (-> noreturn),
-    // );
-    // while(true) fails to compile because of "LLVM ERROR: Symbol name with unsupported characters"
-    // while(true){}
 }
 // if (panic_message_buffer) |*buffer| {
 // const len = std.math.min(msg.len, buffer.len);
@@ -162,32 +157,3 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
 // TODO: prevent all threads wirting in the same place
 // buffer.*.len = len;
 // }
-
-const message = "Hello World !\x00";
-
-pub export fn test_hello_world(out: []u8) callconv(Kernel) void {
-    const i = getIdX();
-    if (i > message.len or i > out.len) return;
-    syncThreads();
-    out[i] = message[i];
-}
-
-var shared_buffer: [2]u8 align(8) addrspace(.shared) = undefined;
-
-pub fn test_swap2_with_shared_buff(src: []const u8, tgt: []u8) callconv(Kernel) void {
-    if (!is_nvptx) return;
-    var buffer = &shared_buffer; // stage2
-    const i = threadIdX();
-    const x = getIdX();
-    buffer[i] = src[x];
-    syncThreads();
-    tgt[x] = buffer[1 - i % 2];
-}
-
-comptime {
-    if (is_nvptx) {
-        if (std.builtin.panic != panic)
-            @compileError("panic is the wrong panic");
-        @export(test_swap2_with_shared_buff, .{ .name = "test_swap2_with_shared_buff" });
-    }
-}
