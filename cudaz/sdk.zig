@@ -11,7 +11,6 @@ const LibExeObjStep = std.build.LibExeObjStep;
 /// We default to .ptx because it's more easy to distribute.
 // TODO: make this a build option
 const NVCC_OUTPUT_FORMAT = "ptx";
-const ZIG_STAGE2 = "/home/guw/github/zig/build/stage3/bin/zig";
 const SDK_ROOT = sdk_root() ++ "/";
 
 /// For a given object:
@@ -27,7 +26,7 @@ const SDK_ROOT = sdk_root() ++ "/";
 pub fn addCudazWithNvcc(
     b: *Builder,
     exe: *LibExeObjStep,
-    comptime cuda_dir: []const u8,
+    cuda_dir: []const u8,
     comptime kernel_path: [:0]const u8,
 ) void {
     const outfile = std.mem.join(
@@ -41,9 +40,12 @@ pub fn addCudazWithNvcc(
     ) catch unreachable;
     std.fs.cwd().makePath(b.exe_dir) catch @panic("Couldn't create zig-out output dir");
 
+    const nvcc_bin = std.fs.path.join(b.allocator, &[_][]const u8{ cuda_dir, "bin/nvcc" }) catch unreachable;
+    defer b.allocator.free(nvcc_bin);
+
     // Use nvcc to compile the .cu file
     const nvcc = b.addSystemCommand(&[_][]const u8{
-        cuda_dir ++ "/bin/nvcc",
+        nvcc_bin,
         // In Zig spirit, promote warnings to errors.
         "--Werror=all-warnings",
         "--display-error-number",
@@ -70,7 +72,7 @@ pub fn addCudazWithNvcc(
 pub fn addCudazWithZigKernel(
     b: *Builder,
     exe: *LibExeObjStep,
-    comptime cuda_dir: []const u8,
+    cuda_dir: []const u8,
     comptime kernel_path: [:0]const u8,
 ) void {
     const name = std.fs.path.basename(kernel_path);
@@ -119,14 +121,16 @@ pub fn addCudazWithZigKernel(
 pub fn addCudazDeps(
     b: *Builder,
     exe: *LibExeObjStep,
-    comptime cuda_dir: []const u8,
+    cuda_dir: []const u8,
     comptime kernel_path: [:0]const u8,
     kernel_ptx_path: [:0]const u8,
 ) void {
     const kernel_dir = std.fs.path.dirname(kernel_path).?;
     // Add libc and cuda headers / lib, and our own .cu files
     exe.linkLibC();
-    exe.addLibPath(cuda_dir ++ "/lib64");
+    const cuda_lib64 = std.fs.path.join(b.allocator, &[_][]const u8{ cuda_dir, "lib64" }) catch unreachable;
+    defer b.allocator.free(cuda_lib64);
+    exe.addLibPath(cuda_lib64);
     exe.linkSystemLibraryNeeded("cuda");
     // If nvidia-ptxjitcompiler is not found on your system,
     // check that there is a libnvidia-ptxjitcompiler.so, or create a symlink
@@ -135,7 +139,9 @@ pub fn addCudazDeps(
     // but this should warn the user that something is wrong.
     exe.linkSystemLibraryNeeded("nvidia-ptxjitcompiler");
     exe.addIncludeDir(SDK_ROOT ++ "src");
-    exe.addIncludeDir(cuda_dir ++ "/include");
+    const cuda_include = std.fs.path.join(b.allocator, &[_][]const u8{ cuda_dir, "include" }) catch unreachable;
+    defer b.allocator.free(cuda_include);
+    exe.addIncludeDir(cuda_include);
     exe.addIncludeDir(kernel_dir);
 
     // Add cudaz package with the kernel paths.
@@ -148,7 +154,8 @@ pub fn addCudazDeps(
     // Portable mode will embed the cuda modules inside the binary.
     // In debug mode we skip this step to have faster compilation.
     // But this makes the debug executable dependent on a hard-coded path.
-    cudaz_options.addOption(bool, "portable", exe.build_mode != .Debug);
+    // TODO: currently this is forbidden by Zig. See https://github.com/ziglang/zig/issues/6662
+    cudaz_options.addOption(bool, "portable", false);
 
     const cudaz_pkg = std.build.Pkg{
         .name = "cudaz",
@@ -166,6 +173,10 @@ pub fn addCudazDeps(
     }
 }
 
+pub fn addCudazNoKernel(b: *Builder, exe: *LibExeObjStep) void {
+    addCudazDeps(b, exe, "/cuda_dir/", "./nope.zig", "./nope.ptx");
+}
+
 fn sdk_root() []const u8 {
     return std.fs.path.dirname(@src().file).?;
 }
@@ -174,12 +185,15 @@ fn sdk_root() []const u8 {
 fn validate_ptx_file(
     b: *Builder,
     zig_kernel: *LibExeObjStep,
-    comptime cuda_dir: []const u8,
+    cuda_dir: []const u8,
     kernel_ptx_path: []const u8,
 ) *std.build.RunStep {
     const suppress_stack_size_warning = "--suppress-stack-size-warning";
+
+    const ptxas_bin = std.fs.path.join(b.allocator, &[_][]const u8{ cuda_dir, "bin/ptxas" }) catch unreachable;
+    defer b.allocator.free(ptxas_bin);
     var full_ptxas_cmd = [_][]const u8{
-        cuda_dir ++ "/bin/ptxas",
+        ptxas_bin,
         kernel_ptx_path,
         // This might be a little bit aggressive
         "--warning-as-error",
