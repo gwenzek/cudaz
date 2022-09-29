@@ -26,13 +26,16 @@ pub fn build(b: *Builder) void {
     addLodePng(test_png);
     tests.dependOn(&test_png.step);
 
-    // Pure
+    // Pure Zig implementation
     const run_step = b.step("run", "Run the examples");
-    const hw1 = addZigHomework(b, tests, "hw1");
-    run_step.dependOn(&hw1.step);
+    // const hw1 = addZigHomework(b, tests, "hw1");
+    // run_step.dependOn(&hw1.step);
 
-    const hw2 = addZigHomework(b, tests, "hw2");
-    run_step.dependOn(&hw2.step);
+    // const hw2 = addZigHomework(b, tests, "hw2");
+    // run_step.dependOn(&hw2.step);
+
+    const hw3 = addZigHomework(b, tests, "hw3");
+    run_step.dependOn(&hw3.step);
 
     const hw5 = addZigHomework(b, tests, "hw5");
     run_step.dependOn(&hw5.step);
@@ -71,13 +74,13 @@ fn addLodePng(exe: *LibExeObjStep) void {
     const lodepng_flags = [_][]const u8{
         "-DLODEPNG_COMPILE_ERROR_TEXT",
     };
-    exe.addIncludeDir("lodepng/");
+    exe.addIncludePath("lodepng/");
     exe.addCSourceFile("lodepng/lodepng.c", &lodepng_flags);
 }
 
 fn addNvccHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8) *LibExeObjStep {
     const src = "src/nvcc/";
-    const hw = b.addExecutable(name, src ++ name ++ ".zig");
+    const hw = b.addExecutable(name ++ "_nvcc", src ++ name ++ ".zig");
     hw.setTarget(target);
     hw.setBuildMode(mode);
 
@@ -99,8 +102,10 @@ fn addZigHomework(b: *Builder, tests: *std.build.Step, comptime name: []const u8
     cuda_sdk.addCudazWithZigKernel(b, hw, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
     addLodePng(hw);
     hw.install();
+    const hw_run_step = b.step(name, "Run " ++ name);
     const hw_run = hw.run();
     hw_run.step.dependOn(b.getInstallStep());
+    hw_run_step.dependOn(&hw_run.step);
 
     const test_hw = b.addTest("src/" ++ name ++ ".zig");
     cuda_sdk.addCudazWithZigKernel(b, test_hw, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");

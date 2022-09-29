@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const meta = std.meta;
 const testing = std.testing;
-const TypeInfo = std.builtin.TypeInfo;
+const Type = std.builtin.Type;
 
 const cudaz_options = @import("cudaz_options");
 pub const cu = @import("cuda_cimports.zig").cu;
@@ -196,7 +196,7 @@ pub const Stream = struct {
 
     pub fn launchWithSharedMem(self: *const Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
         // Create an array of pointers pointing to the given args.
-        const fields: []const TypeInfo.StructField = meta.fields(@TypeOf(args));
+        const fields: []const Type.StructField = meta.fields(@TypeOf(args));
         var args_ptrs: [fields.len:0]usize = undefined;
         inline for (fields) |field, i| {
             args_ptrs[i] = @ptrToInt(&@field(args, field.name));
@@ -674,7 +674,7 @@ test "GpuTimer" {
 pub fn Kernels(comptime module: type) type {
     // @compileLog(@typeName(module));
     const decls = @typeInfo(module).Struct.decls;
-    var kernels: [decls.len]TypeInfo.StructField = undefined;
+    var kernels: [decls.len]Type.StructField = undefined;
     comptime var kernels_count = 0;
     inline for (decls) |decl| {
         if (decl.data != .Fn or !decl.data.Fn.is_export) continue;
@@ -688,11 +688,11 @@ pub fn Kernels(comptime module: type) type {
         kernels_count += 1;
     }
     // @compileLog(kernels_count);
-    return @Type(TypeInfo{
-        .Struct = TypeInfo.Struct{
+    return @Type(Type{
+        .Struct = Type.Struct{
             .is_tuple = false,
             .layout = .Auto,
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &[_]Type.Declaration{},
             .fields = kernels[0..kernels_count],
         },
     });

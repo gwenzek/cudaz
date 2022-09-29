@@ -143,7 +143,7 @@ fn histogram_and_prefixsum(
     try lumHisto.launch(
         stream,
         cuda.Grid.init1D(num_pixels, 1024),
-        .{ d_histo, d_xyY, minmax_lum, numBins },
+        .{ d_histo, d_xyY, minmax_lum },
     );
 
     const computeCdf = try cuda.ZigKernel(kernels, "blellochCdf").init();

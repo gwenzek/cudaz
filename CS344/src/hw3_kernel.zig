@@ -4,11 +4,8 @@ const math = std.math;
 const ptx = @import("kernel_utils.zig");
 pub const panic = ptx.panic;
 
-pub fn rgb2xyY(
-    d_rgb: []f32,
-    d_xyY: []f32,
-    delta: f32,
-) callconv(ptx.Kernel) void {
+pub fn rgb2xyY(d_rgb: []f32, d_xyY: []f32, delta: f32) callconv(ptx.Kernel) void {
+    if (!ptx.is_device) return;
     const offset = ptx.getId_1D() * 3;
     if (offset >= d_rgb.len)
         return;
@@ -22,37 +19,44 @@ pub fn rgb2xyY(
     const Y = (r * 0.2126) + (g * 0.7152) + (b * 0.0722);
     const Z = (r * 0.0193) + (g * 0.1192) + (b * 0.9505);
     const L = X + Y + Z;
-
-    d_xyY[offset + 0] = X / L;
-    d_xyY[offset + 1] = Y / L;
-    // TODO: investigate why @log10 resolve to `log10f` and not some asm.
-    const delta_p_Y = delta + Y;
-    const log2_delta_p_Y = asm ("lg2.approx.f32 \t%[r], %[x];"
-        : [r] "=r" (-> f32),
-        : [x] "r" (delta_p_Y),
-    );
-    d_xyY[offset + 2] = log2_delta_p_Y / @log2(10.0);
+    // Is it fine to use div approx ?
+    // TODO: check on EXR image and not it's PNG export
+    d_xyY[offset + 0] = ptx.divApprox(X, L);
+    d_xyY[offset + 1] = ptx.divApprox(Y, L);
+    d_xyY[offset + 2] = ptx.log10(delta + Y);
 }
 
 pub const MinMax = struct { min: f32, max: f32 };
-extern var _reduceMinmaxLum_sdata: opaque {} align(8) addrspace(.shared);
+var _reduceMinmaxLum_sdata: [1024]MinMax align(8) addrspace(.shared) = undefined;
 
-pub fn reduceMinmaxLum(d_xyY: []const f32, d_out: []MinMax) callconv(ptx.Kernel) void {
-    var sdata = @ptrCast([*]addrspace(.shared) MinMax, &_reduceMinmaxLum_sdata);
+pub fn reduceMinmaxLum(
+    d_xyY: []const f32,
+    d_out: []MinMax,
+) callconv(ptx.Kernel) void {
+    if (!ptx.is_device) return;
     const myId = ptx.getId_1D();
     if (myId * 3 >= d_xyY.len) {
         return;
     }
-    const tid = ptx.threadIdX();
-    // load shared mem from global mem
     var minmax: MinMax = .{ .min = d_xyY[myId * 3 + 2], .max = d_xyY[myId * 3 + 2] };
+    _reduceMinMaxCore(minmax, d_out);
+}
+
+var _reduceMinmaxCore_sdata: [1024]MinMax align(8) addrspace(.shared) = undefined;
+
+fn _reduceMinMaxCore(
+    minmax_seed: MinMax,
+    d_out: []MinMax,
+) void {
+    var sdata = @addrSpaceCast(.generic, &_reduceMinmaxCore_sdata)[0..ptx.gridDimX()];
+    var minmax: MinMax = minmax_seed;
+    const tid = ptx.threadIdX();
     sdata[tid] = minmax;
     // make sure entire block is loaded!
     ptx.syncThreads();
-
     // do reduction in shared mem
-    var s = ptx.blockDimX() / 2;
-    while (s > 0) : (s >>= 1) {
+    var s = ptx.blockDimX() >> 1;
+    while (s > 0) : (s = s >> 1) {
         if (tid < s) {
             minmax.min = math.min(sdata[tid].min, sdata[tid + s].min);
             minmax.max = math.max(sdata[tid].max, sdata[tid + s].max);
@@ -63,42 +67,21 @@ pub fn reduceMinmaxLum(d_xyY: []const f32, d_out: []MinMax) callconv(ptx.Kernel)
 
     // only thread 0 writes result for this block back to global mem
     if (tid == 0) {
-        d_out[ptx.blockIdX()] = sdata[0];
+        d_out[ptx.blockIdX()] = minmax;
     }
 }
 
-extern var _reduceMinmax_sdata: opaque {} align(8) addrspace(.shared);
-
 pub fn reduceMinmax(d_in: []const MinMax, d_out: []MinMax) callconv(ptx.Kernel) void {
-    var sdata = @ptrCast([*]addrspace(.shared) MinMax, &_reduceMinmax_sdata);
+    if (!ptx.is_device) return;
     const myId = ptx.getId_1D();
     if (myId >= d_in.len) {
         return;
     }
-    const tid = ptx.threadIdX();
-    // load shared mem from global mem
-    sdata[tid] = d_in[myId];
-    ptx.syncThreads(); // make sure entire block is loaded!
-
-    var minmax: MinMax = undefined;
-    // do reduction in shared mem
-    var s = ptx.blockDimX() / 2;
-    while (s > 0) : (s >>= 1) {
-        if (tid < s) {
-            minmax.min = math.min(sdata[tid].min, sdata[tid + s].min);
-            minmax.max = math.max(sdata[tid].max, sdata[tid + s].max);
-            sdata[tid] = minmax;
-        }
-        ptx.syncThreads(); // make sure all adds at one stage are done!
-    }
-
-    // only thread 0 writes result for this block back to global mem
-    if (tid == 0) {
-        d_out[ptx.blockIdX()] = sdata[0];
-    }
+    _reduceMinMaxCore(d_in[myId], d_out);
 }
 
 pub fn lumHisto(d_bins: []u32, d_xyY: []const f32, lum_minmax: MinMax) callconv(ptx.Kernel) void {
+    if (!ptx.is_device) return;
     const myId = ptx.getId_1D();
     if (myId * 3 >= d_xyY.len) return;
 
@@ -113,6 +96,7 @@ pub fn lumHisto(d_bins: []u32, d_xyY: []const f32, lum_minmax: MinMax) callconv(
 }
 
 pub fn naiveComputeCdf(d_cdf: []f32, d_bins: []u32) callconv(ptx.Kernel) void {
+    if (!ptx.is_device) return;
     const myId = ptx.getId_1D();
     if (myId >= d_bins.len) return;
 
@@ -131,6 +115,7 @@ pub fn naiveComputeCdf(d_cdf: []f32, d_bins: []u32) callconv(ptx.Kernel) void {
 }
 
 pub fn blellochCdf(d_cdf: []f32, d_bins: []u32) callconv(ptx.Kernel) void {
+    if (!ptx.is_device) return;
     // We need synchronization across all threads so only one block
     if (ptx.gridDimX() > 1) return;
     const n = d_bins.len;
@@ -166,6 +151,7 @@ pub fn blellochCdf(d_cdf: []f32, d_bins: []u32) callconv(ptx.Kernel) void {
 }
 
 pub fn toneMap(d_xyY: []const f32, d_cdf_norm: []const f32, d_rgb_new: []f32, lum_minmax: MinMax, num_bins: u32) callconv(ptx.Kernel) void {
+    if (!ptx.is_device) return;
     const id = ptx.getId_1D();
     if (id * 3 >= d_xyY.len) return;
 

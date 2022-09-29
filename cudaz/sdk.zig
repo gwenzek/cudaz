@@ -91,8 +91,8 @@ pub fn addCudazWithZigKernel(
     // A local `u2` will get lowered to a `u8`.
     // This looks like a bug in LLVM backend.
     // TODO: check it's still there in LLVM15
-    const build_mode = if (exe.build_mode == .Debug) .ReleaseSafe else exe.build_mode;
-    zig_kernel.setBuildMode(build_mode);
+    // const build_mode = if (exe.build_mode == .Debug) .ReleaseSafe else exe.build_mode;
+    zig_kernel.setBuildMode(.ReleaseFast);
     // Adding the nvptx.zig package doesn't seem to work
     const ptx_pkg = std.build.Pkg{
         .name = "ptx",
@@ -130,7 +130,7 @@ pub fn addCudazDeps(
     exe.linkLibC();
     const cuda_lib64 = std.fs.path.join(b.allocator, &[_][]const u8{ cuda_dir, "lib64" }) catch unreachable;
     defer b.allocator.free(cuda_lib64);
-    exe.addLibPath(cuda_lib64);
+    exe.addLibraryPath(cuda_lib64);
     exe.linkSystemLibraryNeeded("cuda");
     // If nvidia-ptxjitcompiler is not found on your system,
     // check that there is a libnvidia-ptxjitcompiler.so, or create a symlink
@@ -138,11 +138,11 @@ pub fn addCudazDeps(
     // We don't need to link ptxjit compiler, since it's loaded at runtime,
     // but this should warn the user that something is wrong.
     exe.linkSystemLibraryNeeded("nvidia-ptxjitcompiler");
-    exe.addIncludeDir(SDK_ROOT ++ "src");
+    exe.addIncludePath(SDK_ROOT ++ "src");
     const cuda_include = std.fs.path.join(b.allocator, &[_][]const u8{ cuda_dir, "include" }) catch unreachable;
     defer b.allocator.free(cuda_include);
-    exe.addIncludeDir(cuda_include);
-    exe.addIncludeDir(kernel_dir);
+    exe.addIncludePath(cuda_include);
+    exe.addIncludePath(kernel_dir);
 
     // Add cudaz package with the kernel paths.
     const cudaz_options = b.addOptions();

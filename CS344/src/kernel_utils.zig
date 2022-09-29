@@ -141,6 +141,24 @@ pub fn getId_3D() Dim3 {
     };
 }
 
+pub fn divApprox(x: f32, y: f32) f32 {
+    return asm ("div.approx.f32 \t%[r], %[x], %[y];"
+        : [r] "=f" (-> f32),
+        : [x] "f" (x),
+          [y] "f" (y),
+    );
+}
+
+pub fn log10(x: f32) f32 {
+    // TODO: investigate why @log10 resolve to `log10f` and not some asm.
+    const log2x = asm ("lg2.approx.f32 \t%[r], %[x];"
+        : [r] "=f" (-> f32),
+        : [x] "f" (x),
+    );
+    const log10_quotient: f32 = 1.0 / @log2(10.0);
+    return log2x * log10_quotient;
+}
+
 // pub fn exportModule(comptime Module: anytype, comptime Exports: anytype) void {
 //     if (!is_device) return;
 //     // TODO assert call conv
