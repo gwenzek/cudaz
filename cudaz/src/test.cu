@@ -5,8 +5,7 @@ extern "C" {
 #endif
 
 __global__ void rgba_to_greyscale(const uchar3 *const rgbaImage,
-                                  unsigned char *const greyImage, int numRows,
-                                  int numCols) {
+                                  unsigned char *const greyImage, int num_pixels) {
   // TODO
   // Fill in the kernel to convert from color to greyscale
   // the mapping from components of a uchar4 to RGBA is:
@@ -20,6 +19,7 @@ __global__ void rgba_to_greyscale(const uchar3 *const rgbaImage,
   // to an absolute 2D location in the image, then use that to
   // calculate a 1D offset
   int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i > num_pixels) return;
   uchar3 px = rgbaImage[i];
   float R = px.x;
   float G = px.y;

@@ -175,6 +175,21 @@ pub const Stream = struct {
         return h_tgt;
     }
 
+    pub fn copyResult(
+        self: *const Stream,
+        comptime DestType: type,
+        d_source: *const DestType,
+    ) DestType {
+        var h_res: DestType = undefined;
+        check(cu.cuMemcpyDtoHAsync(
+            @ptrCast(*anyopaque, &h_res),
+            @ptrToInt(d_source),
+            @sizeOf(DestType),
+            self._stream,
+        )) catch unreachable;
+        return h_res;
+    }
+
     pub fn memset(self: *const Stream, comptime DestType: type, slice: []DestType, value: DestType) void {
         check(self._memset(DestType, slice, value)) catch unreachable;
     }
@@ -190,18 +205,15 @@ pub const Stream = struct {
         };
     }
 
-    pub inline fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args: anytype) !void {
-        try self.launchWithSharedMem(f, grid, 0, args);
-    }
-
-    pub fn launchWithSharedMem(self: *const Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
-        // Create an array of pointers pointing to the given args.
-        const fields: []const Type.StructField = meta.fields(@TypeOf(args));
-        var args_ptrs: [fields.len:0]usize = undefined;
-        inline for (fields) |field, i| {
-            args_ptrs[i] = @ptrToInt(&@field(args, field.name));
-        }
-        const res = cu.cuLaunchKernel(
+    pub fn _launch(
+        self: *const Stream,
+        f: cu.CUfunction,
+        grid: Grid,
+        shared_mem: usize,
+        args: [*c]usize,
+    ) cu.CUresult {
+        // TODO use callback API to keep the asynchronous scheduling
+        return cu.cuLaunchKernel(
             f,
             grid.blocks.x,
             grid.blocks.y,
@@ -211,11 +223,9 @@ pub const Stream = struct {
             grid.threads.z,
             @intCast(c_uint, shared_mem),
             self._stream,
-            @ptrCast([*c]?*anyopaque, &args_ptrs),
+            @ptrCast([*c]?*anyopaque, args),
             null,
         );
-        try check(res);
-        // TODO use callback API to keep the asynchronous scheduling
     }
 
     pub fn _synchronize(self: *const Stream) cu.CUresult {
@@ -316,14 +326,14 @@ pub fn allocAndCopyResult(
     return h_tgt;
 }
 
-pub fn readResult(comptime DestType: type, d_source: *const DestType) !DestType {
-    var h_res: [1]DestType = undefined;
-    try check(cu.cuMemcpyDtoH(
+pub fn copyResult(comptime DestType: type, d_source: *const DestType) DestType {
+    var h_res: DestType = undefined;
+    check(cu.cuMemcpyDtoH(
         @ptrCast(*anyopaque, &h_res),
         @ptrToInt(d_source),
         @sizeOf(DestType),
-    ));
-    return h_res[0];
+    )) catch unreachable;
+    return h_res;
 }
 
 pub fn memcpyHtoD(comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
@@ -462,7 +472,7 @@ fn defaultModule() cu.CUmodule {
         // Note: I tried to make this a path relative to the executable but failed because
         // the main executable and the test executable are in different folder
         // but refer to the same .ptx file.
-        check(cu.cuModuleLoad(&_default_module, @ptrCast([*c]const u8, file))) catch |err| {
+        check(cu.cuModuleLoad(&_default_module, file.ptr)) catch |err| {
             std.debug.panic("Couldn't load cuda module: {s}: {}", .{ file, err });
         };
     } else {
@@ -488,7 +498,7 @@ pub inline fn ZigKernel(comptime Module: anytype, comptime name: [:0]const u8) t
     return FnStruct(name, @field(Module, name));
 }
 
-pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
+pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
     return struct {
         const Self = @This();
         const CpuFn = *const @TypeOf(func);
@@ -498,7 +508,7 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
 
         pub fn init() !Self {
             var f: cu.CUfunction = undefined;
-            var code = cu.cuModuleGetFunction(&f, defaultModule(), @ptrCast([*c]const u8, name));
+            var code = cu.cuModuleGetFunction(&f, defaultModule(), name.ptr);
             if (code != cu.CUDA_SUCCESS) log.err("Couldn't load function {s}", .{name});
             try check(code);
             var res = Self{ .f = f };
@@ -519,7 +529,12 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
         pub fn launchWithSharedMem(self: *const Self, stream: *const Stream, grid: Grid, shared_mem: usize, args: Args) !void {
             // TODO: this seems error prone, could we make the type of the shared buffer
             // part of the function signature ?
-            try stream.launchWithSharedMem(self.f, grid, shared_mem, args);
+            return check(stream._launch(
+                self.f,
+                grid,
+                shared_mem,
+                argsToVoidStarStar(args),
+            ));
         }
 
         // pub fn debugCpuCall(grid: Grid, point: Grid, args: Args) void {
@@ -546,11 +561,22 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
             }
             try std.fmt.format(writer, ")", .{});
         }
+
+        pub inline fn argsToVoidStarStar(args: Args) [*c]usize {
+            // Create an array of pointers pointing to the given args.
+            const fields: []const Type.StructField = meta.fields(@TypeOf(args));
+            var args_ptrs: [fields.len:0]usize = undefined;
+            inline for (fields) |field, i| {
+                args_ptrs[i] = @ptrToInt(&@field(args, field.name));
+            }
+
+            return &args_ptrs;
+        }
     };
 }
 
 test "can read function signature from .cu files" {
-    log.warn("My kernel: {s}", .{@TypeOf(cu.rgba_to_greyscale)});
+    log.warn("My kernel: {}", .{@TypeOf(cu.rgba_to_greyscale)});
 }
 
 test "we use only one context per GPU" {
@@ -575,41 +601,33 @@ test "we use only one context per GPU" {
 test "rgba_to_greyscale" {
     var stream = try Stream.init(0);
     defer stream.deinit();
-    log.warn("cuda: {}", .{stream});
     const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
-    const numRows: u32 = 10;
-    const numCols: u32 = 20;
-    const d_rgbaImage = try alloc([4]u8, numRows * numCols);
-    // try memset([4]u8, d_rgbaImage, [4]u8{ 0xaa, 0, 0, 255 });
-    const d_greyImage = try alloc(u8, numRows * numCols);
-    try memset(u8, d_greyImage, 0);
-
-    try stream.launch(
-        rgba_to_greyscale.f,
-        .{ .blocks = Dim3.init(numRows, numCols, 1) },
-        .{ d_rgbaImage, d_greyImage, numRows, numCols },
-    );
-    stream.synchronize();
-}
-
-test "safe kernel" {
-    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
-    var stream = try Stream.init(0);
-    defer stream.deinit();
-    const numRows: u32 = 10;
-    const numCols: u32 = 20;
-    var d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
+    const num_pixels: u32 = 100;
+    var d_rgbaImage = try alloc(cu.uchar3, num_pixels);
     // memset(cu.uchar3, d_rgbaImage, 0xaa);
-    const d_greyImage = try alloc(u8, numRows * numCols);
+    const d_greyImage = try alloc(u8, num_pixels);
     try memset(u8, d_greyImage, 0);
     stream.synchronize();
-    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
+    const grid = Grid.init1D(num_pixels, 32);
+    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f.? });
     try rgba_to_greyscale.launch(
         &stream,
-        .{ .blocks = Dim3.init(numCols, numRows, 1) },
-        // TODO: we should accept slices
-        .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
+        grid,
+        .{ d_rgbaImage.ptr, d_greyImage.ptr, num_pixels },
     );
+    // TODO: launching from stream seems broken. Reduce and report
+    // try stream.launch(
+    //     rgba_to_greyscale.f,
+    //     grid,
+    //     .{ d_rgbaImage, d_greyImage, num_pixels },
+    // );
+    try rgba_to_greyscale.launchWithSharedMem(
+        &stream,
+        grid,
+        1024,
+        .{ d_rgbaImage.ptr, d_greyImage.ptr, num_pixels },
+    );
+    stream.synchronize();
 }
 
 test "cuda alloc" {
@@ -621,53 +639,27 @@ test "cuda alloc" {
     defer free(d_greyImage);
 }
 
-test "run the kernel on CPU" {
-    // This isn't very ergonomic, but it's possible !
-    // Also ironically it can't run in parallel because of the usage of the
-    // globals blockIdx and threadIdx.
-    // I think it could be useful to detect out of bound errors that Cuda
-    // tend to ignore.
-    const rgba_to_greyscale = CudaKernel("rgba_to_greyscale");
-    const rgbImage = [_]cu.uchar3{
-        .{ .x = 0x2D, .y = 0x24, .z = 0x1F },
-        .{ .x = 0xEB, .y = 0x82, .z = 0x48 },
-    };
-    var gray = [_]u8{ 0, 0 };
-    rgba_to_greyscale.debugCpuCall(
-        Grid.init1D(2, 1),
-        .{ .blocks = Dim3.init(0, 0, 0), .threads = Dim3.init(0, 0, 0) },
-        .{ &rgbImage, &gray, 1, 2 },
-    );
-    rgba_to_greyscale.debugCpuCall(
-        Grid.init1D(2, 1),
-        .{ .blocks = Dim3.init(0, 0, 0), .threads = Dim3.init(1, 0, 0) },
-        .{ &rgbImage, &gray, 1, 2 },
-    );
-
-    try testing.expectEqual([_]u8{ 38, 154 }, gray);
-}
-
 test "GpuTimer" {
-    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
     var stream = try Stream.init(0);
     defer stream.deinit();
-    const numRows: u32 = 10;
-    const numCols: u32 = 20;
-    var d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
+    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
+    const num_pixels: u32 = 100;
+    var d_rgbaImage = try alloc(cu.uchar3, num_pixels);
     // memset(cu.uchar3, d_rgbaImage, 0xaa);
-    const d_greyImage = try alloc(u8, numRows * numCols);
+    const d_greyImage = try alloc(u8, num_pixels);
     try memset(u8, d_greyImage, 0);
-
-    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
+    stream.synchronize();
+    const grid = Grid.init1D(num_pixels, 32);
+    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f.? });
     var timer = GpuTimer.start(&stream);
     try rgba_to_greyscale.launch(
         &stream,
-        .{ .blocks = Dim3.init(numCols, numRows, 1) },
-        .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
+        grid,
+        .{ d_rgbaImage.ptr, d_greyImage.ptr, num_pixels },
     );
     timer.stop();
     stream.synchronize();
-    log.warn("rgba_to_greyscale took: {}", .{timer.elapsed()});
+    log.warn("rgba_to_greyscale took: {}ms", .{timer.elapsed()});
     try testing.expect(timer.elapsed() > 0);
 }
 

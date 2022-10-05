@@ -25,10 +25,9 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
 
 pub fn threadIdX() utid {
     if (!is_device) return 0;
-    var tid = asm ("mov.u32 \t%[r], %tid.x;"
+    return asm ("mov.u32 \t%[r], %tid.x;"
         : [r] "=r" (-> utid),
     );
-    return tid;
 }
 
 pub fn blockDimX() utid {
