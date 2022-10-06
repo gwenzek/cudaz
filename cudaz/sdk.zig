@@ -90,8 +90,7 @@ pub fn addCudazWithZigKernel(
     // It only seems to happen with globals.
     // A local `u2` will get lowered to a `u8`.
     // This looks like a bug in LLVM backend.
-    // TODO: check it's still there in LLVM15
-    // const build_mode = if (exe.build_mode == .Debug) .ReleaseSafe else exe.build_mode;
+    // zig_kernel.setBuildMode(if (exe.build_mode == .Debug) .ReleaseSafe else exe.build_mode);
     zig_kernel.setBuildMode(.ReleaseFast);
     // Adding the nvptx.zig package doesn't seem to work
     const ptx_pkg = std.build.Pkg{
@@ -116,6 +115,16 @@ pub fn addCudazWithZigKernel(
     exe.step.dependOn(&validate_ptx.step);
 
     addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
+}
+
+/// Loads a kernel written in .ptx direcly or with another toolchain.
+pub fn addCudazWithPtxKernel(
+    b: *Builder,
+    exe: *LibExeObjStep,
+    cuda_dir: []const u8,
+    comptime kernel_path: [:0]const u8,
+) void {
+    addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_path);
 }
 
 pub fn addCudazDeps(

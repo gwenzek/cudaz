@@ -8,8 +8,7 @@ pub fn testMathLog10(x: []const f32, out: []f32) callconv(ptx.Kernel) void {
     const i = ptx.getIdX();
     if (i >= x.len) return;
     // `call float @llvm.log10.f32(float %0)`
-    // doesn't seem to be handled by LLVM14-ptx backend
-    // TODO: Try with LLVM15
+    // requires some special includes, should they be included by default ?
     // out[i] = @log10(x[i]);
     out[i] = _log10(x[i]);
 }
@@ -29,11 +28,11 @@ pub fn testHelloWorld(out: []u8) callconv(ptx.Kernel) void {
     out[i] = message[i];
 }
 
-var shared_buffer: [2]u8 align(8) addrspace(.shared) = undefined;
+pub var _swap2_shared: [2]u8 align(8) addrspace(ptx.Shared) = undefined;
 
-pub fn testSwap2WithSharedBuff(src: []const u8, tgt: []u8) callconv(ptx.Kernel) void {
+pub fn swap2(src: []const u8, tgt: []u8) callconv(ptx.Kernel) void {
     if (!ptx.is_device) return;
-    var buffer = &shared_buffer;
+    var buffer = &_swap2_shared;
     const i = ptx.threadIdX();
     const x = ptx.getIdX();
     buffer[i] = src[x];
@@ -41,10 +40,10 @@ pub fn testSwap2WithSharedBuff(src: []const u8, tgt: []u8) callconv(ptx.Kernel) 
     tgt[x] = buffer[1 - i % 2];
 }
 
-var _sdata: [1024]f32 addrspace(.shared) = undefined;
+pub var _reduceSum_shared: [1024]f32 addrspace(ptx.Shared) = undefined;
 
-pub fn testReduceSum(d_x: []const f32, out: *f32) callconv(ptx.Kernel) void {
-    var sdata = @addrSpaceCast(std.builtin.AddressSpace.generic, &_sdata);
+pub fn reduceSum(d_x: []const f32, out: *f32) callconv(ptx.Kernel) void {
+    var sdata = @addrSpaceCast(std.builtin.AddressSpace.generic, &_reduceSum_shared);
     const tid = ptx.threadIdX();
     var sum = d_x[tid];
     sdata[tid] = sum;
@@ -67,7 +66,7 @@ comptime {
     if (ptx.is_device) {
         @export(testHelloWorld, .{ .name = "testHelloWorld" });
         @export(testMathLog10, .{ .name = "testMathLog10" });
-        @export(testSwap2WithSharedBuff, .{ .name = "testSwap2WithSharedBuff" });
-        @export(testReduceSum, .{ .name = "testReduceSum" });
+        @export(swap2, .{ .name = "swap2" });
+        @export(reduceSum, .{ .name = "reduceSum" });
     }
 }

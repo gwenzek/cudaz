@@ -1,8 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const CallingConvention = @import("std").builtin.CallingConvention;
+const AddressSpace = @import("std").builtin.AddressSpace;
 pub const is_device = builtin.cpu.arch == .nvptx64;
-pub const Kernel = if (is_device) CallingConvention.PtxKernel else CallingConvention.Inline;
+
+pub const Kernel: std.builtin.CallingConvention = if (is_device) .PtxKernel else .Inline;
+pub const Shared: std.builtin.AddressSpace = if (is_device) .shared else .generic;
 
 // Equivalent of Cuda's __syncthreads()
 /// Wait to all the threads in this block to reach this barrier
@@ -141,7 +144,7 @@ pub fn getId_3D() Dim3 {
 // }
 // if (!is_device) @compileError("This panic handler is made for GPU");
 
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = error_return_trace;
     _ = msg;
     @setCold(true);

@@ -46,7 +46,7 @@ pub const Error = error{
 ///     check on errors returned by unsupported part of the API will trigger a @panic
 ///     (this will only happen if you directly call cuda). Feel free to open PR
 ///     to support more parts of Cuda
-///     -> @panic
+///     -> @panic + dedicated error log
 pub fn check(result: cu.CUresult) Error!void {
     if (result == cu.CUDA_SUCCESS) return;
     log_err_message(result);

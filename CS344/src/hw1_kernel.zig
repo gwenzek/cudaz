@@ -1,7 +1,7 @@
 const ptx = @import("kernel_utils.zig");
 pub const panic = ptx.panic;
 
-pub fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(ptx.Kernel) void {
+pub fn rgbaToGreyscale(rgbaImage: []u8, greyImage: []u8) callconv(ptx.Kernel) void {
     const i = ptx.getId_1D();
     if (i >= greyImage.len) return;
     const px = rgbaImage[i * 3 .. i * 3 + 3];
@@ -14,6 +14,6 @@ pub fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(ptx.Kernel) 
 
 comptime {
     if (ptx.is_device) {
-        @export(rgba_to_greyscale, .{ .name = "rgba_to_greyscale" });
+        @export(rgbaToGreyscale, .{ .name = "rgbaToGreyscale" });
     }
 }

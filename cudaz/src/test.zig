@@ -48,10 +48,10 @@ test "swap2_with_shared_memory" {
     var d_tgt = try stream.alloc(u8, d_src.len);
     defer stream.free(d_tgt);
 
-    const gpu_swap = try cuda.ZigKernel(kernel, "testSwap2WithSharedBuff").init();
+    const gpu_swap = try cuda.ZigKernel(kernel, "swap2").init();
 
     const grid = cuda.Grid.init1D(d_src.len, 2);
-    try gpu_swap.launchWithSharedMem(&stream, grid, 2, .{ d_src, d_tgt });
+    try gpu_swap.launchWithSharedMem(&stream, grid, @sizeOf(@TypeOf(kernel._swap2_shared)), .{ d_src, d_tgt });
     var h_buf = try stream.allocAndCopyResult(u8, testing.allocator, d_tgt);
     defer testing.allocator.free(h_buf);
     stream.synchronize();
@@ -71,10 +71,10 @@ test "reduce_with_shared_memory" {
     var d_tgt = try stream.alloc(f32, 1);
     defer stream.free(d_tgt);
 
-    const reduce = try cuda.ZigKernel(kernel, "testReduceSum").init();
+    const reduce = try cuda.ZigKernel(kernel, "reduceSum").init();
 
     const grid = cuda.Grid.init1D(d_src.len, 1024);
-    try reduce.launchWithSharedMem(&stream, grid, 1024 * @sizeOf(f32), .{ d_src, &d_tgt[0] });
+    try reduce.launchWithSharedMem(&stream, grid, @sizeOf(@TypeOf(kernel._reduceSum_shared)), .{ d_src, &d_tgt[0] });
     var h_tgt = stream.copyResult(f32, &d_tgt[0]);
     stream.synchronize();
 

@@ -146,7 +146,12 @@ pub const Stream = struct {
         )) catch unreachable;
     }
 
-    pub fn memcpyDtoH(self: *const Stream, comptime DestType: type, h_target: []DestType, d_source: []const DestType) void {
+    pub fn memcpyDtoH(
+        self: *const Stream,
+        comptime DestType: type,
+        h_target: []DestType,
+        d_source: []const DestType,
+    ) void {
         std.debug.assert(d_source.len == h_target.len);
         check(cu.cuMemcpyDtoHAsync(
             @ptrCast(*anyopaque, h_target.ptr),
@@ -210,9 +215,8 @@ pub const Stream = struct {
         f: cu.CUfunction,
         grid: Grid,
         shared_mem: usize,
-        args: [*c]usize,
+        args: [:0]usize,
     ) cu.CUresult {
-        // TODO use callback API to keep the asynchronous scheduling
         return cu.cuLaunchKernel(
             f,
             grid.blocks.x,
@@ -223,6 +227,7 @@ pub const Stream = struct {
             grid.threads.z,
             @intCast(c_uint, shared_mem),
             self._stream,
+            // TODO: should we accept const args ? cuda isn't modifying it AFAICT
             @ptrCast([*c]?*anyopaque, args),
             null,
         );
@@ -491,14 +496,14 @@ fn defaultModule() cu.CUmodule {
 /// Create a function with the correct signature for a cuda Kernel.
 /// The kernel must come from the default .cu file
 pub inline fn CudaKernel(comptime name: [:0]const u8) type {
-    return FnStruct(name, @field(cu, name));
+    return Kernel(name, @field(cu, name));
 }
 
 pub inline fn ZigKernel(comptime Module: anytype, comptime name: [:0]const u8) type {
-    return FnStruct(name, @field(Module, name));
+    return Kernel(name, @field(Module, name));
 }
 
-pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
+pub fn Kernel(comptime name: [:0]const u8, comptime func: anytype) type {
     return struct {
         const Self = @This();
         const CpuFn = *const @TypeOf(func);
@@ -523,18 +528,15 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
             if (args.len != @typeInfo(Args).Struct.fields.len) {
                 @compileError("Expected more arguments");
             }
-            try self.launchWithSharedMem(stream, grid, 0, args);
+            var c_args = argsToVoidStarStar(args);
+            return check(stream._launch(self.f, grid, 0, &c_args));
         }
 
         pub fn launchWithSharedMem(self: *const Self, stream: *const Stream, grid: Grid, shared_mem: usize, args: Args) !void {
             // TODO: this seems error prone, could we make the type of the shared buffer
             // part of the function signature ?
-            return check(stream._launch(
-                self.f,
-                grid,
-                shared_mem,
-                argsToVoidStarStar(args),
-            ));
+            var c_args = argsToVoidStarStar(args);
+            return check(stream._launch(self.f, grid, shared_mem, &c_args));
         }
 
         // pub fn debugCpuCall(grid: Grid, point: Grid, args: Args) void {
@@ -562,7 +564,7 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
             try std.fmt.format(writer, ")", .{});
         }
 
-        pub inline fn argsToVoidStarStar(args: Args) [*c]usize {
+        pub inline fn argsToVoidStarStar(args: Args) [meta.fields(@TypeOf(args)).len:0]usize {
             // Create an array of pointers pointing to the given args.
             const fields: []const Type.StructField = meta.fields(@TypeOf(args));
             var args_ptrs: [fields.len:0]usize = undefined;
@@ -570,13 +572,9 @@ pub fn FnStruct(comptime name: [:0]const u8, comptime func: anytype) type {
                 args_ptrs[i] = @ptrToInt(&@field(args, field.name));
             }
 
-            return &args_ptrs;
+            return args_ptrs;
         }
     };
-}
-
-test "can read function signature from .cu files" {
-    log.warn("My kernel: {}", .{@TypeOf(cu.rgba_to_greyscale)});
 }
 
 test "we use only one context per GPU" {
@@ -598,10 +596,12 @@ test "we use only one context per GPU" {
     try testing.expectEqual(stream_ctx, stream2_ctx);
 }
 
-test "rgba_to_greyscale" {
+extern fn _rgbToGreyscale(rgb_image: [*]const cu.uchar3, grey_image: [*]u8, num_pixels: c_int) void;
+
+test "call rgbToGreyscale kernel" {
     var stream = try Stream.init(0);
     defer stream.deinit();
-    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
+    const rgbToGreyscale = try Kernel("rgbToGreyscale", _rgbToGreyscale).init();
     const num_pixels: u32 = 100;
     var d_rgbaImage = try alloc(cu.uchar3, num_pixels);
     // memset(cu.uchar3, d_rgbaImage, 0xaa);
@@ -609,19 +609,19 @@ test "rgba_to_greyscale" {
     try memset(u8, d_greyImage, 0);
     stream.synchronize();
     const grid = Grid.init1D(num_pixels, 32);
-    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f.? });
-    try rgba_to_greyscale.launch(
+    log.warn("stream: {}, fn: {}", .{ stream, rgbToGreyscale.f.? });
+    try rgbToGreyscale.launch(
         &stream,
         grid,
         .{ d_rgbaImage.ptr, d_greyImage.ptr, num_pixels },
     );
     // TODO: launching from stream seems broken. Reduce and report
     // try stream.launch(
-    //     rgba_to_greyscale.f,
+    //     rgbToGreyscale.f,
     //     grid,
     //     .{ d_rgbaImage, d_greyImage, num_pixels },
     // );
-    try rgba_to_greyscale.launchWithSharedMem(
+    try rgbToGreyscale.launchWithSharedMem(
         &stream,
         grid,
         1024,
@@ -642,7 +642,7 @@ test "cuda alloc" {
 test "GpuTimer" {
     var stream = try Stream.init(0);
     defer stream.deinit();
-    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
+    const rgbToGreyscale = try Kernel("rgbToGreyscale", _rgbToGreyscale).init();
     const num_pixels: u32 = 100;
     var d_rgbaImage = try alloc(cu.uchar3, num_pixels);
     // memset(cu.uchar3, d_rgbaImage, 0xaa);
@@ -650,16 +650,16 @@ test "GpuTimer" {
     try memset(u8, d_greyImage, 0);
     stream.synchronize();
     const grid = Grid.init1D(num_pixels, 32);
-    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f.? });
+    log.warn("stream: {}, fn: {}", .{ stream, rgbToGreyscale.f.? });
     var timer = GpuTimer.start(&stream);
-    try rgba_to_greyscale.launch(
+    try rgbToGreyscale.launch(
         &stream,
         grid,
         .{ d_rgbaImage.ptr, d_greyImage.ptr, num_pixels },
     );
     timer.stop();
     stream.synchronize();
-    log.warn("rgba_to_greyscale took: {}ms", .{timer.elapsed()});
+    log.warn("rgbToGreyscale took: {}ms", .{timer.elapsed()});
     try testing.expect(timer.elapsed() > 0);
 }
 
@@ -672,7 +672,7 @@ pub fn Kernels(comptime module: type) type {
         if (decl.data != .Fn or !decl.data.Fn.is_export) continue;
         kernels[kernels_count] = .{
             .name = decl.name,
-            .field_type = FnStruct(decl.name, decl.data.Fn.fn_type),
+            .field_type = Kernel(decl.name, decl.data.Fn.fn_type),
             .default_value = null,
             .is_comptime = false,
             .alignment = @alignOf(cu.CUfunction),

@@ -18,8 +18,14 @@ pub fn build(b: *Builder) void {
     tests_nvcc.dependOn(&test_cuda.step);
 
     var tests = b.step("test", "Tests");
-    const test0 = b.addTest("src/test.zig");
-    test0.setBuildMode(mode);
-    sdk.addCudazWithZigKernel(b, test0, cuda_path.?, "src/test_kernel.zig");
-    tests.dependOn(&test0.step);
+
+    const test_zig = b.addTest("src/test.zig");
+    test_zig.setBuildMode(mode);
+    sdk.addCudazWithZigKernel(b, test_zig, cuda_path.?, "src/test_kernel.zig");
+    tests.dependOn(&test_zig.step);
+
+    const test_ptx = b.addTest("src/cuda.zig");
+    test_ptx.setBuildMode(mode);
+    sdk.addCudazWithPtxKernel(b, test_ptx, cuda_path.?, "src/test_kernel.ptx");
+    tests.dependOn(&test_ptx.step);
 }

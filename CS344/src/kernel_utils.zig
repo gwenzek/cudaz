@@ -14,7 +14,7 @@ pub const utid = u32;
 // but if I call "trap" through inline asm, I can't specify it's a noreturn.
 extern fn @"llvm.trap"() noreturn;
 
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     @setCold(true);
     @setRuntimeSafety(false);
     _ = error_return_trace;
