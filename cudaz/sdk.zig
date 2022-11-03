@@ -75,6 +75,7 @@ pub fn addCudazWithZigKernel(
     cuda_dir: []const u8,
     comptime kernel_path: [:0]const u8,
 ) void {
+    b.verbose = true;
     const name = std.fs.path.basename(kernel_path);
     const zig_kernel = b.addObject(name, kernel_path);
     zig_kernel.setTarget(.{
@@ -108,14 +109,16 @@ pub fn addCudazWithZigKernel(
     }
 
     // Copy the .ptx next to the binary for easy review.
-    zig_kernel.setOutputDir(b.exe_dir);
+    std.log.warn("{s} outputdir {s}", .{ name, b.exe_dir });
+    // zig_kernel.setOutputDir(b.exe_dir);
     const kernel_ptx_path = std.mem.joinZ(
         b.allocator,
         "",
         &[_][]const u8{ b.exe_dir, "/", zig_kernel.out_filename, ".ptx" },
     ) catch unreachable;
 
-    const validate_ptx = validate_ptx_file(b, zig_kernel, cuda_dir, kernel_ptx_path);
+    const validate_ptx = validatePtxFile(b, zig_kernel, cuda_dir, kernel_ptx_path);
+    exe.step.dependOn(&zig_kernel.step);
     exe.step.dependOn(&validate_ptx.step);
 
     addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
@@ -195,7 +198,7 @@ fn sdk_root() []const u8 {
 }
 
 /// Uses ptxas to validate the file
-fn validate_ptx_file(
+fn validatePtxFile(
     b: *Builder,
     zig_kernel: *LibExeObjStep,
     cuda_dir: []const u8,
@@ -221,5 +224,28 @@ fn validate_ptx_file(
     // TODO: we should make this optional to allow compiling without a CUDA toolchain
     const validate_ptx = b.addSystemCommand(&full_ptxas_cmd);
     validate_ptx.step.dependOn(&zig_kernel.step);
+    // zig_kernel.override_dest_dir = std.build.InstallDir{ .bin = {} };
+    // const install = b.addInstallArtifact(zig_kernel);
+    // zig_kernel.override_dest_dir = null;
+    // install.step.dependOn(&zig_kernel.step);
+    // validate_ptx.step.dependOn(&install.step);
+    validate_ptx.step.dependOn(&copyPtxFile(b, zig_kernel, kernel_ptx_path).step);
+
     return validate_ptx;
+}
+
+fn copyPtxFile(
+    b: *Builder,
+    zig_kernel: *LibExeObjStep,
+    kernel_ptx_path: []const u8,
+) *std.build.RunStep {
+    const name = std.fs.path.basename(kernel_ptx_path);
+    // TODO: this doesn't seem normal
+    const actual_path = std.fs.path.joinZ(b.allocator, &[_][]const u8{ "zig-cache", name }) catch unreachable;
+
+    var cp_cmd = [_][]const u8{ "cp", actual_path, kernel_ptx_path };
+    const cp_ptx = b.addSystemCommand(&cp_cmd);
+    cp_ptx.step.dependOn(&zig_kernel.step);
+
+    return cp_ptx;
 }
