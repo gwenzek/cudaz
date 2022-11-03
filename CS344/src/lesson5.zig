@@ -243,11 +243,11 @@ fn transposePerBlockInlined(ex: *CudaEventLoop, allocator: Allocator, data: []co
 }
 
 const Kernels = struct {
-    transposeCpu: cuda.FnStruct("transposeCpu", RawKernels.transposeCpu),
-    transposePerRow: cuda.FnStruct("transposePerRow", RawKernels.transposePerRow),
-    transposePerCell: cuda.FnStruct("transposePerCell", RawKernels.transposePerCell),
-    transposePerBlock: cuda.FnStruct("transposePerBlock", RawKernels.transposePerBlock),
-    transposePerBlockInlined: cuda.FnStruct("transposePerBlockInlined", RawKernels.transposePerBlockInlined),
+    transposeCpu: cuda.ZigKernel(RawKernels, "transposeCpu"),
+    transposePerRow: cuda.ZigKernel(RawKernels, "transposePerRow"),
+    transposePerCell: cuda.ZigKernel(RawKernels, "transposePerCell"),
+    transposePerBlock: cuda.ZigKernel(RawKernels, "transposePerBlock"),
+    transposePerBlockInlined: cuda.ZigKernel(RawKernels, "transposePerBlockInlined"),
 };
 var k: Kernels = undefined;
 

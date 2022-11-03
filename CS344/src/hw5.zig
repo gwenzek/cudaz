@@ -40,11 +40,11 @@ pub fn main() !void {
 
     var atomic_histo = try allocator.alloc(u32, num_bins);
     defer allocator.free(atomic_histo);
-    var elapsed = try histogram(k.atomicHistogram.f, data, atomic_histo, ref_histo, cuda.Grid.init1D(data.len, 1024));
+    var elapsed = try histogram(k.atomicHistogram, data, atomic_histo, ref_histo, cuda.Grid.init1D(data.len, 1024));
     log.info("atomicHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
     log.info("atomicHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
 
-    elapsed = try histogram(k.bychunkHistogram.f, data, atomic_histo, ref_histo, cuda.Grid.init1D(data.len / 32, 1024));
+    elapsed = try histogram(k.bychunkHistogram, data, atomic_histo, ref_histo, cuda.Grid.init1D(data.len / 32, 1024));
     log.info("bychunkHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
     log.info("bychunkHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
 
@@ -60,15 +60,15 @@ pub fn cpu_histogram(data: []const u32, histo: []u32) void {
     }
 }
 
-pub fn histogram(kernel: cu.CUfunction, data: []const u32, histo: []u32, ref_histo: []const u32, grid: cuda.Grid) !f64 {
+pub fn histogram(kernel: anytype, data: []const u32, histo: []u32, ref_histo: []const u32, grid: cuda.Grid) !f64 {
     var stream = try cuda.Stream.init(0);
     var d_data = try stream.allocAndCopy(u32, data);
     var d_histo = try stream.alloc(u32, histo.len);
     stream.memset(u32, d_histo, 0);
 
     var timer = cuda.GpuTimer.start(&stream);
-    try stream.launchWithSharedMem(
-        kernel,
+    try kernel.launchWithSharedMem(
+        &stream,
         grid,
         d_histo.len * @sizeOf(u32),
         .{ d_data, d_histo },
@@ -87,12 +87,12 @@ pub fn histogram(kernel: cu.CUfunction, data: []const u32, histo: []u32, ref_his
 }
 
 const Kernels = struct {
-    atomicHistogram: cuda.FnStruct("atomicHistogram", RawKernels.atomicHistogram),
-    bychunkHistogram: cuda.FnStruct("bychunkHistogram", RawKernels.bychunkHistogram),
-    coarseBins: cuda.FnStruct("coarseBins", RawKernels.coarseBins),
-    shuffleCoarseBins: cuda.FnStruct("shuffleCoarseBins32", RawKernels.shuffleCoarseBins32),
-    cdfIncremental: cuda.FnStruct("cdfIncremental", RawKernels.cdfIncremental),
-    cdfIncrementalShift: cuda.FnStruct("cdfIncrementalShift", RawKernels.cdfIncrementalShift),
+    atomicHistogram: cuda.ZigKernel(RawKernels, "atomicHistogram"),
+    bychunkHistogram: cuda.ZigKernel(RawKernels, "bychunkHistogram"),
+    coarseBins: cuda.ZigKernel(RawKernels, "coarseBins"),
+    shuffleCoarseBins: cuda.ZigKernel(RawKernels, "shuffleCoarseBins32"),
+    cdfIncremental: cuda.ZigKernel(RawKernels, "cdfIncremental"),
+    cdfIncrementalShift: cuda.ZigKernel(RawKernels, "cdfIncrementalShift"),
 };
 var k: Kernels = undefined;
 

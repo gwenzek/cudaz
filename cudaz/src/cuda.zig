@@ -564,9 +564,9 @@ pub fn Kernel(comptime name: [:0]const u8, comptime func: anytype) type {
             try std.fmt.format(writer, ")", .{});
         }
 
-        pub inline fn argsToVoidStarStar(args: Args) [meta.fields(@TypeOf(args)).len:0]usize {
+        pub inline fn argsToVoidStarStar(args: Args) [meta.fields(Args).len:0]usize {
             // Create an array of pointers pointing to the given args.
-            const fields: []const Type.StructField = meta.fields(@TypeOf(args));
+            const fields: []const Type.StructField = meta.fields(Args);
             var args_ptrs: [fields.len:0]usize = undefined;
             inline for (fields) |field, i| {
                 args_ptrs[i] = @ptrToInt(&@field(args, field.name));
@@ -615,12 +615,7 @@ test "call rgbToGreyscale kernel" {
         grid,
         .{ d_rgbaImage.ptr, d_greyImage.ptr, num_pixels },
     );
-    // TODO: launching from stream seems broken. Reduce and report
-    // try stream.launch(
-    //     rgbToGreyscale.f,
-    //     grid,
-    //     .{ d_rgbaImage, d_greyImage, num_pixels },
-    // );
+    // TODO: launching in releaseSafe seems broken. Reduce and report
     try rgbToGreyscale.launchWithSharedMem(
         &stream,
         grid,

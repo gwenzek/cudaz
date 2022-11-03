@@ -181,7 +181,7 @@ pub fn reduce(stream: *const cuda.Stream, operator: anytype, d_data: anytype) !s
         n2 = math.divCeil(usize, d_next.len, n_threads) catch unreachable;
         d_next = d_out[0..n2];
     }
-    return try cuda.readResult(DType, &d_in[0]);
+    return stream.copyResult(DType, &d_in[0]);
 }
 
 test "reduce min" {
@@ -555,7 +555,7 @@ fn test_naive_normalized_cross_correlation(
     );
     // debugDevice(allocator, "auto_corr", d_scores);
     // Should be maximal at the center
-    const center_corr = try cuda.readResult(f32, &d_scores[num_rows * half_height + half_height]);
+    const center_corr = stream.copyResult(f32, &d_scores[num_rows * half_height + half_height]);
     const max_corr = try reduce(stream, k.max, d_scores);
     try testing.expectEqual(max_corr, center_corr);
 }

@@ -85,11 +85,15 @@ pub fn addCudazWithZigKernel(
             .ptx75,
         }),
     });
-    // Debug doesn't work, because some `u2` global will end-up in the ptx
-    // which don't exist in PTX.
-    // It only seems to happen with globals.
-    // A local `u2` will get lowered to a `u8`.
-    // This looks like a bug in LLVM backend.
+    // * Debug doesn't compile, because some `u2` global will end-up in the ptx
+    // which don't exist in PTX. It only seems to happen with globals.
+    // A local `u2` should get lowered to a `u8`. This looks like a bug in LLVM backend.
+    // TODO open bug with bugs/u2_in_ptx/u2_global.{ll, ptx}
+    // * ReleaseSafe does compile but the panic handler are calling themselves recursively,
+    // preventing the LLVM-PTX backend to inline the calls.
+    // Later when ptxjit is compiling the ptx for the GPU it will think that the kernel
+    // requires a crazy high number of local memory, making it impossible to run a kernel that also
+    // need shared memory (local and shared use the same physical memory).
     // zig_kernel.setBuildMode(if (exe.build_mode == .Debug) .ReleaseSafe else exe.build_mode);
     zig_kernel.setBuildMode(.ReleaseFast);
     // Adding the nvptx.zig package doesn't seem to work

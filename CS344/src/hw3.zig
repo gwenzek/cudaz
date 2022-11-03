@@ -187,7 +187,7 @@ fn reduceMinMaxLum(
         one_block.threads.x * @sizeOf(kernels.MinMax),
         .{ d_buff, d_min_max_lum },
     );
-    var minmax_lum = try cuda.readResult(kernels.MinMax, &d_min_max_lum[0]);
+    var minmax_lum = stream.copyResult(kernels.MinMax, &d_min_max_lum[0]);
 
     try std.testing.expect(minmax_lum.min < minmax_lum.max);
     return minmax_lum;
