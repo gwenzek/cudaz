@@ -196,7 +196,7 @@ fn reduceMinMaxLum(
 test "histogram" {
     var stream = try cuda.Stream.init(0);
     var img = [_]f32{
-        0.0, 0.0, 0.0,
+        0.0, 0.0, -1.0,
         0.0, 0.0, 0.0,
         0.0, 0.0, 1.0,
         0.0, 0.0, 2.0,
@@ -214,7 +214,7 @@ test "histogram" {
     };
     const lumHisto = try cuda.ZigKernel(kernels, "lumHisto").init();
     var bins = [_]c_uint{0} ** 10;
-    var d_img = try cuda.allocAndCopy(f32, &img);
+    const d_img = try cuda.allocAndCopy(f32, &img);
     var d_bins = try cuda.allocAndCopy(c_uint, &bins);
     try lumHisto.launch(
         &stream,
@@ -239,26 +239,20 @@ fn test_min_max_lum(stream: *cuda.Stream, f: ReduceMinmaxLum, d_img: []f32, expe
 
     var grid1D = cuda.Grid{
         .blocks = .{ .x = @intCast(c_uint, num_blocks) },
-        .threads = .{ .x = @intCast(c_uint, std.math.divCeil(usize, d_img.len, num_blocks) catch unreachable) },
+        .threads = .{ .x = @intCast(c_uint, std.math.divCeil(usize, d_img.len, 3 * num_blocks) catch unreachable) },
     };
     try f.launchWithSharedMem(
         stream,
         grid1D,
         @sizeOf(kernels.MinMax) * grid1D.threads.x,
-        .{
-            d_img,
-            d_minmax,
-        },
+        .{ d_img, d_minmax },
     );
     var minmax = try cuda.allocAndCopyResult(kernels.MinMax, testing.allocator, d_minmax);
     defer testing.allocator.free(minmax);
     std.log.warn("minmax ({}x{}): {any}", .{ grid1D.blocks.x, grid1D.threads.x, minmax });
     for (expected) |exp, index| {
         std.testing.expectEqual(exp, minmax[index]) catch |err| {
-            switch (err) {
-                error.TestExpectedEqual => log.err("At index {} expected {any} got ({any})", .{ index, exp, minmax[index] }),
-                else => {},
-            }
+            log.err("At index {} expected {any} got ({any})", .{ index, exp, minmax[index] });
             return err;
         };
     }

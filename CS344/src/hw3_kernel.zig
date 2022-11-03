@@ -2,7 +2,6 @@ const std = @import("std");
 const math = std.math;
 
 const ptx = @import("kernel_utils.zig");
-pub const panic = ptx.panic;
 
 pub fn rgb2xyY(d_rgb: []f32, d_xyY: []f32, delta: f32) callconv(ptx.Kernel) void {
     if (!ptx.is_device) return;
@@ -90,7 +89,7 @@ pub fn lumHisto(d_bins: []u32, d_xyY: []const f32, lum_minmax: MinMax) callconv(
     // Normalize lum to [0, 1]
     lum = (lum - lum_minmax.min) / lum_range;
     const bin_count = d_bins.len;
-    var bin = @floatToInt(u32, lum) * bin_count;
+    var bin = @floatToInt(usize, lum * @intToFloat(f32, bin_count));
     bin = math.clamp(bin, 0, bin_count - 1);
     ptx.atomicAdd(&d_bins[bin], 1);
 }
