@@ -110,7 +110,7 @@ pub fn naiveComputeCdf(d_cdf: []f32, d_bins: []u32) callconv(ptx.Kernel) void {
     while (i < d_bins.len) : (i += 1) {
         total += d_bins[i];
     }
-    d_cdf[myId] = @intToFloat(f32, prefix_sum) * @intToFloat(f32, total);
+    d_cdf[myId] = @intToFloat(f32, prefix_sum) / @intToFloat(f32, total);
 }
 
 pub fn blellochCdf(d_cdf: []f32, d_bins: []u32) callconv(ptx.Kernel) void {
@@ -130,7 +130,7 @@ pub fn blellochCdf(d_cdf: []f32, d_bins: []u32) callconv(ptx.Kernel) void {
         ptx.syncThreads();
     }
 
-    const total = d_bins[n - 1];
+    const total = @intToFloat(f32, d_bins[n - 1]);
     if (tid == n - 1) d_bins[tid] = 0;
 
     // Downsweep
@@ -146,7 +146,7 @@ pub fn blellochCdf(d_cdf: []f32, d_bins: []u32) callconv(ptx.Kernel) void {
     }
 
     // Normalization
-    d_cdf[tid] = @intToFloat(f32, d_bins[tid]) / @intToFloat(f32, total);
+    d_cdf[tid] = @intToFloat(f32, d_bins[tid]) / total;
 }
 
 pub fn toneMap(d_xyY: []const f32, d_cdf_norm: []const f32, d_rgb_new: []f32, lum_minmax: MinMax, num_bins: u32) callconv(ptx.Kernel) void {

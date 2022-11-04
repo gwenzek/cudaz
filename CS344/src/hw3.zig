@@ -295,20 +295,18 @@ test "minmax_lum" {
 
 test "cdf" {
     var stream = try cuda.Stream.init(0);
-    inline for ([_][:0]const u8{ "naiveComputeCdf", "blellochCdf" }) |variant| {
+    inline for ([_][:0]const u8{"blellochCdf"}) |variant| {
         log.warn("Testing Cdf implementation: {s}", .{variant});
         var bins = [_]c_uint{ 2, 1, 1, 4, 1, 0, 1, 1, 1, 3 };
+        log.warn("original bins: {d}", .{bins});
+        // var bins = [_]c_uint{ 2, 1 };
         const computeCdf = try cuda.ZigKernel(kernels, variant).init();
         var cdf = [_]f32{0.0} ** 10;
-        var d_bins = try cuda.allocAndCopy(c_uint, &bins);
-        var d_cdf = try cuda.allocAndCopy(f32, &cdf);
-        try computeCdf.launch(
-            &stream,
-            cuda.Grid.init1D(bins.len, 0),
-            .{ d_cdf, d_bins },
-        );
-        try cuda.memcpyDtoH(f32, &cdf, d_cdf);
-        try cuda.memcpyDtoH(c_uint, &bins, d_bins);
+        var d_bins = try stream.allocAndCopy(c_uint, &bins);
+        var d_cdf = try stream.allocAndCopy(f32, &cdf);
+        try computeCdf.launch(&stream, cuda.Grid.init1D(bins.len, 0), .{ d_cdf, d_bins });
+        stream.memcpyDtoH(f32, &cdf, d_cdf);
+        stream.memcpyDtoH(c_uint, &bins, d_bins);
 
         var t: f32 = 15.0;
         const tgt_cdf = [10]f32{ 0, 2 / t, 3 / t, 4 / t, 8 / t, 9 / t, 9 / t, 10 / t, 11 / t, 12 / t };
@@ -316,7 +314,7 @@ test "cdf" {
         log.warn("tgt_cdf: {d:.3}", .{tgt_cdf});
         log.warn("cdf: {d:.3}", .{cdf});
         var i: u8 = 0;
-        while (i < cdf.len) : (i += 1) {
+        while (i < bins.len) : (i += 1) {
             try std.testing.expectApproxEqRel(tgt_cdf[i], cdf[i], 0.0001);
         }
     }
