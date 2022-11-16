@@ -67,15 +67,13 @@ pub fn addCudazWithNvcc(
     addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
 }
 
-/// Leverages stage2 to generate the .ptx from a .zig file.
-/// This restricts the kernel to use the subset of Zig supported by stage2.
+/// Use Zig stage2 compiler to compile a zig file into a .ptx.
 pub fn addCudazWithZigKernel(
     b: *Builder,
     exe: *LibExeObjStep,
     cuda_dir: []const u8,
     comptime kernel_path: [:0]const u8,
 ) void {
-    b.verbose = true;
     const name = std.fs.path.basename(kernel_path);
     const zig_kernel = b.addObject(name, kernel_path);
     zig_kernel.setTarget(.{
@@ -108,19 +106,17 @@ pub fn addCudazWithZigKernel(
         zig_kernel.addPackage(ptx_pkg);
     }
 
-    // Copy the .ptx next to the binary for easy review.
-    std.log.warn("{s} outputdir {s}", .{ name, b.exe_dir });
-    // zig_kernel.setOutputDir(b.exe_dir);
-    const kernel_ptx_path = std.mem.joinZ(
-        b.allocator,
-        "",
-        &[_][]const u8{ b.exe_dir, "/", zig_kernel.out_filename, ".ptx" },
-    ) catch unreachable;
+    var install = installPtx(b, zig_kernel);
+    exe.step.dependOn(&install.step);
 
-    const validate_ptx = validatePtxFile(b, zig_kernel, cuda_dir, kernel_ptx_path);
-    exe.step.dependOn(&zig_kernel.step);
+    // TODO: we should make this optional to allow compiling without a CUDA toolchain
+    const validate_ptx = validatePtxFile(b, zig_kernel, cuda_dir);
     exe.step.dependOn(&validate_ptx.step);
 
+    const kernel_ptx_path = std.fs.path.joinZ(
+        b.allocator,
+        &[_][]const u8{ b.exe_dir, zig_kernel.out_filename },
+    ) catch unreachable;
     addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
 }
 
@@ -202,15 +198,21 @@ fn validatePtxFile(
     b: *Builder,
     zig_kernel: *LibExeObjStep,
     cuda_dir: []const u8,
-    kernel_ptx_path: []const u8,
 ) *std.build.RunStep {
     const suppress_stack_size_warning = "--suppress-stack-size-warning";
 
     const ptxas_bin = std.fs.path.join(b.allocator, &[_][]const u8{ cuda_dir, "bin/ptxas" }) catch unreachable;
     defer b.allocator.free(ptxas_bin);
+
+    // Note: we use the final installed path instead of the zig-cache/o/ path
+    // because we don't have
+    const kernel_ptx_path = b.getInstallPath(.{ .bin = {} }, zig_kernel.out_filename);
+    defer b.allocator.free(kernel_ptx_path);
+
     var full_ptxas_cmd = [_][]const u8{
         ptxas_bin,
         kernel_ptx_path,
+        "--output-file=/dev/null",
         // This might be a little bit aggressive
         "--warning-as-error",
         "--warn-on-double-precision-use",
@@ -219,33 +221,46 @@ fn validatePtxFile(
     if (zig_kernel.build_mode == .ReleaseSafe or zig_kernel.build_mode == .Debug) {
         // The default panicOutOfBound handler always trigger the register spill and stack-size warnings.
         // TODO: fix panicExtra to not call itself
-        full_ptxas_cmd[4] = suppress_stack_size_warning;
+        full_ptxas_cmd[5] = suppress_stack_size_warning;
     }
-    // TODO: we should make this optional to allow compiling without a CUDA toolchain
     const validate_ptx = b.addSystemCommand(&full_ptxas_cmd);
-    validate_ptx.step.dependOn(&zig_kernel.step);
-    // zig_kernel.override_dest_dir = std.build.InstallDir{ .bin = {} };
-    // const install = b.addInstallArtifact(zig_kernel);
-    // zig_kernel.override_dest_dir = null;
-    // install.step.dependOn(&zig_kernel.step);
-    // validate_ptx.step.dependOn(&install.step);
-    validate_ptx.step.dependOn(&copyPtxFile(b, zig_kernel, kernel_ptx_path).step);
-
+    //
+    validate_ptx.step.dependOn(&zig_kernel.install_step.?.step);
     return validate_ptx;
 }
 
-fn copyPtxFile(
-    b: *Builder,
-    zig_kernel: *LibExeObjStep,
-    kernel_ptx_path: []const u8,
-) *std.build.RunStep {
-    const name = std.fs.path.basename(kernel_ptx_path);
-    // TODO: this doesn't seem normal
-    const actual_path = std.fs.path.joinZ(b.allocator, &[_][]const u8{ "zig-cache", name }) catch unreachable;
+/// Copy the generated .ptx in the bin dir.
+/// This is not working so well because we aren't allowed to embed file from the bin dir.
+/// https://github.com/ziglang/zig/issues/6662
+pub fn installPtx(builder: *Builder, ptx: *LibExeObjStep) *std.build.InstallArtifactStep {
+    if (ptx.install_step) |s| return s;
+    const install = builder.allocator.create(std.build.InstallArtifactStep) catch unreachable;
+    install.* = std.build.InstallArtifactStep{
+        .builder = builder,
+        .step = std.build.Step.init(
+            .install_artifact,
+            builder.fmt("install {s}", .{ptx.step.name}),
+            builder.allocator,
+            makeInstallPtx,
+        ),
+        .artifact = ptx,
+        .dest_dir = .{ .bin = {} },
+        .pdb_dir = null,
+        .h_dir = null,
+    };
+    install.step.dependOn(&ptx.step);
+    ptx.install_step = install;
 
-    var cp_cmd = [_][]const u8{ "cp", actual_path, kernel_ptx_path };
-    const cp_ptx = b.addSystemCommand(&cp_cmd);
-    cp_ptx.step.dependOn(&zig_kernel.step);
+    builder.pushInstalledFile(install.dest_dir, ptx.out_filename);
+    return install;
+}
 
-    return cp_ptx;
+fn makeInstallPtx(step: *std.build.Step) !void {
+    const self = @fieldParentPtr(std.build.InstallArtifactStep, "step", step);
+    const builder = self.builder;
+
+    const full_dest_path = builder.getInstallPath(self.dest_dir, self.artifact.out_filename);
+    defer builder.allocator.free(full_dest_path);
+    try builder.updateFile(self.artifact.getOutputSource().getPath(builder), full_dest_path);
+    self.artifact.installed_path = full_dest_path;
 }

@@ -71,9 +71,7 @@ pub fn build(b: *Builder) void {
 fn addLodePng(exe: *LibExeObjStep) void {
     // TODO remove libc dependency
     exe.linkLibC();
-    const lodepng_flags = [_][]const u8{
-        "-DLODEPNG_COMPILE_ERROR_TEXT",
-    };
+    const lodepng_flags = [_][]const u8{"-DLODEPNG_COMPILE_ERROR_TEXT"};
     exe.addIncludePath("lodepng/");
     exe.addCSourceFile("lodepng/lodepng.c", &lodepng_flags);
 }

@@ -87,8 +87,7 @@ pub fn cdfIncremental(d_glob_bins: []u32, d_block_bins: []u32) callconv(ptx.Kern
     if (global_id >= n) return;
     const tid = ptx.threadIdX();
 
-    // var d_bins = @ptrCast([*]addrspace(.shared) u32, &cdfIncremental_shared); // stage2
-    var d_bins = @ptrCast([*]u32, &cdfIncremental_shared); // stage1
+    var d_bins = @addrSpaceCast(.generic, &cdfIncremental_shared)[0..n];
     ptx.syncThreads();
     const last_tid = ptx.lastTid(@intCast(u32, n));
     const total = ptx.exclusiveScan(.add, d_bins, tid, last_tid);
