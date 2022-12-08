@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const meta = std.meta;
 const testing = std.testing;
-const TypeInfo = std.builtin.TypeInfo;
+const TypeInfo = std.builtin.Type;
 
 const cudaz_options = @import("cudaz_options");
 pub const cu = @import("cuda_cimports.zig").cu;

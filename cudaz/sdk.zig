@@ -11,7 +11,6 @@ const LibExeObjStep = std.build.LibExeObjStep;
 /// We default to .ptx because it's more easy to distribute.
 // TODO: make this a build option
 const NVCC_OUTPUT_FORMAT = "ptx";
-const ZIG_STAGE2 = "/home/guw/github/zig/build/stage3/bin/zig";
 const SDK_ROOT = sdk_root() ++ "/";
 
 /// For a given object:
@@ -136,7 +135,7 @@ pub fn addCudazDeps(
     const kernel_dir = std.fs.path.dirname(kernel_path).?;
     // Add libc and cuda headers / lib, and our own .cu files
     exe.linkLibC();
-    exe.addLibPath(cuda_dir ++ "/lib64");
+    exe.addLibraryPath(cuda_dir ++ "/lib64");
     exe.linkSystemLibraryNeeded("cuda");
     // If nvidia-ptxjitcompiler is not found on your system,
     // check that there is a libnvidia-ptxjitcompiler.so, or create a symlink
@@ -144,9 +143,9 @@ pub fn addCudazDeps(
     // We don't need to link ptxjit compiler, since it's loaded at runtime,
     // but this should warn the user that something is wrong.
     exe.linkSystemLibraryNeeded("nvidia-ptxjitcompiler");
-    exe.addIncludeDir(SDK_ROOT ++ "src");
-    exe.addIncludeDir(cuda_dir ++ "/include");
-    exe.addIncludeDir(kernel_dir);
+    exe.addIncludePath(SDK_ROOT ++ "src");
+    exe.addIncludePath(cuda_dir ++ "/include");
+    exe.addIncludePath(kernel_dir);
 
     // Add cudaz package with the kernel paths.
     const cudaz_options = b.addOptions();

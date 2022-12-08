@@ -70,7 +70,7 @@ fn addLodePng(exe: *LibExeObjStep) void {
     const lodepng_flags = [_][]const u8{
         "-DLODEPNG_COMPILE_ERROR_TEXT",
     };
-    exe.addIncludeDir("lodepng/");
+    exe.addIncludePath("lodepng/");
     exe.addCSourceFile("lodepng/lodepng.c", &lodepng_flags);
 }
 
