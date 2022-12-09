@@ -62,8 +62,8 @@ pub const GaussianBlurArgs = struct {
     output: [*]u8,
 };
 
-/// Compares 3 ways of making a gaussianBlur kernel:
-/// by using a c-like API, by passing one struct will args,
+/// Here we compares 3 ways of making a gaussianBlur kernel:
+/// by using a c-like API, by passing one struct with all args,
 /// and a more fluent version that uses 3 "Matrix" struct.
 pub fn gaussianBlurStruct(args: GaussianBlurArgs) callconv(ptx.Kernel) void {
     return gaussianBlurVerbose(

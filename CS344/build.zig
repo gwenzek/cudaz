@@ -28,11 +28,11 @@ pub fn build(b: *Builder) void {
 
     // Pure Zig implementation
     const run_step = b.step("run", "Run the examples");
-    // const hw1 = addZigHomework(b, tests, "hw1");
-    // run_step.dependOn(&hw1.step);
+    const hw1 = addZigHomework(b, tests, "hw1");
+    run_step.dependOn(&hw1.step);
 
-    // const hw2 = addZigHomework(b, tests, "hw2");
-    // run_step.dependOn(&hw2.step);
+    const hw2 = addZigHomework(b, tests, "hw2");
+    run_step.dependOn(&hw2.step);
 
     const hw3 = addZigHomework(b, tests, "hw3");
     run_step.dependOn(&hw3.step);

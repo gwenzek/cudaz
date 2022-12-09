@@ -38,8 +38,6 @@ pub fn main() anyerror!void {
     var d_out = try cuda.alloc(Rgb24, img.width * img.height);
     defer cuda.free(d_out);
 
-    // const gaussianBlur = try cuda.FnStruct("gaussianBlur", kernels.gaussianBlur).init();
-
     const d_filter = Mat2Float{
         .data = (try cuda.allocAndCopy(f32, &blurFilter())).ptr,
         .shape = [_]i32{ blur_kernel_width, blur_kernel_width },
@@ -51,7 +49,11 @@ pub fn main() anyerror!void {
     };
     var grid3D = cuda.Grid.init3D(img.height, img.width, 3, 32, 32, 1);
     var timer = cuda.GpuTimer.start(&stream);
-    const gaussianBlurVerbose = try cuda.FnStruct("gaussianBlurVerbose", kernels.gaussianBlurVerbose).init();
+
+    // Here, we compares 3 ways of making a gaussianBlur kernel:
+    // by using a c-like API, by passing one struct with all args,
+    // and a more fluent version that uses 3 "Matrix" struct.
+    const gaussianBlurVerbose = try cuda.ZigKernel(kernels, "gaussianBlurVerbose").init();
     try gaussianBlurVerbose.launch(
         &stream,
         grid3D,
@@ -64,36 +66,36 @@ pub fn main() anyerror!void {
             std.mem.sliceAsBytes(d_out).ptr,
         },
     );
-    const blur_args = kernels.GaussianBlurArgs{
-        .img = img_mat,
-        .filter = d_filter.data[0 .. blur_kernel_width * blur_kernel_width],
-        .filter_width = @intCast(i32, blur_kernel_width),
-        .output = std.mem.sliceAsBytes(d_out).ptr,
-    };
+    // const blur_args = kernels.GaussianBlurArgs{
+    //     .img = img_mat,
+    //     .filter = d_filter.data[0 .. blur_kernel_width * blur_kernel_width],
+    //     .filter_width = @intCast(i32, blur_kernel_width),
+    //     .output = std.mem.sliceAsBytes(d_out).ptr,
+    // };
 
-    log.info("arg.img.data={*}", .{blur_args.img.data});
-    log.info("arg.img.shape={any}", .{blur_args.img.shape});
-    log.info("arg.filter={*}", .{blur_args.filter});
-    log.info("arg.filter_width={}", .{blur_args.filter_width});
-    log.info("arg.output={*}", .{blur_args.output});
+    // log.info("arg.img.data={*}", .{blur_args.img.data});
+    // log.info("arg.img.shape={any}", .{blur_args.img.shape});
+    // log.info("arg.filter={*}", .{blur_args.filter});
+    // log.info("arg.filter_width={}", .{blur_args.filter_width});
+    // log.info("arg.output={*}", .{blur_args.output});
 
-    const gaussianBlurStruct = try cuda.FnStruct("gaussianBlurStruct", kernels.gaussianBlurStruct).init();
-    try gaussianBlurStruct.launch(
-        &stream,
-        grid3D,
-        .{blur_args},
-    );
-    stream.synchronize();
-    const gaussianBlur = try cuda.FnStruct("gaussianBlur", kernels.gaussianBlur).init();
-    try gaussianBlur.launch(
-        &stream,
-        grid3D,
-        .{
-            img_mat,
-            d_filter,
-            std.mem.sliceAsBytes(d_out),
-        },
-    );
+    // const gaussianBlurStruct = try cuda.ZigKernel(kernels, "gaussianBlurStruct").init();
+    // try gaussianBlurStruct.launch(
+    //     &stream,
+    //     grid3D,
+    //     .{blur_args},
+    // );
+    // stream.synchronize();
+    // const gaussianBlur = try cuda.ZigKernel(kernels, "gaussianBlur").init();
+    // try gaussianBlur.launch(
+    //     &stream,
+    //     grid3D,
+    //     .{
+    //         img_mat,
+    //         d_filter,
+    //         std.mem.sliceAsBytes(d_out),
+    //     },
+    // );
     timer.stop();
     try cuda.memcpyDtoH(Rgb24, img.px.rgb24, d_out);
     try img.writeToFilePath(resources_dir ++ "output.png");
