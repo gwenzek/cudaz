@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const CallingConvention = @import("std").builtin.CallingConvention;
+const CallingConvention = std.builtin.CallingConvention;
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
-pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Win64;
+pub const Kernel: CallingConvention = if (is_nvptx) .Kernel else .C;
 
 // Equivalent of Cuda's __syncthreads()
 /// Wait to all the threads in this block to reach this barrier
@@ -17,13 +17,13 @@ pub inline fn syncThreads() void {
 
 // This doesn't seem to work. LLVM (called from Zig) crashes with a "Cannot select error"
 // pub inline fn threadDimX() usize {
-//     return @intCast(usize, @"llvm.nvvm.read.ptx.sreg.ntid.x"());
+//     return @intCast(@"llvm.nvvm.read.ptx.sreg.ntid.x"());
 // }
 // extern fn @"llvm.nvvm.read.ptx.sreg.ntid.x"() i32;
 
 pub fn threadIdX() usize {
     if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
+    const tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
         : [r] "=r" (-> u32),
     );
     return @as(usize, tid);
@@ -31,7 +31,7 @@ pub fn threadIdX() usize {
 
 pub fn blockDimX() usize {
     if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.x;"
+    const ntid = asm volatile ("mov.u32 \t%[r], %ntid.x;"
         : [r] "=r" (-> u32),
     );
     return @as(usize, ntid);
@@ -39,7 +39,7 @@ pub fn blockDimX() usize {
 
 pub fn blockIdX() usize {
     if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
+    const ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
         : [r] "=r" (-> u32),
     );
     return @as(usize, ctaid);
@@ -47,7 +47,7 @@ pub fn blockIdX() usize {
 
 pub fn gridDimX() usize {
     if (!is_nvptx) return 0;
-    var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
+    const nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
         : [r] "=r" (-> u32),
     );
     return @as(usize, nctaid);
@@ -59,62 +59,62 @@ pub fn getIdX() usize {
 
 /// threadId.y
 pub inline fn threadIdY() usize {
-    var tid = asm volatile ("mov.u32 \t%[r], %tid.y;"
+    const tid = asm volatile ("mov.u32 \t%[r], %tid.y;"
         : [r] "=r" (-> u32),
     );
-    return @intCast(usize, tid);
+    return @intCast(tid);
 }
 /// threadId.z
 pub inline fn threadIdZ() usize {
-    var tid = asm volatile ("mov.u32 \t%[r], %tid.z;"
+    const tid = asm volatile ("mov.u32 \t%[r], %tid.z;"
         : [r] "=r" (-> u32),
     );
-    return @intCast(usize, tid);
+    return @intCast(tid);
 }
 
 /// threadDim.y
 pub inline fn threadDimY() usize {
-    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.y;"
+    const ntid = asm volatile ("mov.u32 \t%[r], %ntid.y;"
         : [r] "=r" (-> u32),
     );
-    return @intCast(usize, ntid);
+    return @intCast(ntid);
 }
 /// threadDim.z
 pub inline fn threadDimZ() usize {
-    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.z;"
+    const ntid = asm volatile ("mov.u32 \t%[r], %ntid.z;"
         : [r] "=r" (-> u32),
     );
-    return @intCast(usize, ntid);
+    return @intCast(ntid);
 }
 
 /// gridId.y
 pub inline fn gridIdY() usize {
-    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.y;"
+    const ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.y;"
         : [r] "=r" (-> u32),
     );
-    return @intCast(usize, ctaid);
+    return @intCast(ctaid);
 }
 /// gridId.z
 pub inline fn gridIdZ() usize {
-    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.z;"
+    const ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.z;"
         : [r] "=r" (-> u32),
     );
-    return @intCast(usize, ctaid);
+    return @intCast(ctaid);
 }
 
 /// gridDim.y
 pub inline fn gridDimY() usize {
-    var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.y;"
+    const nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.y;"
         : [r] "=r" (-> u32),
     );
-    return @intCast(usize, nctaid);
+    return @intCast(nctaid);
 }
 /// gridDim.z
 pub inline fn gridDimZ() usize {
-    var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.z;"
+    const nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.z;"
         : [r] "=r" (-> u32),
     );
-    return @intCast(usize, nctaid);
+    return @intCast(nctaid);
 }
 
 const Dim2 = struct { x: usize, y: usize };
@@ -141,10 +141,11 @@ pub fn getId_3D() Dim3 {
 // }
 // if (!is_nvptx) @compileError("This panic handler is made for GPU");
 
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
+    _ = ret_addr;
     _ = error_return_trace;
     _ = msg;
-    asm volatile ("trap;");
+    // asm volatile ("trap;");
     // `unreachable` implictly calls panic recursively and confuses ptxas.
     unreachable;
     // `noreturn` crashes LLVM because "Basic Block in function 'nvptx.panic' does not have terminator!"
@@ -165,9 +166,9 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
 
 const message = "Hello World !\x00";
 
-pub export fn _test_hello_world(out: []u8) callconv(Kernel) void {
+pub export fn _test_hello_world(out: [*]u8, len: usize) callconv(Kernel) void {
     const i = getIdX();
-    if (i > message.len or i > out.len) return;
+    if (i > message.len or i > len) return;
     syncThreads();
     out[i] = message[i];
 }

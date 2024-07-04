@@ -54,7 +54,7 @@ pub fn check(result: cu.CUresult) Error!void {
 }
 
 pub fn silent_check(result: cu.CUresult) Error!void {
-    var err: Error = switch (result) {
+    const err: Error = switch (result) {
         cu.CUDA_SUCCESS => return,
         // Resource errors:
         cu.CUDA_ERROR_OUT_OF_MEMORY => error.OutOfMemory,

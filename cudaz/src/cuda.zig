@@ -23,9 +23,9 @@ pub const Dim3 = struct {
 
     pub fn init(x: usize, y: usize, z: usize) Dim3 {
         return .{
-            .x = @intCast(c_uint, x),
-            .y = @intCast(c_uint, y),
-            .z = @intCast(c_uint, z),
+            .x = @intCast(x),
+            .y = @intCast(y),
+            .z = @intCast(z),
         };
     }
 
@@ -55,9 +55,9 @@ pub const Grid = struct {
         threads_y: usize,
         threads_z: usize,
     ) Grid {
-        var t_x = if (threads_x == 0) cols else threads_x;
-        var t_y = if (threads_y == 0) rows else threads_y;
-        var t_z = if (threads_z == 0) depth else threads_z;
+        const t_x = if (threads_x == 0) cols else threads_x;
+        const t_y = if (threads_y == 0) rows else threads_y;
+        const t_z = if (threads_z == 0) depth else threads_z;
         return Grid{
             .blocks = Dim3.init(
                 std.math.divCeil(usize, cols, t_x) catch unreachable,
@@ -119,23 +119,23 @@ pub const Stream = struct {
                 else => unreachable,
             }
         };
-        var ptr = @intToPtr([*]DestType, int_ptr);
+        const ptr: [*]DestType = @ptrFromInt(int_ptr);
         return ptr[0..size];
     }
 
     pub fn free(self: *const Stream, device_ptr: anytype) void {
-        var raw_ptr: *anyopaque = if (meta.trait.isSlice(@TypeOf(device_ptr)))
-            @ptrCast(*anyopaque, device_ptr.ptr)
+        const raw_ptr: *anyopaque = if (meta.trait.isSlice(@TypeOf(device_ptr)))
+            @ptrCast(device_ptr.ptr)
         else
-            @ptrCast(*anyopaque, device_ptr);
-        _ = cu.cuMemFreeAsync(@ptrToInt(raw_ptr), self._stream);
+            @ptrCast(device_ptr);
+        _ = cu.cuMemFreeAsync(@intFromPtr(raw_ptr), self._stream);
     }
 
     pub fn memcpyHtoD(self: *const Stream, comptime DestType: type, d_target: []DestType, h_source: []const DestType) void {
         std.debug.assert(h_source.len == d_target.len);
         check(cu.cuMemcpyHtoDAsync(
-            @ptrToInt(d_target.ptr),
-            @ptrCast(*const anyopaque, h_source.ptr),
+            @intFromPtr(d_target.ptr),
+            @ptrCast(h_source.ptr),
             h_source.len * @sizeOf(DestType),
             self._stream,
         )) catch unreachable;
@@ -144,8 +144,8 @@ pub const Stream = struct {
     pub fn memcpyDtoH(self: *const Stream, comptime DestType: type, h_target: []DestType, d_source: []const DestType) void {
         std.debug.assert(d_source.len == h_target.len);
         check(cu.cuMemcpyDtoHAsync(
-            @ptrCast(*anyopaque, h_target.ptr),
-            @ptrToInt(d_source.ptr),
+            @ptrCast(h_target.ptr),
+            @intFromPtr(d_source.ptr),
             d_source.len * @sizeOf(DestType),
             self._stream,
         )) catch unreachable;
@@ -154,7 +154,7 @@ pub const Stream = struct {
     }
 
     pub fn allocAndCopy(self: *const Stream, comptime DestType: type, h_source: []const DestType) ![]DestType {
-        var ptr = try self.alloc(DestType, h_source.len);
+        const ptr = try self.alloc(DestType, h_source.len);
         self.memcpyHtoD(DestType, ptr, h_source);
         return ptr;
     }
@@ -165,18 +165,18 @@ pub const Stream = struct {
         host_allocator: std.mem.Allocator,
         d_source: []const DestType,
     ) ![]DestType {
-        var h_tgt = try host_allocator.alloc(DestType, d_source.len);
+        const h_tgt = try host_allocator.alloc(DestType, d_source.len);
         self.memcpyDtoH(DestType, h_tgt, d_source);
         return h_tgt;
     }
 
     pub fn memset(self: *const Stream, comptime DestType: type, slice: []DestType, value: DestType) void {
-        var d_ptr = @ptrToInt(slice.ptr);
-        var n = slice.len;
-        var memset_res = switch (@sizeOf(DestType)) {
-            1 => cu.cuMemsetD8Async(d_ptr, @bitCast(u8, value), n, self._stream),
-            2 => cu.cuMemsetD16Async(d_ptr, @bitCast(u16, value), n, self._stream),
-            4 => cu.cuMemsetD32Async(d_ptr, @bitCast(u32, value), n, self._stream),
+        const d_ptr = @intFromPtr(slice.ptr);
+        const n = slice.len;
+        const memset_res = switch (@sizeOf(DestType)) {
+            1 => cu.cuMemsetD8Async(d_ptr, @bitCast(value), n, self._stream),
+            2 => cu.cuMemsetD16Async(d_ptr, @bitCast(value), n, self._stream),
+            4 => cu.cuMemsetD32Async(d_ptr, @bitCast(value), n, self._stream),
             else => @compileError("memset doesn't support type: " ++ @typeName(DestType)),
         };
         check(memset_res) catch unreachable;
@@ -190,8 +190,8 @@ pub const Stream = struct {
         // Create an array of pointers pointing to the given args.
         const fields: []const TypeInfo.StructField = meta.fields(@TypeOf(args));
         var args_ptrs: [fields.len:0]usize = undefined;
-        inline for (fields) |field, i| {
-            args_ptrs[i] = @ptrToInt(&@field(args, field.name));
+        inline for (fields, 0..) |field, i| {
+            args_ptrs[i] = @intFromPtr(&@field(args, field.name));
         }
         const res = cu.cuLaunchKernel(
             f,
@@ -201,9 +201,9 @@ pub const Stream = struct {
             grid.threads.x,
             grid.threads.y,
             grid.threads.z,
-            @intCast(c_uint, shared_mem),
+            @intCast(shared_mem),
             self._stream,
-            @ptrCast([*c]?*anyopaque, &args_ptrs),
+            @ptrCast(&args_ptrs),
             null,
         );
         try check(res);
@@ -257,39 +257,39 @@ pub fn alloc(comptime DestType: type, size: usize) ![]DestType {
             else => unreachable,
         }
     };
-    var ptr = @intToPtr([*]DestType, int_ptr);
+    const ptr: [*]DestType = @ptrFromInt(int_ptr);
     return ptr[0..size];
 }
 
 // TODO: move all this to stream using async variants
 pub fn free(device_ptr: anytype) void {
-    var raw_ptr: *anyopaque = if (meta.trait.isSlice(@TypeOf(device_ptr)))
-        @ptrCast(*anyopaque, device_ptr.ptr)
+    const raw_ptr: *anyopaque = if (meta.trait.isSlice(@TypeOf(device_ptr)))
+        @ptrCast(device_ptr.ptr)
     else
-        @ptrCast(*anyopaque, device_ptr);
-    _ = cu.cuMemFree(@ptrToInt(raw_ptr));
+        @ptrCast(device_ptr);
+    _ = cu.cuMemFree(@intFromPtr(raw_ptr));
 }
 
 pub fn memset(comptime DestType: type, slice: []DestType, value: DestType) !void {
-    var d_ptr = @ptrToInt(slice.ptr);
-    var n = slice.len;
-    var memset_res = switch (@sizeOf(DestType)) {
-        1 => cu.cuMemsetD8(d_ptr, @bitCast(u8, value), n),
-        2 => cu.cuMemsetD16(d_ptr, @bitCast(u16, value), n),
-        4 => cu.cuMemsetD32(d_ptr, @bitCast(u32, value), n),
+    const d_ptr = @intFromPtr(slice.ptr);
+    const n = slice.len;
+    const memset_res = switch (@sizeOf(DestType)) {
+        1 => cu.cuMemsetD8(d_ptr, @bitCast(value), n),
+        2 => cu.cuMemsetD16(d_ptr, @bitCast(value), n),
+        4 => cu.cuMemsetD32(d_ptr, @bitCast(value), n),
         else => @compileError("memset doesn't support type: " ++ @typeName(DestType)),
     };
     try check(memset_res);
 }
 
 pub fn memsetD8(comptime DestType: type, slice: []DestType, value: u8) !void {
-    var d_ptr = @ptrToInt(slice.ptr);
-    var n = slice.len * @sizeOf(DestType);
+    const d_ptr = @intFromPtr(slice.ptr);
+    const n = slice.len * @sizeOf(DestType);
     try check(cu.cuMemsetD8(d_ptr, value, n));
 }
 
 pub fn allocAndCopy(comptime DestType: type, h_source: []const DestType) ![]DestType {
-    var ptr = try alloc(DestType, h_source.len);
+    const ptr = try alloc(DestType, h_source.len);
     try memcpyHtoD(DestType, ptr, h_source);
     return ptr;
 }
@@ -299,7 +299,7 @@ pub fn allocAndCopyResult(
     host_allocator: std.mem.Allocator,
     d_source: []const DestType,
 ) ![]DestType {
-    var h_tgt = try host_allocator.alloc(DestType, d_source.len);
+    const h_tgt = try host_allocator.alloc(DestType, d_source.len);
     try memcpyDtoH(DestType, h_tgt, d_source);
     return h_tgt;
 }
@@ -307,8 +307,8 @@ pub fn allocAndCopyResult(
 pub fn readResult(comptime DestType: type, d_source: *const DestType) !DestType {
     var h_res: [1]DestType = undefined;
     try check(cu.cuMemcpyDtoH(
-        @ptrCast(*anyopaque, &h_res),
-        @ptrToInt(d_source),
+        @ptrCast(&h_res),
+        @intFromPtr(d_source),
         @sizeOf(DestType),
     ));
     return h_res[0];
@@ -317,29 +317,29 @@ pub fn readResult(comptime DestType: type, d_source: *const DestType) !DestType 
 pub fn memcpyHtoD(comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
     std.debug.assert(h_source.len == d_target.len);
     try check(cu.cuMemcpyHtoD(
-        @ptrToInt(d_target.ptr),
-        @ptrCast(*const anyopaque, h_source.ptr),
+        @intFromPtr(d_target.ptr),
+        @ptrCast(h_source.ptr),
         h_source.len * @sizeOf(DestType),
     ));
 }
 pub fn memcpyDtoH(comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
     std.debug.assert(d_source.len == h_target.len);
     try check(cu.cuMemcpyDtoH(
-        @ptrCast(*anyopaque, h_target.ptr),
-        @ptrToInt(d_source.ptr),
+        @ptrCast(h_target.ptr),
+        @intFromPtr(d_source.ptr),
         d_source.len * @sizeOf(DestType),
     ));
 }
 
 pub fn push(value: anytype) !*@TypeOf(value) {
     const DestType = @TypeOf(value);
-    var d_ptr = try alloc(DestType, 1);
+    const d_ptr = try alloc(DestType, 1);
     try check(cu.cuMemcpyHtoD(
-        @ptrToInt(d_ptr.ptr),
-        @ptrCast(*const anyopaque, &value),
+        @intFromPtr(d_ptr.ptr),
+        @ptrCast(&value),
         @sizeOf(DestType),
     ));
-    return @ptrCast(*DestType, d_ptr.ptr);
+    return @ptrCast(d_ptr.ptr);
 }
 
 /// Time gpu event.
@@ -414,7 +414,7 @@ test "cuda version" {
 
 var _device = [_]cu.CUdevice{-1} ** 8;
 pub fn initDevice(device: u3) !cu.CUdevice {
-    var cu_dev = &_device[device];
+    const cu_dev = &_device[device];
     if (cu_dev.* == -1) {
         try check(cu.cuInit(0));
         try check(cu.cuDeviceGet(cu_dev, device));
@@ -431,7 +431,7 @@ pub fn initDevice(device: u3) !cu.CUdevice {
 // we should use cuCtxAttach and cuCtxDetach in stream init/deinit
 var _ctx = [1]cu.CUcontext{null} ** 8;
 fn getCtx(device: u3, cu_dev: cu.CUdevice) !cu.CUcontext {
-    var cu_ctx = &_ctx[device];
+    const cu_ctx = &_ctx[device];
     if (cu_ctx.* == null) {
         try check(cu.cuCtxCreate(cu_ctx, 0, cu_dev));
     }
@@ -450,7 +450,7 @@ fn defaultModule() cu.CUmodule {
         // Note: I tried to make this a path relative to the executable but failed because
         // the main executable and the test executable are in different folder
         // but refer to the same .ptx file.
-        check(cu.cuModuleLoad(&_default_module, @ptrCast([*c]const u8, file))) catch |err| {
+        check(cu.cuModuleLoad(&_default_module, @ptrCast(file))) catch |err| {
             std.debug.panic("Couldn't load cuda module: {s}: {}", .{ file, err });
         };
     } else {
@@ -486,11 +486,10 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
 
         pub fn init() !Self {
             var f: cu.CUfunction = undefined;
-            var code = cu.cuModuleGetFunction(&f, defaultModule(), @ptrCast([*c]const u8, name));
+            const code = cu.cuModuleGetFunction(&f, defaultModule(), @ptrCast(name));
             if (code != cu.CUDA_SUCCESS) log.err("Couldn't load function {s}", .{name});
             try check(code);
-            var res = Self{ .f = f };
-            return res;
+            return .{ .f = f };
         }
 
         // TODO: deinit -> CUDestroy
@@ -546,14 +545,14 @@ test "we use only one context per GPU" {
     try check(cu.cuCtxGetCurrent(&default_ctx));
     std.log.warn("default_ctx: {any}", .{std.mem.asBytes(&default_ctx).*});
 
-    var stream = try Stream.init(0);
+    const stream = try Stream.init(0);
     var stream_ctx: cu.CUcontext = undefined;
     try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
     std.log.warn("stream_ctx: {any}", .{std.mem.asBytes(&stream_ctx).*});
     // try testing.expectEqual(default_ctx, stream_ctx);
 
     // Create a new stream
-    var stream2 = try Stream.init(0);
+    const stream2 = try Stream.init(0);
     var stream2_ctx: cu.CUcontext = undefined;
     try check(cu.cuStreamGetCtx(stream2._stream, &stream2_ctx));
     std.log.warn("stream2_ctx: {any}", .{std.mem.asBytes(&stream2_ctx).*});
@@ -586,7 +585,7 @@ test "safe kernel" {
     defer stream.deinit();
     const numRows: u32 = 10;
     const numCols: u32 = 20;
-    var d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
+    const d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
     // memset(cu.uchar3, d_rgbaImage, 0xaa);
     const d_greyImage = try alloc(u8, numRows * numCols);
     try memset(u8, d_greyImage, 0);
@@ -641,7 +640,7 @@ test "GpuTimer" {
     defer stream.deinit();
     const numRows: u32 = 10;
     const numCols: u32 = 20;
-    var d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
+    const d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
     // memset(cu.uchar3, d_rgbaImage, 0xaa);
     const d_greyImage = try alloc(u8, numRows * numCols);
     try memset(u8, d_greyImage, 0);

@@ -7,7 +7,7 @@ const nvptx = @import("nvptx.zig");
 test "hello_world" {
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
-    var d_buffer = try cuda.alloc(u8, 20);
+    const d_buffer = try cuda.alloc(u8, 20);
     defer cuda.free(d_buffer);
 
     const gpu_hello_world = try cuda.FnStruct("_test_hello_world", nvptx._test_hello_world).init();
@@ -15,7 +15,13 @@ test "hello_world" {
     var h_buffer = try stream.allocAndCopyResult(u8, testing.allocator, d_buffer);
     defer testing.allocator.free(h_buffer);
 
-    var expected = "Hello World !";
+    const expected = "Hello World !";
     std.log.warn("{s}", .{h_buffer});
     try testing.expectEqualSlices(u8, expected, h_buffer[0..expected.len]);
+}
+
+const options = @import("options");
+
+pub fn main() !void {
+    std.log.info("options: {}", .{options});
 }

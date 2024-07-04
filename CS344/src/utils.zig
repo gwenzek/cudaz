@@ -40,9 +40,9 @@ pub fn eq_and_show_diff(alloc: std.mem.Allocator, comptime dir: []const u8, outp
     var max_val: f32 = -255;
     var total: f32 = 0;
     while (true) {
-        var ref_pxl = ref_pxls.next();
+        const ref_pxl = ref_pxls.next();
         if (ref_pxl == null) break;
-        var out_pxl = out_pxls.next();
+        const out_pxl = out_pxls.next();
         var d = ref_pxl.?.r - out_pxl.?.r;
         d = std.math.fabs(d);
         min_val = std.math.min(min_val, d);
@@ -50,17 +50,17 @@ pub fn eq_and_show_diff(alloc: std.mem.Allocator, comptime dir: []const u8, outp
         i += 1;
         total += d;
     }
-    var avg_diff = 255.0 * total / @intToFloat(f32, num_pixels);
+    const avg_diff = 255.0 * total / @as(f32, @floatFromInt(num_pixels));
     i = 0;
     var diff_pxls = diff.px.gray8;
     while (true) {
-        var ref_pxl = ref_pxls.next();
+        const ref_pxl = ref_pxls.next();
         if (ref_pxl == null) break;
-        var out_pxl = out_pxls.next();
+        const out_pxl = out_pxls.next();
         var d = ref_pxl.?.r - out_pxl.?.r;
         d = std.math.fabs(d);
         const centered_d = 255.0 * (d - min_val) / (max_val - min_val);
-        diff_pxls[i] = @floatToInt(u8, centered_d);
+        diff_pxls[i] = @floatFromInt(centered_d);
         i += 1;
     }
 
@@ -72,7 +72,7 @@ pub fn eq_and_show_diff(alloc: std.mem.Allocator, comptime dir: []const u8, outp
 }
 
 pub fn asUchar3(img: Image) []cu.uchar3 {
-    var ptr: [*]cu.uchar3 = @ptrCast([*]cu.uchar3, img.px.rgb24);
+    const ptr: [*]cu.uchar3 = @ptrCast(img.px.rgb24);
     const num_pixels = img.width * img.height;
     return ptr[0..num_pixels];
 }
