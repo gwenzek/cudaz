@@ -30,7 +30,7 @@ pub fn reduce(
             stream,
             cuda.Grid.init1D(d_in.len, n_threads),
             n_threads * @sizeOf(DType),
-            .{ d_in.ptr, d_out.ptr, @intCast(c_int, d_in.len) },
+            .{ d_in.ptr, d_out.ptr, @intCast(d_in.len) },
         );
         d_in = d_out;
         d_out = d_next;

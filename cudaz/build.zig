@@ -1,6 +1,6 @@
 const std = @import("std");
 const sdk = @import("sdk.zig");
-const CUDA_PATH = "/usr/local/cuda";
+const CUDA_PATH = "/usr/";
 
 const Builder = std.build.Builder;
 const LibExeObjStep = std.build.LibExeObjStep;
