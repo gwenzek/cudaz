@@ -1,9 +1,11 @@
 const std = @import("std");
-const cuda_sdk = @import("cudaz/sdk.zig");
-const CUDA_PATH = "/usr/";
-
 const Build = std.Build;
 const Step = std.Build.Step;
+
+const cuda_sdk = @import("cudaz/sdk.zig");
+
+const CUDA_PATH = "/usr/";
+
 // const LibExeObjStep = std.build.LibExeObjStep;
 // const RunStep = std.build.RunStep;
 
@@ -21,13 +23,21 @@ pub fn build(b: *Build) void {
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     optimize = b.standardOptimizeOption(.{});
 
-    const test_png = b.addTest(.{
-        .name = "test_png",
+    // const lode_png = b.addTranslateC(.{
+    //     .root_source_file
+    //     })
+
+    const png = b.addModule("png", .{
         .root_source_file = b.path("src/png.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
 
+    const test_png = b.addTest(.{
+        .name = "test_png",
+        .root_module = png,
+    });
     addLodePng(b, test_png);
 
     const tests = b.step("test", "Runs the ZML test suite");
@@ -35,7 +45,7 @@ pub fn build(b: *Build) void {
 
     // CS344 lessons and home works
     const run_step = b.step("run", "Run the example");
-    const hw1 = addHomework(b, tests, "hw1");
+    const hw1 = addZigHomework(b, tests, "hw1_pure");
 
     // addLesson(b, "lesson2");
     // const hw2 = addHomework(b, tests, "hw2");
@@ -76,48 +86,58 @@ fn addLodePng(b: *Build, exe: *Step.Compile) void {
     exe.addCSourceFile(.{ .file = b.path("lodepng/lodepng.c"), .flags = &.{"-DLODEPNG_COMPILE_ERROR_TEXT"} });
 }
 
-fn addHomework(b: *Build, tests: *Step, comptime name: []const u8) *Step.Compile {
-    const hw = b.addExecutable(.{
-        .name = name,
+// fn addHomework(b: *Build, tests: *Step, comptime name: []const u8) *Step.Compile {
+//     const hw = b.addModule(name, .{
+//         .root_source_file = b.path("src/" ++ name ++ ".zig"),
+//         .target = target,
+//         .optimize = optimize,
+//     });
+//     const hw_exe = b.addExecutable(.{
+//         .name = name ++ "_exe",
+//         .root_module = hw,
+//     });
+
+//     cuda_sdk.addCudazWithNvcc(b, hw_exe, CUDA_PATH, "src/" ++ name ++ ".cu");
+//     addLodePng(b, hw);
+//     // hw.install();
+
+//     const test_hw = b.addTest(.{
+//         .name = "test_" ++ name,
+//         .root_source_file = b.path("src/" ++ name ++ ".zig"),
+//         .target = target,
+//         .optimize = optimize,
+//     });
+//     cuda_sdk.addCudazWithNvcc(b, test_hw, CUDA_PATH, "src/" ++ name ++ ".cu");
+
+//     tests.dependOn(&b.addRunArtifact(test_hw).step);
+
+//     return hw;
+// }
+
+fn addZigHomework(b: *Build, tests: *std.Build.Step, comptime name: []const u8) *std.Build.Step.Compile {
+    const hw = b.addModule(name, .{
         .root_source_file = b.path("src/" ++ name ++ ".zig"),
         .target = target,
         .optimize = optimize,
     });
+    const hw_exe = b.addExecutable(.{
+        .name = name ++ "_exe",
+        .root_module = hw,
+    });
 
-    cuda_sdk.addCudazWithNvcc(b, hw, CUDA_PATH, "src/" ++ name ++ ".cu");
-    addLodePng(b, hw);
-    // hw.install();
+    cuda_sdk.addCudazWithZigKernel(b, hw_exe, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
+    addLodePng(b, hw_exe);
+    b.installArtifact(hw_exe);
 
     const test_hw = b.addTest(.{
-        .name = "test_" ++ name,
-        .root_source_file = b.path("src/" ++ name ++ ".zig"),
-        .target = target,
-        .optimize = optimize,
+        .name = name ++ "__test",
+        .root_module = hw,
     });
-    cuda_sdk.addCudazWithNvcc(b, test_hw, CUDA_PATH, "src/" ++ name ++ ".cu");
+    cuda_sdk.addCudazWithZigKernel(b, test_hw, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
+    tests.dependOn(&test_hw.step);
 
-    tests.dependOn(&b.addRunArtifact(test_hw).step);
-
-    return hw;
+    return hw_exe;
 }
-
-// fn addZigHomework(b: *Build, tests: *std.build.Step, comptime name: []const u8) *RunStep {
-//     const hw = b.addExecutable(name, "src/" ++ name ++ ".zig");
-//     hw.setTarget(target);
-//     hw.setBuildMode(mode);
-
-//     cuda_sdk.addCudazWithZigKernel(b, hw, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
-//     addLodePng(hw);
-//     hw.install();
-//     const hw_run = hw.run();
-//     hw_run.step.dependOn(b.getInstallStep());
-
-//     const test_hw = b.addTest("src/" ++ name ++ ".zig");
-//     cuda_sdk.addCudazWithZigKernel(b, test_hw, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
-//     tests.dependOn(&test_hw.step);
-
-//     return hw_run;
-// }
 
 // fn addLesson(b: *Build, comptime name: []const u8) void {
 //     const lesson = b.addExecutable(name, "src/" ++ name ++ ".zig");

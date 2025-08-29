@@ -22,27 +22,15 @@ pub inline fn syncThreads() void {
 // extern fn @"llvm.nvvm.read.ptx.sreg.ntid.x"() i32;
 
 pub fn threadIdX() usize {
-    if (!is_nvptx) return 0;
-    const tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
-        : [r] "=r" (-> u32),
-    );
-    return @as(usize, tid);
+    return @workGroupId(0);
 }
 
 pub fn blockDimX() usize {
-    if (!is_nvptx) return 0;
-    const ntid = asm volatile ("mov.u32 \t%[r], %ntid.x;"
-        : [r] "=r" (-> u32),
-    );
-    return @as(usize, ntid);
+    return @workGroupSize(0);
 }
 
 pub fn blockIdX() usize {
-    if (!is_nvptx) return 0;
-    const ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
-        : [r] "=r" (-> u32),
-    );
-    return @as(usize, ctaid);
+    return @workItemId(0);
 }
 
 pub fn gridDimX() usize {

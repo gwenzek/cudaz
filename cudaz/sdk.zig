@@ -1,5 +1,4 @@
 const std = @import("std");
-
 const Build = std.Build;
 const Step = std.Build.Step;
 
@@ -74,7 +73,32 @@ pub fn addCudazWithZigKernel(
     comptime kernel_path: [:0]const u8,
 ) void {
     const name = std.fs.path.basename(kernel_path);
-    const zig_kernel = b.addObject(name, kernel_path);
+    const zig_kernel = b.addModule(name, .{
+        .root_source_file = b.path(kernel_path),
+        .optimize = .ReleaseFast,
+        .target = b.resolveTargetQuery(.{
+            .cpu_arch = .nvptx64,
+            .os_tag = .cuda,
+            // .cpu_model = .{ .explicit = &sm32ptx75 },
+            .cpu_model = .{ .explicit = &std.Target.nvptx.cpu.sm_32 },
+            // .cpu_features_add = std.Target.nvptx.featureSet(&[_]std.Target.nvptx.Feature{
+            //     .ptx75,
+            // }),
+        }),
+    });
+
+    const zig_kernel_obj = b.addObject(.{
+        .name = name,
+        .root_module = zig_kernel,
+        // ReleaseFast because the panic handler leads to a
+        // external dso_local constant with a name to complex for PTX
+        // TODO: try to sanitize name in the NvPtx Zig backend.
+    });
+
+    b.getInstallStep().dependOn(&b.addInstallBinFile(
+        zig_kernel_obj.getEmittedAsm(),
+        std.mem.concat(b.allocator, u8, &.{ name, ".ptx" }) catch @panic("OOM"),
+    ).step);
     // This yield an <error: unknown CPU: ''>
     // const sm32ptx75 = std.Target.Cpu.Model{
     //     .name = "sm_32",
@@ -84,46 +108,33 @@ pub fn addCudazWithZigKernel(
     //         .sm_32,
     //     }),
     // };
-    zig_kernel.setTarget(.{
-        .cpu_arch = .nvptx64,
-        .os_tag = .cuda,
-        // .cpu_model = .{ .explicit = &sm32ptx75 },
-        .cpu_model = .{ .explicit = &std.Target.nvptx.cpu.sm_32 },
-        // .cpu_features_add = std.Target.nvptx.featureSet(&[_]std.Target.nvptx.Feature{
-        //     .ptx75,
-        // }),
-    });
-    // ReleaseFast because the panic handler leads to a
-    // external dso_local constant with a name to complex for PTX
-    // TODO: try to sanitize name in the NvPtx Zig backend.
-    zig_kernel.setBuildMode(.ReleaseFast);
+
     // Adding the nvptx.zig package doesn't seem to work
-    const ptx_pkg = std.build.Pkg{
-        .name = "ptx",
-        .source = .{ .path = SDK_ROOT ++ "src/nvptx.zig" },
-    };
-    if (!std.mem.eql(u8, name, "nvptx.zig")) {
-        // Don't include nvptx.zig in itself
-        // TODO: find a more robust test
-        zig_kernel.addPackage(ptx_pkg);
-    }
+    // const ptx_pkg = b.addModule("ptx", .{
+    //     .root_source_file = .{ .cwd_relative = SDK_ROOT ++ "src/nvptx.zig" },
+    // });
+    // if (!std.mem.eql(u8, name, "nvptx.zig")) {
+    //     // Don't include nvptx.zig in itself
+    //     // TODO: find a more robust test
+    //     zig_kernel_obj.addPackage(ptx_pkg);
+    // }
 
     // Copy the .ptx next to the binary for easy review.
-    zig_kernel.setOutputDir(b.exe_dir);
-    const kernel_ptx_path = std.mem.joinZ(
-        b.allocator,
-        "",
-        &[_][]const u8{ b.exe_dir, "/", zig_kernel.out_filename, ".ptx" },
-    ) catch unreachable;
+    // zig_kernel_obj.setOutputDir(b.exe_dir);
+    // const kernel_ptx_path = std.mem.joinZ(
+    //     b.allocator,
+    //     "",
+    //     &[_][]const u8{ b.exe_dir, "/", zig_kernel_obj.out_filename, ".ptx" },
+    // ) catch unreachable;
 
-    // TODO: we should make this optional to allow compiling without a CUDA toolchain
-    const validate_ptx = b.addSystemCommand(
-        &[_][]const u8{ cuda_dir ++ "/bin/ptxas", kernel_ptx_path },
-    );
-    validate_ptx.step.dependOn(&zig_kernel.step);
-    exe.step.dependOn(&validate_ptx.step);
-
-    addCudazDeps(b, exe, cuda_dir, kernel_path, kernel_ptx_path);
+    // // TODO: we should make this optional to allow compiling without a CUDA toolchain
+    // const validate_ptx = b.addSystemCommand(
+    //     &[_][]const u8{ cuda_dir ++ "/bin/ptxas", kernel_ptx_path },
+    // );
+    // validate_ptx.step.dependOn(&zig_kernel_obj.step);
+    // exe.step.dependOn(&validate_ptx.step);
+    exe.step.dependOn(&zig_kernel_obj.step);
+    addCudazDeps(b, exe, cuda_dir, kernel_path, zig_kernel_obj.getEmittedAsm());
 }
 
 pub fn addCudazDeps(
@@ -150,6 +161,7 @@ pub fn addCudazDeps(
 
     // Add cudaz package with the kernel paths.
     const cudaz_options = b.addOptions();
+    cudaz_options.step.dependOn(kernel_ptx_path.generated.file.step);
     cudaz_options.addOption([:0]const u8, "kernel_path", kernel_path);
     cudaz_options.addOption([]const u8, "kernel_name", std.fs.path.basename(kernel_path));
     cudaz_options.addOptionPath("kernel_ptx_path", kernel_ptx_path);
@@ -171,9 +183,9 @@ pub fn addCudazDeps(
     var cudaz = b.addModule("cudaz", .{
         .root_source_file = .{ .cwd_relative = SDK_ROOT ++ "src/cuda.zig" },
     });
-    cudaz.addOptions("cudaz_options", cudaz_options);
     cudaz.addIncludePath(.{ .cwd_relative = cuda_dir ++ "/include" });
     exe.root_module.addImport("cudaz", cudaz);
+    exe.root_module.addOptions("cudaz_options", cudaz_options);
 }
 
 fn sdk_root() []const u8 {
