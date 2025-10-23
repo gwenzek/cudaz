@@ -1,8 +1,9 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const CallingConvention = std.builtin.CallingConvention;
+const builtin = @import("builtin");
+
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
-pub const Kernel: CallingConvention = if (is_nvptx) .Kernel else .C;
+pub const kernel: CallingConvention = if (builtin.cpu.arch == .nvptx64) .nvptx_kernel else .auto;
 
 // Equivalent of Cuda's __syncthreads()
 /// Wait to all the threads in this block to reach this barrier
@@ -124,7 +125,7 @@ pub fn getId_3D() Dim3 {
 
 // var panic_message_buffer: ?[]u8 = null;
 
-// pub export fn init_panic_message_buffer(buffer: []u8) callconv(Kernel) void {
+// pub export fn init_panic_message_buffer(buffer: []u8) callconv(kernel) void {
 //     panic_message_buffer = buffer;
 // }
 // if (!is_nvptx) @compileError("This panic handler is made for GPU");
@@ -151,12 +152,3 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_
 // TODO: prevent all threads wirting in the same place
 // buffer.*.len = len;
 // }
-
-const message = "Hello World !\x00";
-
-pub export fn _test_hello_world(out: [*]u8, len: usize) callconv(Kernel) void {
-    const i = getIdX();
-    if (i > message.len or i > len) return;
-    syncThreads();
-    out[i] = message[i];
-}

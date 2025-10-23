@@ -189,7 +189,7 @@ pub fn addCudazDeps(
 }
 
 fn sdk_root() []const u8 {
-    return std.fs.path.dirname(@src().file).?;
+    return std.fs.path.dirname(@src().file) orelse ".";
 }
 
 fn needRebuild(kernel_path: [:0]const u8, kernel_ptx_path: [:0]const u8) bool {

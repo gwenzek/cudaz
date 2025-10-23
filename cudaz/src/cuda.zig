@@ -1,18 +1,16 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const meta = std.meta;
-const testing = std.testing;
-const TypeInfo = std.builtin.TypeInfo;
+const root = @import("root");
 
-const cudaz_options = @import("cudaz_options");
-pub const cu = @import("cuda_cimports.zig").cu;
-pub const cuda_errors = @import("cuda_errors.zig");
-pub const check = cuda_errors.check;
-pub const Error = cuda_errors.Error;
+pub const cu = @import("cuda_h");
+
+pub const algorithms = @import("algorithms.zig");
 const attributes = @import("attributes.zig");
 pub const Attribute = attributes.Attribute;
 pub const getAttr = attributes.getAttr;
-pub const algorithms = @import("algorithms.zig");
+pub const cuda_errors = @import("cuda_errors.zig");
+pub const check = cuda_errors.check;
+pub const Error = cuda_errors.Error;
 
 const log = std.log.scoped(.Cuda);
 
@@ -124,7 +122,7 @@ pub const Stream = struct {
     }
 
     pub fn free(self: *const Stream, device_ptr: anytype) void {
-        const raw_ptr: *anyopaque = if (meta.trait.isSlice(@TypeOf(device_ptr)))
+        const raw_ptr: *anyopaque = if (@hasField(@TypeOf(device_ptr), "ptr"))
             @ptrCast(device_ptr.ptr)
         else
             @ptrCast(device_ptr);
@@ -188,7 +186,7 @@ pub const Stream = struct {
 
     pub fn launchWithSharedMem(self: *const Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
         // Create an array of pointers pointing to the given args.
-        const fields: []const TypeInfo.StructField = meta.fields(@TypeOf(args));
+        const fields: []const std.builtin.Type.StructField = std.meta.fields(@TypeOf(args));
         var args_ptrs: [fields.len:0]usize = undefined;
         inline for (fields, 0..) |field, i| {
             args_ptrs[i] = @intFromPtr(&@field(args, field.name));
@@ -263,7 +261,7 @@ pub fn alloc(comptime DestType: type, size: usize) ![]DestType {
 
 // TODO: move all this to stream using async variants
 pub fn free(device_ptr: anytype) void {
-    const raw_ptr: *anyopaque = if (meta.trait.isSlice(@TypeOf(device_ptr)))
+    const raw_ptr: *anyopaque = if (@hasField(@TypeOf(device_ptr), "ptr"))
         @ptrCast(device_ptr.ptr)
     else
         @ptrCast(device_ptr);
@@ -288,59 +286,59 @@ pub fn memsetD8(comptime DestType: type, slice: []DestType, value: u8) !void {
     try check(cu.cuMemsetD8(d_ptr, value, n));
 }
 
-pub fn allocAndCopy(comptime DestType: type, h_source: []const DestType) ![]DestType {
-    const ptr = try alloc(DestType, h_source.len);
-    try memcpyHtoD(DestType, ptr, h_source);
-    return ptr;
-}
+// pub fn allocAndCopy(comptime DestType: type, h_source: []const DestType) ![]DestType {
+//     const ptr = try alloc(DestType, h_source.len);
+//     try memcpyHtoD(DestType, ptr, h_source);
+//     return ptr;
+// }
 
-pub fn allocAndCopyResult(
-    comptime DestType: type,
-    host_allocator: std.mem.Allocator,
-    d_source: []const DestType,
-) ![]DestType {
-    const h_tgt = try host_allocator.alloc(DestType, d_source.len);
-    try memcpyDtoH(DestType, h_tgt, d_source);
-    return h_tgt;
-}
+// pub fn allocAndCopyResult(
+//     comptime DestType: type,
+//     host_allocator: std.mem.Allocator,
+//     d_source: []const DestType,
+// ) ![]DestType {
+//     const h_tgt = try host_allocator.alloc(DestType, d_source.len);
+//     try memcpyDtoH(DestType, h_tgt, d_source);
+//     return h_tgt;
+// }
 
-pub fn readResult(comptime DestType: type, d_source: *const DestType) !DestType {
-    var h_res: [1]DestType = undefined;
-    try check(cu.cuMemcpyDtoH(
-        @ptrCast(&h_res),
-        @intFromPtr(d_source),
-        @sizeOf(DestType),
-    ));
-    return h_res[0];
-}
+// pub fn readResult(comptime DestType: type, d_source: *const DestType) !DestType {
+//     var h_res: [1]DestType = undefined;
+//     try check(cu.cuMemcpyDtoH(
+//         @ptrCast(&h_res),
+//         @intFromPtr(d_source),
+//         @sizeOf(DestType),
+//     ));
+//     return h_res[0];
+// }
 
-pub fn memcpyHtoD(comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
-    std.debug.assert(h_source.len == d_target.len);
-    try check(cu.cuMemcpyHtoD(
-        @intFromPtr(d_target.ptr),
-        @ptrCast(h_source.ptr),
-        h_source.len * @sizeOf(DestType),
-    ));
-}
-pub fn memcpyDtoH(comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
-    std.debug.assert(d_source.len == h_target.len);
-    try check(cu.cuMemcpyDtoH(
-        @ptrCast(h_target.ptr),
-        @intFromPtr(d_source.ptr),
-        d_source.len * @sizeOf(DestType),
-    ));
-}
+// pub fn memcpyHtoD(comptime DestType: type, d_target: []DestType, h_source: []const DestType) !void {
+//     std.debug.assert(h_source.len == d_target.len);
+//     try check(cu.cuMemcpyHtoD(
+//         @intFromPtr(d_target.ptr),
+//         @ptrCast(h_source.ptr),
+//         h_source.len * @sizeOf(DestType),
+//     ));
+// }
+// pub fn memcpyDtoH(comptime DestType: type, h_target: []DestType, d_source: []const DestType) !void {
+//     std.debug.assert(d_source.len == h_target.len);
+//     try check(cu.cuMemcpyDtoH(
+//         @ptrCast(h_target.ptr),
+//         @intFromPtr(d_source.ptr),
+//         d_source.len * @sizeOf(DestType),
+//     ));
+// }
 
-pub fn push(value: anytype) !*@TypeOf(value) {
-    const DestType = @TypeOf(value);
-    const d_ptr = try alloc(DestType, 1);
-    try check(cu.cuMemcpyHtoD(
-        @intFromPtr(d_ptr.ptr),
-        @ptrCast(&value),
-        @sizeOf(DestType),
-    ));
-    return @ptrCast(d_ptr.ptr);
-}
+// pub fn push(value: anytype) !*@TypeOf(value) {
+//     const DestType = @TypeOf(value);
+//     const d_ptr = try alloc(DestType, 1);
+//     try check(cu.cuMemcpyHtoD(
+//         @intFromPtr(d_ptr.ptr),
+//         @ptrCast(&value),
+//         @sizeOf(DestType),
+//     ));
+//     return @ptrCast(d_ptr.ptr);
+// }
 
 /// Time gpu event.
 /// `deinit` is called when `elapsed` is called.
@@ -408,8 +406,8 @@ pub fn main() anyerror!void {
 
 test "cuda version" {
     log.warn("Cuda version: {d}", .{cu.CUDA_VERSION});
-    try testing.expect(cu.CUDA_VERSION > 11000);
-    try testing.expectEqual(cu.cuInit(0), cu.CUDA_SUCCESS);
+    try std.testing.expect(cu.CUDA_VERSION > 11000);
+    try std.testing.expectEqual(cu.cuInit(0), cu.CUDA_SUCCESS);
 }
 
 var _device = [_]cu.CUdevice{-1} ** 8;
@@ -438,32 +436,29 @@ fn getCtx(device: u3, cu_dev: cu.CUdevice) !cu.CUcontext {
     return cu_ctx.*;
 }
 
-var _default_module: cu.CUmodule = null;
-pub const kernel_ptx_content = if (cudaz_options.portable) @embedFile(cudaz_options.kernel_ptx_path) else [0:0]u8{};
+pub const PtxLocation = union(enum) {
+    embed: [:0]const u8,
+    file: [:0]const u8,
+};
 
-fn defaultModule() cu.CUmodule {
-    if (_default_module != null) return _default_module;
-    const file = cudaz_options.kernel_ptx_path;
-
-    if (kernel_ptx_content.len == 0) {
-        log.warn("Loading Cuda module from local file {s}", .{file});
-        // Note: I tried to make this a path relative to the executable but failed because
-        // the main executable and the test executable are in different folder
-        // but refer to the same .ptx file.
-        check(cu.cuModuleLoad(&_default_module, @ptrCast(file))) catch |err| {
-            std.debug.panic("Couldn't load cuda module: {s}: {}", .{ file, err });
-        };
-    } else {
-        log.info("Loading Cuda module from embedded file.", .{});
-        // TODO see if we can use nvPTXCompiler to explicitly compile it ourselve
-        check(cu.cuModuleLoadData(&_default_module, kernel_ptx_content)) catch |err| {
-            std.debug.panic("Couldn't load embedded cuda module. Originally file was at {s}: {}", .{ file, err });
-        };
+pub fn loadModule(location: PtxLocation) cu.CUmodule {
+    var module: cu.CUmodule = undefined;
+    switch (location) {
+        .embed => |content| {
+            // log.info("Loading Cuda module from embedded file.", .{});
+            // TODO see if we can use nvPTXCompiler to explicitly compile it ourselve
+            check(cu.cuModuleLoadData(&module, content.ptr)) catch |err| {
+                std.debug.panic("Couldn't load embedded cuda module: {}", .{err});
+            };
+        },
+        .file => |path| {
+            // log.warn("Loading Cuda module from local file {s}", .{file});
+            check(cu.cuModuleLoad(&module, path.ptr)) catch |err| {
+                std.debug.panic("Couldn't load cuda module {s}: {}", .{ path, err });
+            };
+        },
     }
-    if (_default_module == null) {
-        std.debug.panic("Couldn't find module.", .{});
-    }
-    return _default_module;
+    return module;
 }
 
 /// Create a function with the correct signature for a cuda Kernel.
@@ -480,13 +475,13 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
     return struct {
         const Self = @This();
         const CpuFn = *const @TypeOf(func);
-        pub const Args = meta.ArgsTuple(meta.Child(Self.CpuFn));
+        pub const Args = std.meta.ArgsTuple(@TypeOf(func));
 
         f: cu.CUfunction,
 
-        pub fn init() !Self {
+        pub fn init(module: cu.CUmodule) !Self {
             var f: cu.CUfunction = undefined;
-            const code = cu.cuModuleGetFunction(&f, defaultModule(), @ptrCast(name));
+            const code = cu.cuModuleGetFunction(&f, module, @ptrCast(name));
             if (code != cu.CUDA_SUCCESS) log.err("Couldn't load function {s}", .{name});
             try check(code);
             return .{ .f = f };
@@ -497,7 +492,7 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
         // Note: I'm not fond of having the primary launch be on the Function object,
         // but it works best with Zig type inference
         pub inline fn launch(self: *const Self, stream: *const Stream, grid: Grid, args: Args) !void {
-            if (args.len != @typeInfo(Args).Struct.fields.len) {
+            if (args.len != @typeInfo(Args).@"struct".fields.len) {
                 @compileError("Expected more arguments");
             }
             try self.launchWithSharedMem(stream, grid, 0, args);
@@ -536,10 +531,6 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
     };
 }
 
-test "can read function signature from .cu files" {
-    log.warn("My kernel: {s}", .{@TypeOf(cu.rgba_to_greyscale)});
-}
-
 test "we use only one context per GPU" {
     var default_ctx: cu.CUcontext = undefined;
     try check(cu.cuCtxGetCurrent(&default_ctx));
@@ -549,54 +540,14 @@ test "we use only one context per GPU" {
     var stream_ctx: cu.CUcontext = undefined;
     try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
     std.log.warn("stream_ctx: {any}", .{std.mem.asBytes(&stream_ctx).*});
-    // try testing.expectEqual(default_ctx, stream_ctx);
+    // try std.testing.expectEqual(default_ctx, stream_ctx);
 
     // Create a new stream
     const stream2 = try Stream.init(0);
     var stream2_ctx: cu.CUcontext = undefined;
     try check(cu.cuStreamGetCtx(stream2._stream, &stream2_ctx));
     std.log.warn("stream2_ctx: {any}", .{std.mem.asBytes(&stream2_ctx).*});
-    try testing.expectEqual(stream_ctx, stream2_ctx);
-}
-
-test "rgba_to_greyscale" {
-    var stream = try Stream.init(0);
-    defer stream.deinit();
-    log.warn("cuda: {}", .{stream});
-    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
-    const numRows: u32 = 10;
-    const numCols: u32 = 20;
-    const d_rgbaImage = try alloc([4]u8, numRows * numCols);
-    // try memset([4]u8, d_rgbaImage, [4]u8{ 0xaa, 0, 0, 255 });
-    const d_greyImage = try alloc(u8, numRows * numCols);
-    try memset(u8, d_greyImage, 0);
-
-    try stream.launch(
-        rgba_to_greyscale.f,
-        .{ .blocks = Dim3.init(numRows, numCols, 1) },
-        .{ d_rgbaImage, d_greyImage, numRows, numCols },
-    );
-    stream.synchronize();
-}
-
-test "safe kernel" {
-    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
-    var stream = try Stream.init(0);
-    defer stream.deinit();
-    const numRows: u32 = 10;
-    const numCols: u32 = 20;
-    const d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
-    // memset(cu.uchar3, d_rgbaImage, 0xaa);
-    const d_greyImage = try alloc(u8, numRows * numCols);
-    try memset(u8, d_greyImage, 0);
-    stream.synchronize();
-    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
-    try rgba_to_greyscale.launch(
-        &stream,
-        .{ .blocks = Dim3.init(numCols, numRows, 1) },
-        // TODO: we should accept slices
-        .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
-    );
+    try std.testing.expectEqual(stream_ctx, stream2_ctx);
 }
 
 test "cuda alloc" {
@@ -608,60 +559,10 @@ test "cuda alloc" {
     defer free(d_greyImage);
 }
 
-test "run the kernel on CPU" {
-    // This isn't very ergonomic, but it's possible !
-    // Also ironically it can't run in parallel because of the usage of the
-    // globals blockIdx and threadIdx.
-    // I think it could be useful to detect out of bound errors that Cuda
-    // tend to ignore.
-    const rgba_to_greyscale = CudaKernel("rgba_to_greyscale");
-    const rgbImage = [_]cu.uchar3{
-        .{ .x = 0x2D, .y = 0x24, .z = 0x1F },
-        .{ .x = 0xEB, .y = 0x82, .z = 0x48 },
-    };
-    var gray = [_]u8{ 0, 0 };
-    rgba_to_greyscale.debugCpuCall(
-        Grid.init1D(2, 1),
-        .{ .blocks = Dim3.init(0, 0, 0), .threads = Dim3.init(0, 0, 0) },
-        .{ &rgbImage, &gray, 1, 2 },
-    );
-    rgba_to_greyscale.debugCpuCall(
-        Grid.init1D(2, 1),
-        .{ .blocks = Dim3.init(0, 0, 0), .threads = Dim3.init(1, 0, 0) },
-        .{ &rgbImage, &gray, 1, 2 },
-    );
-
-    try testing.expectEqual([_]u8{ 38, 154 }, gray);
-}
-
-test "GpuTimer" {
-    const rgba_to_greyscale = try CudaKernel("rgba_to_greyscale").init();
-    var stream = try Stream.init(0);
-    defer stream.deinit();
-    const numRows: u32 = 10;
-    const numCols: u32 = 20;
-    const d_rgbaImage = try alloc(cu.uchar3, numRows * numCols);
-    // memset(cu.uchar3, d_rgbaImage, 0xaa);
-    const d_greyImage = try alloc(u8, numRows * numCols);
-    try memset(u8, d_greyImage, 0);
-
-    log.warn("stream: {}, fn: {}", .{ stream, rgba_to_greyscale.f });
-    var timer = GpuTimer.start(&stream);
-    try rgba_to_greyscale.launch(
-        &stream,
-        .{ .blocks = Dim3.init(numCols, numRows, 1) },
-        .{ d_rgbaImage.ptr, d_greyImage.ptr, numRows, numCols },
-    );
-    timer.stop();
-    stream.synchronize();
-    log.warn("rgba_to_greyscale took: {}", .{timer.elapsed()});
-    try testing.expect(timer.elapsed() > 0);
-}
-
 pub fn Kernels(comptime module: type) type {
     // @compileLog(@typeName(module));
     const decls = @typeInfo(module).Struct.decls;
-    var kernels: [decls.len]TypeInfo.StructField = undefined;
+    var kernels: [decls.len]std.builtin.Type.StructField = undefined;
     comptime var kernels_count = 0;
     inline for (decls) |decl| {
         if (decl.data != .Fn or !decl.data.Fn.is_export) continue;
@@ -675,11 +576,11 @@ pub fn Kernels(comptime module: type) type {
         kernels_count += 1;
     }
     // @compileLog(kernels_count);
-    return @Type(TypeInfo{
-        .Struct = TypeInfo.Struct{
+    return @Type(.{
+        .@"struct" = .{
             .is_tuple = false,
             .layout = .Auto,
-            .decls = &[_]TypeInfo.Declaration{},
+            .decls = &.{},
             .fields = kernels[0..kernels_count],
         },
     });

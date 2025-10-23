@@ -1,7 +1,8 @@
 const std = @import("std");
-const log = std.log.scoped(.Cuda);
 
-pub const cu = @import("cuda_cimports.zig").cu;
+pub const cu = @import("cuda_h");
+
+const log = std.log.scoped(.Cuda);
 
 pub const Error = error{
     OutOfMemory,
