@@ -46,13 +46,22 @@ pub fn getIdX() usize {
     return threadIdX() + blockDimX() * blockIdX();
 }
 
-/// threadId.y
-pub inline fn threadIdY() usize {
-    const tid = asm volatile ("mov.u32 \t%[r], %tid.y;"
-        : [r] "=r" (-> u32),
-    );
-    return @intCast(tid);
+pub fn threadIdY() usize {
+    return @workGroupId(1);
 }
+
+pub fn blockDimY() usize {
+    return @workGroupSize(1);
+}
+
+pub fn blockIdY() usize {
+    return @workItemId(1);
+}
+
+pub fn getIdY() usize {
+    return threadIdY() + blockDimY() * blockIdY();
+}
+
 /// threadId.z
 pub inline fn threadIdZ() usize {
     const tid = asm volatile ("mov.u32 \t%[r], %tid.z;"
