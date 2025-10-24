@@ -1,5 +1,6 @@
 const std = @import("std");
-const cu = @import("cuda_cimports.zig").cu;
+
+const cu = @import("cuda_h");
 
 pub const Attribute = enum(c_uint) {
     /// Maximum number of threads per block
