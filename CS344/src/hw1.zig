@@ -15,7 +15,7 @@ pub fn main() anyerror!void {
     log.info("***** HW1 ******", .{});
 
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    var alloc = general_purpose_allocator.allocator();
+    const alloc = general_purpose_allocator.allocator();
     const args = try std.process.argsAlloc(alloc);
     defer std.process.argsFree(alloc, args);
 
@@ -26,12 +26,12 @@ pub fn main() anyerror!void {
     defer img.deinit();
     log.info("Loaded {}", .{img});
 
-    var d_img = try cudaz.allocAndCopy(png.Rgb24, img.px.rgb24);
+    const d_img = try cudaz.allocAndCopy(png.Rgb24, img.px.rgb24);
     defer cudaz.free(d_img);
 
-    var gray = try png.grayscale(alloc, img.width, img.height);
+    const gray = try png.grayscale(alloc, img.width, img.height);
     defer gray.deinit();
-    var d_gray = try cudaz.alloc(png.Gray8, img.width * img.height);
+    const d_gray = try cudaz.alloc(png.Gray8, img.width * img.height);
     defer cudaz.free(d_gray);
     try cudaz.memset(png.Gray8, d_gray, 0);
 
@@ -42,10 +42,10 @@ pub fn main() anyerror!void {
         &stream,
         cudaz.Grid.init1D(img.height * img.width, 64),
         .{
-            @ptrCast([*c]const cu.uchar3, d_img.ptr),
-            @ptrCast([*c]u8, d_gray.ptr),
-            @intCast(c_int, img.height),
-            @intCast(c_int, img.width),
+            @ptrCast(d_img.ptr),
+            @ptrCast(d_gray.ptr),
+            @intCast(img.height),
+            @intCast(img.width),
             // std.mem.sliceAsBytes(d_img),
             // std.mem.sliceAsBytes(d_gray),
         },

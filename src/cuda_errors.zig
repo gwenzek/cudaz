@@ -1,7 +1,8 @@
 const std = @import("std");
-const log = std.log.scoped(.Cuda);
 
-pub const cu = @import("cuda_cimports.zig").cu;
+pub const cu = @import("cuda_h");
+
+const log = std.log.scoped(.cuda);
 
 pub const Error = error{
     OutOfMemory,
@@ -54,7 +55,7 @@ pub fn check(result: cu.CUresult) Error!void {
 }
 
 pub fn silent_check(result: cu.CUresult) Error!void {
-    var err: Error = switch (result) {
+    const err: Error = switch (result) {
         cu.CUDA_SUCCESS => return,
         // Resource errors:
         cu.CUDA_ERROR_OUT_OF_MEMORY => error.OutOfMemory,

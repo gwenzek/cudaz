@@ -1,5 +1,6 @@
 const std = @import("std");
-const cu = @import("cuda_cimports.zig").cu;
+
+const cu = @import("cuda_h");
 
 pub const Attribute = enum(c_uint) {
     /// Maximum number of threads per block
@@ -247,6 +248,6 @@ pub fn getAttr(device: u8, attr: Attribute) i32 {
     var d: cu.CUdevice = undefined;
     _ = cu.cuDeviceGet(&d, device);
     var value: i32 = std.math.minInt(i32);
-    _ = cu.cuDeviceGetAttribute(&value, @enumToInt(attr), d);
+    _ = cu.cuDeviceGetAttribute(&value, @intFromEnum(attr), d);
     return value;
 }

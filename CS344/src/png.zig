@@ -76,9 +76,9 @@ pub const Image = struct {
         img.allocator = std.heap.c_allocator;
         var buffer: [*c]u8 = undefined;
 
-        var resolved_path = try std.fs.path.resolve(allocator, &[_][]const u8{file_path});
+        const resolved_path = try std.fs.path.resolve(allocator, &.{file_path});
         defer allocator.free(resolved_path);
-        var resolved_pathZ: []u8 = try allocator.dupeZ(u8, resolved_path);
+        const resolved_pathZ = try allocator.dupeZ(u8, resolved_path);
         defer allocator.free(resolved_pathZ);
 
         // TODO: handle different color encoding
@@ -86,11 +86,11 @@ pub const Image = struct {
             &buffer,
             &img.width,
             &img.height,
-            @ptrCast([*c]const u8, resolved_pathZ),
+            @ptrCast(resolved_pathZ),
         ));
         std.debug.assert(buffer != null);
 
-        img.px = .{ .rgb24 = @ptrCast([*]Rgb24, buffer.?)[0..img.len()] };
+        img.px = .{ .rgb24 = @as([*]Rgb24, @ptrCast(buffer.?))[0..img.len()] };
         return img;
     }
 
@@ -100,17 +100,17 @@ pub const Image = struct {
     }
 
     pub fn writeToFilePath(self: Image, file_path: []const u8) !void {
-        var resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{file_path});
+        const resolved_path = try std.fs.path.resolve(self.allocator, &[_][]const u8{file_path});
         defer self.allocator.free(resolved_path);
-        var resolved_pathZ: []u8 = try self.allocator.dupeZ(u8, resolved_path);
+        const resolved_pathZ: []u8 = try self.allocator.dupeZ(u8, resolved_path);
         defer self.allocator.free(resolved_pathZ);
         // Write image data
         try check(png.lodepng_encode_file(
-            @ptrCast([*c]const u8, resolved_pathZ),
+            @ptrCast(resolved_pathZ),
             self.raw().ptr,
-            @intCast(c_uint, self.width),
-            @intCast(c_uint, self.height),
-            @enumToInt(self.px),
+            @intCast(self.width),
+            @intCast(self.height),
+            @intFromEnum(self.px),
             self.lodeBitDepth(),
         ));
 
@@ -118,13 +118,13 @@ pub const Image = struct {
         return;
     }
 
-    // TODO: does it make sense to use f32 here ? shouldn't we stick with
+    // TODO: does it make sense to use f32 here ? shouldn't we stick with u8
     pub const Iterator = struct {
         image: Image,
         i: usize,
 
         fn u8_to_f32(value: u8) f32 {
-            return @intToFloat(f32, value) / 255.0;
+            return @as(f32, @floatFromInt(value)) / 255.0;
         }
 
         pub fn next(self: *Iterator) ?Rgb_f32 {
@@ -188,8 +188,8 @@ test "read/write/read" {
     var base = try Image.fromFilePath(testing.allocator, "resources/hw1_resources/cinque_terre_small.png");
     defer base.deinit();
 
-    try tmp.dir.writeFile("out.png", "hello");
-    var tmp_img = try tmp.dir.realpathAlloc(testing.allocator, "out.png");
+    try tmp.dir.writeFile(.{ .sub_path = "out.png", .data = "hello" });
+    const tmp_img = try tmp.dir.realpathAlloc(testing.allocator, "out.png");
     log.warn("will write image ({}x{}) to {s}", .{ base.width, base.height, tmp_img });
     defer testing.allocator.free(tmp_img);
     try base.writeToFilePath(tmp_img);

@@ -1,11 +1,11 @@
 // TODO: should be moved to Cudaz
 const std = @import("std");
-const builtin = @import("builtin");
 const TypeInfo = std.builtin.TypeInfo;
-const CallingConvention = @import("std").builtin.CallingConvention;
+const CallingConvention = std.builtin.CallingConvention;
+const builtin = @import("builtin");
 
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
-pub const Kernel = if (is_nvptx) CallingConvention.PtxKernel else CallingConvention.Unspecified;
+pub const kernel: CallingConvention = if (is_nvptx) CallingConvention.kernel else CallingConvention.Unspecified;
 
 // Size for storing a thread id
 pub const utid = u32;
@@ -19,7 +19,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) nore
 
 pub fn threadIdX() utid {
     if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
+    const tid = asm volatile ("mov.u32 \t%[r], %tid.x;"
         : [r] "=r" (-> utid),
     );
     return tid;
@@ -27,15 +27,12 @@ pub fn threadIdX() utid {
 
 pub fn blockDimX() utid {
     if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.x;"
-        : [r] "=r" (-> utid),
-    );
-    return ntid;
+    return @workGroupSize(0);
 }
 
 pub fn blockIdX() utid {
     if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
+    const ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.x;"
         : [r] "=r" (-> utid),
     );
     return ctaid;
@@ -43,7 +40,7 @@ pub fn blockIdX() utid {
 
 pub fn gridDimX() utid {
     if (!is_nvptx) return 0;
-    var nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
+    const nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
         : [r] "=r" (-> utid),
     );
     return nctaid;
@@ -55,7 +52,7 @@ pub fn getIdX() utid {
 
 pub fn threadIdY() utid {
     if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t%[r], %tid.y;"
+    const tid = asm volatile ("mov.u32 \t%[r], %tid.y;"
         : [r] "=r" (-> utid),
     );
     return tid;
@@ -63,7 +60,7 @@ pub fn threadIdY() utid {
 
 pub fn blockDimY() utid {
     if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.y;"
+    const ntid = asm volatile ("mov.u32 \t%[r], %ntid.y;"
         : [r] "=r" (-> utid),
     );
     return ntid;
@@ -71,7 +68,7 @@ pub fn blockDimY() utid {
 
 pub fn blockIdY() utid {
     if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.y;"
+    const ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.y;"
         : [r] "=r" (-> utid),
     );
     return ctaid;
@@ -79,7 +76,7 @@ pub fn blockIdY() utid {
 
 pub fn threadIdZ() utid {
     if (!is_nvptx) return 0;
-    var tid = asm volatile ("mov.u32 \t%[r], %tid.z;"
+    const tid = asm volatile ("mov.u32 \t%[r], %tid.z;"
         : [r] "=r" (-> utid),
     );
     return tid;
@@ -87,7 +84,7 @@ pub fn threadIdZ() utid {
 
 pub fn blockDimZ() utid {
     if (!is_nvptx) return 0;
-    var ntid = asm volatile ("mov.u32 \t%[r], %ntid.z;"
+    const ntid = asm volatile ("mov.u32 \t%[r], %ntid.z;"
         : [r] "=r" (-> utid),
     );
     return ntid;
@@ -95,7 +92,7 @@ pub fn blockDimZ() utid {
 
 pub fn blockIdZ() utid {
     if (!is_nvptx) return 0;
-    var ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.z;"
+    const ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.z;"
         : [r] "=r" (-> utid),
     );
     return ctaid;
@@ -110,9 +107,9 @@ pub fn atomicAdd(x: *u32, a: u32) void {
 }
 
 pub fn lastTid(n: usize) utid {
-    var block_dim = blockDimX();
+    const block_dim = blockDimX();
     if (blockIdX() == gridDimX() - 1) {
-        return @intCast(utid, (n - 1) % block_dim);
+        return @intCast((n - 1) % block_dim);
     } else {
         return block_dim - 1;
     }
@@ -160,8 +157,8 @@ pub fn exclusiveScan(
     var step: u32 = 1;
     while (step <= last_tid) : (step *= 2) {
         if (tid >= step and (last_tid - tid) % (step * 2) == 0) {
-            var right = data[tid];
-            var left = data[tid - step];
+            const right = data[tid];
+            const left = data[tid - step];
             data[tid] = switch (op) {
                 .add => right + left,
                 .mul => right * left,
@@ -182,8 +179,8 @@ pub fn exclusiveScan(
     step /= 2;
     while (step > 0) : (step /= 2) {
         if (tid >= step and (last_tid - tid) % (step * 2) == 0) {
-            var right = data[tid];
-            var left = data[tid - step];
+            const right = data[tid];
+            const left = data[tid - step];
             data[tid] = switch (op) {
                 .add => right + left,
                 .mul => right * left,
