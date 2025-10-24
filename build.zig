@@ -26,7 +26,7 @@ pub fn build(b: *std.Build) void {
         },
         .link_libc = true,
     });
-    cudaz.linkSystemLibrary("cuda", .{ .needed = true });
+    cudaz.linkSystemLibrary("cuda", .{});
 
     const nvptx_device = b.addModule("nvptx_device", .{
         .root_source_file = b.path("src/nvptx.zig"),
@@ -59,6 +59,9 @@ pub fn build(b: *std.Build) void {
     addCudaKernel(b, test_kernel_module, "generated_ptx");
 
     const test_kernel = b.addTest(.{ .root_module = test_kernel_module });
+    const install_test_kernel = b.addInstallArtifact(test_kernel, .{});
+    b.getInstallStep().dependOn(&install_test_kernel.step);
+
     const run_test_kernel = b.addRunArtifact(test_kernel);
     tests.dependOn(&run_test_kernel.step);
 }
