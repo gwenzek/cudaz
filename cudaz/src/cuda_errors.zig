@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const cu = @import("cuda_h");
 
-const log = std.log.scoped(.Cuda);
+const log = std.log.scoped(.cuda);
 
 pub const Error = error{
     OutOfMemory,

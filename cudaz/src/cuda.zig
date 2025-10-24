@@ -12,7 +12,7 @@ pub const cuda_errors = @import("cuda_errors.zig");
 pub const check = cuda_errors.check;
 pub const Error = cuda_errors.Error;
 
-const log = std.log.scoped(.Cuda);
+const log = std.log.scoped(.cuda);
 
 pub const Dim3 = struct {
     x: c_uint = 1,
@@ -37,32 +37,28 @@ pub const Grid = struct {
     blocks: Dim3 = .{},
     threads: Dim3 = .{},
 
-    pub fn init1D(len: usize, threads: usize) Grid {
-        return init3D(len, 1, 1, threads, 1, 1);
+    /// Divide in blocks the given len by the given number of threads.
+    pub fn init1D(full_len: usize, threads: usize) Grid {
+        return init3D(.{ full_len, 1, 1 }, .{ threads, 1, 1 });
     }
 
-    pub fn init2D(cols: usize, rows: usize, threads_x: usize, threads_y: usize) Grid {
-        return init3D(cols, rows, 1, threads_x, threads_y, 1);
+    /// Divide in blocks the given shape by the given number of threads.
+    pub fn init2D(full_shape: [2]usize, threads: [2]usize) Grid {
+        return init3D(.{ full_shape[0], full_shape[1], 1 }, .{ threads[0], threads[1], 1 });
     }
 
+    /// Divide in blocks the given shape by the given number of threads.
     pub fn init3D(
-        cols: usize,
-        rows: usize,
-        depth: usize,
-        threads_x: usize,
-        threads_y: usize,
-        threads_z: usize,
+        full_shape: [3]usize,
+        threads: [3]usize,
     ) Grid {
-        const t_x = if (threads_x == 0) cols else threads_x;
-        const t_y = if (threads_y == 0) rows else threads_y;
-        const t_z = if (threads_z == 0) depth else threads_z;
         return Grid{
             .blocks = Dim3.init(
-                std.math.divCeil(usize, cols, t_x) catch unreachable,
-                std.math.divCeil(usize, rows, t_y) catch unreachable,
-                std.math.divCeil(usize, depth, t_z) catch unreachable,
+                std.math.divCeil(usize, full_shape[0], threads[0]) catch unreachable,
+                std.math.divCeil(usize, full_shape[1], threads[1]) catch unreachable,
+                std.math.divCeil(usize, full_shape[2], threads[2]) catch unreachable,
             ),
-            .threads = Dim3.init(t_x, t_y, t_z),
+            .threads = Dim3.init(threads[0], threads[1], threads[2]),
         };
     }
 
@@ -180,28 +176,28 @@ pub const Stream = struct {
         check(memset_res) catch unreachable;
     }
 
-    pub inline fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args: anytype) !void {
-        try self.launchWithSharedMem(f, grid, 0, args);
+    pub const Args = [:null]const ?*const anyopaque;
+
+    pub fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args_ptrs: Args) !void {
+        try self.launchWithSharedMem(f, grid, 0, args_ptrs);
     }
 
-    pub fn launchWithSharedMem(self: *const Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args: anytype) !void {
+    pub fn launchWithSharedMem(self: *const Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args_ptrs: Args) !void {
         // Create an array of pointers pointing to the given args.
-        const fields: []const std.builtin.Type.StructField = std.meta.fields(@TypeOf(args));
-        var args_ptrs: [fields.len:0]usize = undefined;
-        inline for (fields, 0..) |field, i| {
-            args_ptrs[i] = @intFromPtr(&@field(args, field.name));
-        }
+
+        log.debug("Launching kernel {x} with grid: {any}", .{ @intFromPtr(f), grid });
+
         const res = cu.cuLaunchKernel(
             f,
-            grid.blocks.x,
-            grid.blocks.y,
-            grid.blocks.z,
             grid.threads.x,
             grid.threads.y,
             grid.threads.z,
+            grid.blocks.x,
+            grid.blocks.y,
+            grid.blocks.z,
             @intCast(shared_mem),
             self._stream,
-            @ptrCast(&args_ptrs),
+            @ptrCast(@constCast(args_ptrs)),
             null,
         );
         try check(res);
@@ -212,15 +208,8 @@ pub const Stream = struct {
         check(cu.cuStreamSynchronize(self._stream)) catch unreachable;
     }
 
-    pub fn format(
-        self: *const Stream,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-        try std.fmt.format(writer, "CuStream(device={}, stream={*})", .{ self.device, self._stream });
+    pub fn format(self: Stream, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("CuStream(device={}, stream={*})", .{ self.device, self._stream });
     }
 
     // TODO: I'd like to have an async method that suspends until the stream is over.
@@ -351,7 +340,7 @@ pub const GpuTimer = struct {
     // Here we take a pointer to the Zig struct.
     // This way we can detect if we try to use a timer on a deleted stream
     stream: *const Stream,
-    _elapsed: f32 = std.math.nan_f32,
+    _elapsed: f32 = std.math.nan(f32),
 
     pub fn start(stream: *const Stream) GpuTimer {
         // The cuEvent are implicitly reffering to the current context.
@@ -382,7 +371,7 @@ pub const GpuTimer = struct {
     /// Resolution is around 0.5 microseconds.
     pub fn elapsed(self: *GpuTimer) f32 {
         if (!std.math.isNan(self._elapsed)) return self._elapsed;
-        var _elapsed = std.math.nan_f32;
+        var _elapsed = std.math.nan(f32);
         // _ = cu.cuEventSynchronize(self._stop);
         _ = cu.cuEventElapsedTime(&_elapsed, self._start, self._stop);
         self.deinit();
@@ -461,25 +450,32 @@ pub fn loadModule(location: PtxLocation) cu.CUmodule {
     return module;
 }
 
-/// Create a function with the correct signature for a cuda Kernel.
-/// The kernel must come from the default .cu file
-pub inline fn CudaKernel(comptime name: [:0]const u8) type {
-    return FnStruct(name, @field(cu, name));
+pub fn moduleUnload(module: cu.CUmodule) void {
+    _ = cu.cuModuleUnload(module);
 }
 
-pub inline fn ZigKernel(comptime Module: anytype, comptime name: [:0]const u8) type {
-    return FnStruct(name, @field(Module, name));
+pub inline fn Kernel(comptime Module: anytype, comptime name: [:0]const u8) type {
+    return TypedKernel(name, @field(Module, name));
 }
 
-pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
+pub fn TypedKernel(comptime name: []const u8, comptime func: anytype) type {
     return struct {
-        const Self = @This();
+        const K = @This();
         const CpuFn = *const @TypeOf(func);
         pub const Args = std.meta.ArgsTuple(@TypeOf(func));
+        pub const num_args = @typeInfo(Args).@"struct".fields.len;
 
         f: cu.CUfunction,
 
-        pub fn init(module: cu.CUmodule) !Self {
+        const arg_offsets: [num_args:0]usize = offs: {
+            var offs: [num_args:0]usize = undefined;
+            for (offs[0..], @typeInfo(Args).@"struct".fields) |*o, field| {
+                o.* = @offsetOf(Args, field.name);
+            }
+            break :offs offs;
+        };
+
+        pub fn init(module: cu.CUmodule) !K {
             var f: cu.CUfunction = undefined;
             const code = cu.cuModuleGetFunction(&f, module, @ptrCast(name));
             if (code != cu.CUDA_SUCCESS) log.err("Couldn't load function {s}", .{name});
@@ -489,19 +485,16 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
 
         // TODO: deinit -> CUDestroy
 
-        // Note: I'm not fond of having the primary launch be on the Function object,
-        // but it works best with Zig type inference
-        pub inline fn launch(self: *const Self, stream: *const Stream, grid: Grid, args: Args) !void {
-            if (args.len != @typeInfo(Args).@"struct".fields.len) {
-                @compileError("Expected more arguments");
-            }
+        pub fn launch(self: *const K, stream: *const Stream, grid: Grid, args: Args) !void {
             try self.launchWithSharedMem(stream, grid, 0, args);
         }
 
-        pub fn launchWithSharedMem(self: *const Self, stream: *const Stream, grid: Grid, shared_mem: usize, args: Args) !void {
-            // TODO: this seems error prone, could we make the type of the shared buffer
-            // part of the function signature ?
-            try stream.launchWithSharedMem(self.f, grid, shared_mem, args);
+        pub fn launchWithSharedMem(self: *const K, stream: *const Stream, grid: Grid, shared_mem: usize, args: Args) !void {
+            // TODO: this forces a specific layout for Args, where cuda API doesn't.
+            var args_ptrs: [num_args:0]usize = arg_offsets;
+            for (args_ptrs[0..]) |*a| a.* += @intFromPtr(&args);
+
+            try stream.launchWithSharedMem(self.f, grid, shared_mem, @ptrCast(args_ptrs[0..]));
         }
 
         // pub fn debugCpuCall(grid: Grid, point: Grid, args: Args) void {
@@ -512,21 +505,13 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
         //     _ = @call(.{}, CpuFn, args);
         // }
 
-        pub fn format(
-            self: *const Self,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = self;
-            _ = fmt;
-            _ = options;
-            try std.fmt.format(writer, "{s}(", .{name});
+        pub fn format(_: K, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            try writer.print("{s}(", .{name});
             inline for (@typeInfo(Args).Struct.fields) |arg| {
                 const ArgT = arg.field_type;
-                try std.fmt.format(writer, "{}, ", .{ArgT});
+                try writer.print("{}, ", .{ArgT});
             }
-            try std.fmt.format(writer, ")", .{});
+            try writer.print(")", .{});
         }
     };
 }
@@ -534,19 +519,19 @@ pub fn FnStruct(comptime name: []const u8, comptime func: anytype) type {
 test "we use only one context per GPU" {
     var default_ctx: cu.CUcontext = undefined;
     try check(cu.cuCtxGetCurrent(&default_ctx));
-    std.log.warn("default_ctx: {any}", .{std.mem.asBytes(&default_ctx).*});
+    // std.log.warn("default_ctx: {any}", .{std.mem.asBytes(&default_ctx).*});
 
     const stream = try Stream.init(0);
     var stream_ctx: cu.CUcontext = undefined;
     try check(cu.cuStreamGetCtx(stream._stream, &stream_ctx));
-    std.log.warn("stream_ctx: {any}", .{std.mem.asBytes(&stream_ctx).*});
+    // std.log.warn("stream_ctx: {any}", .{std.mem.asBytes(&stream_ctx).*});
     // try std.testing.expectEqual(default_ctx, stream_ctx);
 
     // Create a new stream
     const stream2 = try Stream.init(0);
     var stream2_ctx: cu.CUcontext = undefined;
     try check(cu.cuStreamGetCtx(stream2._stream, &stream2_ctx));
-    std.log.warn("stream2_ctx: {any}", .{std.mem.asBytes(&stream2_ctx).*});
+    // std.log.warn("stream2_ctx: {any}", .{std.mem.asBytes(&stream2_ctx).*});
     try std.testing.expectEqual(stream_ctx, stream2_ctx);
 }
 
@@ -568,7 +553,7 @@ pub fn Kernels(comptime module: type) type {
         if (decl.data != .Fn or !decl.data.Fn.is_export) continue;
         kernels[kernels_count] = .{
             .name = decl.name,
-            .field_type = FnStruct(decl.name, decl.data.Fn.fn_type),
+            .field_type = TypedKernel(decl.name, decl.data.Fn.fn_type),
             .default_value = null,
             .is_comptime = false,
             .alignment = @alignOf(cu.CUfunction),

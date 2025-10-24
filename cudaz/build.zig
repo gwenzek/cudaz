@@ -58,9 +58,6 @@ pub fn build(b: *std.Build) void {
     const test_kernel_kernel = b.createModule(.{
         .root_source_file = b.path("src/test_kernel.zig"),
         .target = target_nvptx,
-        // ReleaseFast because the panic handler leads to a
-        // external dso_local constant with a name to complex for PTX
-        // TODO: try to sanitize name in the NvPtx Zig backend.
         .optimize = .ReleaseFast,
         .imports = &.{
             .{ .name = "nvptx", .module = nvptx_device },
@@ -72,12 +69,8 @@ pub fn build(b: *std.Build) void {
         .root_module = test_kernel_kernel,
     });
 
-    const test_kernel_obj_module = b.createModule(.{ .root_source_file = test_kernel_obj.getEmittedAsm() });
-    // test_kernel_obj.addWriteFile()
-    const test_kernel_obj_options = b.addOptions();
-    test_kernel_obj_options.addOptionPath("ptx_path", test_kernel_obj.getEmittedAsm());
+    const test_kernel_obj_ptx = b.createModule(.{ .root_source_file = test_kernel_obj.getEmittedAsm() });
 
-    // test_kernel_module.addEmbedPath(test_kernel_obj.getEmittedAsm());
     const test_kernel_module = b.createModule(.{
         .root_source_file = b.path("src/test_kernel.zig"),
         .target = target,
@@ -85,30 +78,11 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "cudaz", .module = cudaz },
             .{ .name = "nvptx", .module = nvptx_cpu },
-            .{ .name = "generated_ptx", .module = test_kernel_obj_module },
+            .{ .name = "generated_ptx", .module = test_kernel_obj_ptx },
         },
     });
-    // test_kernel_module.addOp([]const u8, "bootloader_exe_path", b.fmt("\"{}\"", .{bootloader.getOutputPath()}));
+
     const test_kernel = b.addTest(.{ .root_module = test_kernel_module });
     const run_test_kernel = b.addRunArtifact(test_kernel);
     tests.dependOn(&run_test_kernel.step);
-    // var tests_nvcc = b.step("test_nvcc", "Tests");
-    // sdk.addCudazWithNvcc(b, test_cuda, CUDA_PATH, "src/test.cu");
-    // tests_nvcc.dependOn(&test_cuda.step);
-
-    // const test_nvptx_module = b.createModule(.{
-    //     .root_source_file = b.path("src/test_nvptx.zig"),
-    //     .imports = &.{
-    //         .{ .name = "cudaz", .module = cudaz },
-    //         .{ .name = "nvptx", .module = nvptx },
-    //     },
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-    // const test_nvptx = b.addTest(.{
-    //     .name = "test_nvptx",
-    //     .root_module = test_nvptx_module,
-    // });
-    // sdk.addCudazWithZigKernel(b, test_nvptx, CUDA_PATH, "src/nvptx.zig");
-    // tests.dependOn(&test_nvptx.step);
 }
