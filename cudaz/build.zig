@@ -1,18 +1,8 @@
 const std = @import("std");
 
-const sdk = @import("sdk.zig");
-
-const CUDA_PATH = "/usr/";
-
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-
-    // This isn't very useful, because we still have to declare `extern` symbols
-    // const kernel = b.addObject("kernel", "src/kernel.o");
-    // kernel.linkLibC();
-    // kernel.addLibPath("/usr/local/cuda/lib64");
-    // kernel.linkSystemLibraryName("cudart");
 
     const target_nvptx = b.resolveTargetQuery(.{
         .os_tag = .cuda,
@@ -43,33 +33,19 @@ pub fn build(b: *std.Build) void {
         .target = target_nvptx,
         .optimize = optimize,
     });
+    _ = nvptx_device; // used through registry.
 
     const nvptx_cpu = b.addModule("nvptx_cpu", .{
         .root_source_file = b.path("src/nvptx.zig"),
         .target = target,
         .optimize = optimize,
     });
+    _ = nvptx_cpu; // used through registry.
 
     var tests = b.step("test", "Tests");
     const test_cuda = b.addTest(.{ .root_module = cudaz });
     const run_test_cuda = b.addRunArtifact(test_cuda);
     tests.dependOn(&run_test_cuda.step);
-
-    const test_kernel_kernel = b.createModule(.{
-        .root_source_file = b.path("src/test_kernel.zig"),
-        .target = target_nvptx,
-        .optimize = .ReleaseFast,
-        .imports = &.{
-            .{ .name = "nvptx", .module = nvptx_device },
-        },
-    });
-
-    const test_kernel_obj = b.addObject(.{
-        .name = "test_kernel",
-        .root_module = test_kernel_kernel,
-    });
-
-    const test_kernel_obj_ptx = b.createModule(.{ .root_source_file = test_kernel_obj.getEmittedAsm() });
 
     const test_kernel_module = b.createModule(.{
         .root_source_file = b.path("src/test_kernel.zig"),
@@ -77,12 +53,48 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "cudaz", .module = cudaz },
-            .{ .name = "nvptx", .module = nvptx_cpu },
-            .{ .name = "generated_ptx", .module = test_kernel_obj_ptx },
         },
     });
+
+    addCudaKernel(b, test_kernel_module, "generated_ptx");
 
     const test_kernel = b.addTest(.{ .root_module = test_kernel_module });
     const run_test_kernel = b.addRunArtifact(test_kernel);
     tests.dependOn(&run_test_kernel.step);
+}
+
+/// Given a regular Zig module, and module corresponding to a PTX kernel,
+/// allows to `const generated_ptx = @embed(ptx_name);` from the Zig module.
+pub fn addPtxEmbed(b: *std.Build, module: *std.Build.Module, kernel_import: std.Build.Module.Import) void {
+    const kernel_obj = b.addObject(.{
+        .name = "test_kernel",
+        .root_module = kernel_import.module,
+    });
+
+    const kernel_ptx = b.createModule(.{ .root_source_file = kernel_obj.getEmittedAsm() });
+    module.addImport(kernel_import.name, kernel_ptx);
+}
+
+/// Given a module containing the definition of a ptx kernel,
+/// creates a ptx module, compiles it, and expose the PTX to the original module:
+/// `const generated_ptx = @embed(ptx_name);`
+///
+/// Also automatically add nvptx imports
+/// In case this is not desirable, you can create the kernel module manually,
+/// Then call `addPtxEmbed`.
+pub fn addCudaKernel(b: *std.Build, module: *std.Build.Module, ptx_name: []const u8) void {
+    const nvptx_cpu = b.modules.get("nvptx_cpu") orelse @panic("nvptx_cpu not found");
+    const nvptx_device = b.modules.get("nvptx_device") orelse @panic("nvptx_device not found");
+
+    const kernel_module = b.createModule(.{
+        .root_source_file = module.root_source_file,
+        .target = nvptx_device.resolved_target,
+        .optimize = .ReleaseFast,
+        .imports = &.{
+            .{ .name = "nvptx", .module = nvptx_device },
+        },
+    });
+
+    module.addImport("nvptx", nvptx_cpu);
+    addPtxEmbed(b, module, .{ .name = ptx_name, .module = kernel_module });
 }
