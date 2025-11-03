@@ -20,8 +20,8 @@ pub fn main() !void {
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
     log.warn("cuda: {f}", .{stream});
-    const module = cuda.loadModule(.{ .embed = matmul_ptx });
-    defer cuda.moduleUnload(module);
+    const module: cuda.Module = .initFromData(matmul_ptx);
+    defer module.deinit();
 
     const matmul_f: matmulK = try .init(module);
     const shape: matmul.Shape = .{ .m = 3, .n = 3, .k = 2 };

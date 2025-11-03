@@ -23,11 +23,11 @@ comptime {
 test hello_world {
     var stream = try cuda.Stream.init(1);
     defer stream.deinit();
-    const d_buffer = try cuda.alloc(u8, 20);
-    defer cuda.free(d_buffer);
+    const d_buffer = try stream.alloc(u8, 20);
+    defer stream.free(d_buffer);
 
-    const module = cuda.loadModule(.{ .embed = generated_ptx });
-    defer cuda.moduleUnload(module);
+    const module: *cuda.Module = .initFromData(generated_ptx);
+    defer module.deinit();
     const gpu_hello_world: cuda.Kernel(@This(), "hello_world") = try .init(module);
     try gpu_hello_world.launch(&stream, .init1D(32, 32), .{ d_buffer.ptr, @intCast(d_buffer.len) });
     var h_buffer = try stream.allocAndCopyResult(u8, std.testing.allocator, d_buffer);
@@ -62,15 +62,15 @@ test rgba_to_grayscale {
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
     log.warn("cuda: {f}", .{stream});
-    const module = cuda.loadModule(.{ .embed = generated_ptx });
-    defer cuda.moduleUnload(module);
+    const module: *cuda.Module = .initFromData(generated_ptx);
+    defer module.deinit();
 
     const rgba_to_grayscale_f: rgba_to_grayscaleK = try .init(module);
     const num_rows: u32 = 10;
     const num_cols: u32 = 20;
-    const rgba_d = try cuda.alloc([4]u8, num_rows * num_cols);
+    const rgba_d = try stream.alloc([4]u8, num_rows * num_cols);
     try cuda.memset([4]u8, rgba_d, [4]u8{ 0xaa, 0, 0, 255 });
-    const gray_d = try cuda.alloc(u8, num_rows * num_cols);
+    const gray_d = try stream.alloc(u8, num_rows * num_cols);
     try cuda.memset(u8, gray_d, 0);
 
     var timer = cuda.GpuTimer.start(&stream);
@@ -99,14 +99,14 @@ test "rgba_to_grayscale raw API" {
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
 
-    const module = cuda.loadModule(.{ .embed = generated_ptx });
-    defer cuda.moduleUnload(module);
+    const module: *cuda.Module = .initFromData(generated_ptx);
+    defer module.deinit();
     const rgba_to_grayscale_f: rgba_to_grayscaleK = try .init(module);
     const num_rows: u32 = 10;
     const num_cols: u32 = 20;
-    const rgba_d = try cuda.alloc([4]u8, num_rows * num_cols);
+    const rgba_d = try stream.alloc([4]u8, num_rows * num_cols);
     try cuda.memset([4]u8, rgba_d, [4]u8{ 0xaa, 0, 0, 255 });
-    const gray_d = try cuda.alloc(u8, num_rows * num_cols);
+    const gray_d = try stream.alloc(u8, num_rows * num_cols);
     try cuda.memset(u8, gray_d, 0);
 
     // This test uses the stream.launch api that takes argument by pointers.
