@@ -8,9 +8,9 @@ pub const algorithms = @import("algorithms.zig");
 const attributes = @import("attributes.zig");
 pub const Attribute = attributes.Attribute;
 pub const getAttr = attributes.getAttr;
-pub const cuda_errors = @import("cuda_errors.zig");
-pub const check = cuda_errors.check;
-pub const Error = cuda_errors.Error;
+pub const errors = @import("errors.zig");
+pub const check = errors.check;
+pub const Error = errors.Error;
 
 const log = std.log.scoped(.cuda);
 
@@ -181,11 +181,6 @@ pub const Stream = struct {
     }
 
     // TODO: I'd like to have an async method that suspends until the stream is over.
-    // Currently the best way too achieve something like this is to `suspend {} stream.synchronize();`
-    // once the stream is scheduled, and then `resume` once you are ready to wait
-    // for the blocking `synchronize` call.
-    // Ideally we would have an event loop that poll streams to check
-    // if they are over.
     pub fn done(self: *Stream) bool {
         const res = cu.cuStreamQuery(self._stream);
         return res != cu.CUDA_ERROR_NOT_READY;
