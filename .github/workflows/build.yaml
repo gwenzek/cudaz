@@ -15,7 +15,6 @@ jobs:
       - name: zig fmt
         run: zig fmt --check src/
 
-      # TODO: ideally run on a cuda enabled host
-      # - name: zig build install
-      #   run: zig build install --summary all -freference-trace=20
+      - name: zig build install
+        run: zig build install --summary all -freference-trace=20
 
