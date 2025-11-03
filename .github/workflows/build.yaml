@@ -18,3 +18,7 @@ jobs:
       - name: zig build install
         run: zig build install --summary all -freference-trace=20
 
+      - name: matmul - zig build install
+        run: zig build install --summary all -freference-trace=20
+        working-directory: matmul
+
