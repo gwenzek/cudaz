@@ -3,11 +3,10 @@ const std = @import("std");
 const cuda = @import("cudaz");
 const nvptx = @import("nvptx");
 
-const test_kernel = @This();
 const generated_ptx = @embedFile("generated_ptx");
 const message = "Hello World !\x00";
 
-const log = std.log.scoped(.test_kernel);
+const log = std.log.scoped(.@"test");
 
 pub fn hello_world(out: [*]u8, len: u32) callconv(nvptx.kernel) void {
     const i = nvptx.getIdX();
@@ -29,7 +28,7 @@ test hello_world {
 
     const module = cuda.loadModule(.{ .embed = generated_ptx });
     defer cuda.moduleUnload(module);
-    const gpu_hello_world: cuda.Kernel(test_kernel, "hello_world") = try .init(module);
+    const gpu_hello_world: cuda.Kernel(@This(), "hello_world") = try .init(module);
     try gpu_hello_world.launch(&stream, .init1D(32, 32), .{ d_buffer.ptr, @intCast(d_buffer.len) });
     var h_buffer = try stream.allocAndCopyResult(u8, std.testing.allocator, d_buffer);
     defer std.testing.allocator.free(h_buffer);
@@ -57,7 +56,7 @@ comptime {
     }
 }
 
-pub const rgba_to_grayscaleK = cuda.Kernel(test_kernel, "rgba_to_grayscale");
+pub const rgba_to_grayscaleK = cuda.Kernel(@This(), "rgba_to_grayscale");
 
 test rgba_to_grayscale {
     var stream = try cuda.Stream.init(0);

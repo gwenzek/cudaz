@@ -33,64 +33,19 @@ pub fn build(b: *std.Build) void {
         .target = target_nvptx,
         .optimize = optimize,
     });
-    _ = nvptx_device; // used through registry.
 
     const nvptx_cpu = b.addModule("nvptx_cpu", .{
         .root_source_file = b.path("src/nvptx.zig"),
         .target = target,
         .optimize = optimize,
     });
-    _ = nvptx_cpu; // used through registry.
 
     var tests = b.step("test", "Tests");
     const test_cuda = b.addTest(.{ .root_module = cudaz });
-    const run_test_cuda = b.addRunArtifact(test_cuda);
-    tests.dependOn(&run_test_cuda.step);
+    tests.dependOn(&b.addRunArtifact(test_cuda).step);
 
-    const test_kernel_module = b.createModule(.{
-        .root_source_file = b.path("src/test_kernel.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "cudaz", .module = cudaz },
-        },
-    });
-
-    addCudaKernel(b, test_kernel_module, "generated_ptx");
-
-    const test_kernel = b.addTest(.{ .root_module = test_kernel_module });
-    const install_test_kernel = b.addInstallArtifact(test_kernel, .{});
-    b.getInstallStep().dependOn(&install_test_kernel.step);
-
-    const run_test_kernel = b.addRunArtifact(test_kernel);
-    tests.dependOn(&run_test_kernel.step);
-}
-
-/// Given a regular Zig module, and module corresponding to a PTX kernel,
-/// allows to `const generated_ptx = @embed(ptx_name);` from the Zig module.
-pub fn addPtxEmbed(b: *std.Build, module: *std.Build.Module, kernel_import: std.Build.Module.Import) void {
-    const kernel_obj = b.addObject(.{
-        .name = "test_kernel",
-        .root_module = kernel_import.module,
-    });
-
-    const kernel_ptx = b.createModule(.{ .root_source_file = kernel_obj.getEmittedAsm() });
-    module.addImport(kernel_import.name, kernel_ptx);
-}
-
-/// Given a module containing the definition of a ptx kernel,
-/// creates a ptx module, compiles it, and expose the PTX to the original module:
-/// `const generated_ptx = @embed(ptx_name);`
-///
-/// Also automatically add nvptx imports
-/// In case this is not desirable, you can create the kernel module manually,
-/// Then call `addPtxEmbed`.
-pub fn addCudaKernel(b: *std.Build, module: *std.Build.Module, ptx_name: []const u8) void {
-    const nvptx_cpu = b.modules.get("nvptx_cpu") orelse @panic("nvptx_cpu not found");
-    const nvptx_device = b.modules.get("nvptx_device") orelse @panic("nvptx_device not found");
-
-    const kernel_module = b.createModule(.{
-        .root_source_file = module.root_source_file,
+    const test_device_module = b.createModule(.{
+        .root_source_file = b.path("src/test.zig"),
         .target = nvptx_device.resolved_target,
         .optimize = .ReleaseFast,
         .imports = &.{
@@ -98,6 +53,32 @@ pub fn addCudaKernel(b: *std.Build, module: *std.Build.Module, ptx_name: []const
         },
     });
 
-    module.addImport("nvptx", nvptx_cpu);
-    addPtxEmbed(b, module, .{ .name = ptx_name, .module = kernel_module });
+    const test_ptx = createPtx(b, test_device_module);
+    const test_ptx_install = b.addInstallFile(test_ptx.root_source_file.?, "test.ptx");
+    b.getInstallStep().dependOn(&test_ptx_install.step);
+
+    const test_cpu_module = b.createModule(.{
+        .root_source_file = b.path("src/test.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "cudaz", .module = cudaz },
+            .{ .name = "nvptx", .module = nvptx_cpu },
+            .{ .name = "generated_ptx", .module = test_ptx },
+        },
+    });
+
+    const test_cpu = b.addTest(.{ .root_module = test_cpu_module });
+    tests.dependOn(&b.addRunArtifact(test_cpu).step);
+}
+
+/// Given a device module corresponding, create the corresponding PTX.
+/// The returned module can be imported like a regular module.
+pub fn createPtx(b: *std.Build, device_module: *std.Build.Module) *std.Build.Module {
+    const kernel_obj = b.addObject(.{
+        .name = "ptx",
+        .root_module = device_module,
+    });
+
+    return b.createModule(.{ .root_source_file = kernel_obj.getEmittedAsm() });
 }

@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const cudaz_sdk = @import("cudaz");
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -16,7 +18,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const matmul_kernel_mod = b.createModule(.{
+    const matmul_device_mod = b.createModule(.{
         .root_source_file = b.path("src/root.zig"),
         .target = nvptx.resolved_target,
         .optimize = .ReleaseFast,
@@ -24,6 +26,12 @@ pub fn build(b: *std.Build) void {
             .{ .name = "nvptx", .module = nvptx },
         },
     });
+
+    const matmul_ptx = cudaz_sdk.createPtx(b, matmul_device_mod);
+
+    // `zig build install` will materialize the .ptx in `zig-out` directory
+    const matmul_ptx_install = b.addInstallFile(matmul_ptx.root_source_file.?, "matmul.ptx");
+    b.getInstallStep().dependOn(&matmul_ptx_install.step);
 
     const exe = b.addExecutable(.{
         .name = "matmul",
@@ -34,12 +42,10 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "cudaz", .module = cudaz_pkg.module("cudaz") },
                 .{ .name = "matmul", .module = matmul_mod },
+                .{ .name = "matmul_ptx", .module = matmul_ptx },
             },
         }),
     });
-    addPtxEmbed(b, exe.root_module, .{ .name = "matmul_ptx", .module = matmul_kernel_mod });
-
-    b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");
     const run_cmd = b.addRunArtifact(exe);
@@ -51,18 +57,4 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
-}
-
-// Copied from cudaz/build.zig before I have a better solution.
-
-/// Given a regular Zig module, and module corresponding to a PTX kernel,
-/// allows to `const generated_ptx = @embed(ptx_name);` from the Zig module.
-pub fn addPtxEmbed(b: *std.Build, module: *std.Build.Module, kernel_import: std.Build.Module.Import) void {
-    const kernel_obj = b.addObject(.{
-        .name = "matmul",
-        .root_module = kernel_import.module,
-    });
-
-    const kernel_ptx = b.createModule(.{ .root_source_file = kernel_obj.getEmittedAsm() });
-    module.addImport(kernel_import.name, kernel_ptx);
 }
