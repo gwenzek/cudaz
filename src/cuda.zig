@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const root = @import("root");
 
 pub const cu = @import("cuda_h");
 
@@ -54,18 +53,18 @@ pub const Stream = struct {
         return Stream{ .device = cu_dev, ._stream = stream.? };
     }
 
-    pub fn deinit(self: *Stream) void {
+    pub fn deinit(stream: *Stream) void {
         // Don't handle CUDA errors here
-        _ = self.synchronize();
-        _ = cu.cuStreamDestroy(self._stream);
-        self._stream = undefined;
+        _ = stream.synchronize();
+        _ = cu.cuStreamDestroy(stream._stream);
+        stream._stream = undefined;
     }
 
     // TODO: can this OOM ? Or will the error be raised later ?
-    pub fn alloc(self: *const Stream, comptime DestType: type, size: usize) ![]DestType {
+    pub fn alloc(stream: Stream, comptime DestType: type, size: usize) ![]DestType {
         var int_ptr: cu.CUdeviceptr = undefined;
         const byte_size = size * @sizeOf(DestType);
-        check(cu.cuMemAllocAsync(&int_ptr, byte_size, self._stream)) catch |err| {
+        check(cu.cuMemAllocAsync(&int_ptr, byte_size, stream._stream)) catch |err| {
             switch (err) {
                 error.OutOfMemory => {
                     var free_mem: usize = undefined;
@@ -85,72 +84,72 @@ pub const Stream = struct {
         return ptr[0..size];
     }
 
-    pub fn free(self: *const Stream, device_ptr: anytype) void {
+    pub fn free(stream: Stream, device_ptr: anytype) void {
         const raw_ptr: *anyopaque = if (@hasField(@TypeOf(device_ptr), "ptr"))
             @ptrCast(device_ptr.ptr)
         else
             @ptrCast(device_ptr);
-        _ = cu.cuMemFreeAsync(@intFromPtr(raw_ptr), self._stream);
+        _ = cu.cuMemFreeAsync(@intFromPtr(raw_ptr), stream._stream);
     }
 
-    pub fn memcpyHtoD(self: *const Stream, comptime DestType: type, d_target: []DestType, h_source: []const DestType) void {
+    pub fn memcpyHtoD(stream: Stream, comptime DestType: type, d_target: []DestType, h_source: []const DestType) void {
         std.debug.assert(h_source.len == d_target.len);
         check(cu.cuMemcpyHtoDAsync(
             @intFromPtr(d_target.ptr),
             @ptrCast(h_source.ptr),
             h_source.len * @sizeOf(DestType),
-            self._stream,
+            stream._stream,
         )) catch unreachable;
     }
 
-    pub fn memcpyDtoH(self: *const Stream, comptime DestType: type, h_target: []DestType, d_source: []const DestType) void {
+    pub fn memcpyDtoH(stream: Stream, comptime DestType: type, h_target: []DestType, d_source: []const DestType) void {
         std.debug.assert(d_source.len == h_target.len);
         check(cu.cuMemcpyDtoHAsync(
             @ptrCast(h_target.ptr),
             @intFromPtr(d_source.ptr),
             d_source.len * @sizeOf(DestType),
-            self._stream,
+            stream._stream,
         )) catch unreachable;
         // The only cause of failures here are segfaults or hardware issues,
         // can't recover.
     }
 
-    pub fn allocAndCopy(self: *const Stream, comptime DestType: type, h_source: []const DestType) ![]DestType {
-        const ptr = try self.alloc(DestType, h_source.len);
-        self.memcpyHtoD(DestType, ptr, h_source);
+    pub fn allocAndCopy(stream: Stream, comptime DestType: type, h_source: []const DestType) ![]DestType {
+        const ptr = try stream.alloc(DestType, h_source.len);
+        stream.memcpyHtoD(DestType, ptr, h_source);
         return ptr;
     }
 
     pub fn allocAndCopyResult(
-        self: *const Stream,
+        stream: Stream,
         comptime DestType: type,
         host_allocator: std.mem.Allocator,
         d_source: []const DestType,
     ) ![]DestType {
         const h_tgt = try host_allocator.alloc(DestType, d_source.len);
-        self.memcpyDtoH(DestType, h_tgt, d_source);
+        stream.memcpyDtoH(DestType, h_tgt, d_source);
         return h_tgt;
     }
 
-    pub fn memset(self: *const Stream, comptime DestType: type, slice: []DestType, value: DestType) void {
+    pub fn memset(stream: Stream, comptime DestType: type, slice: []DestType, value: DestType) void {
         const d_ptr = @intFromPtr(slice.ptr);
         const n = slice.len;
         const memset_res = switch (@sizeOf(DestType)) {
-            1 => cu.cuMemsetD8Async(d_ptr, @bitCast(value), n, self._stream),
-            2 => cu.cuMemsetD16Async(d_ptr, @bitCast(value), n, self._stream),
-            4 => cu.cuMemsetD32Async(d_ptr, @bitCast(value), n, self._stream),
+            1 => cu.cuMemsetD8Async(d_ptr, @bitCast(value), n, stream._stream),
+            2 => cu.cuMemsetD16Async(d_ptr, @bitCast(value), n, stream._stream),
+            4 => cu.cuMemsetD32Async(d_ptr, @bitCast(value), n, stream._stream),
             else => @compileError("memset doesn't support type: " ++ @typeName(DestType)),
         };
         check(memset_res) catch unreachable;
     }
 
-    pub const Args = [:null]const ?*const anyopaque;
+    pub const Args = []const ?*const anyopaque;
 
-    pub fn launch(self: *const Stream, f: cu.CUfunction, grid: Grid, args_ptrs: Args) !void {
-        try self.launchWithSharedMem(f, grid, 0, args_ptrs);
+    pub fn launch(stream: Stream, f: cu.CUfunction, grid: Grid, args_ptrs: Args) !void {
+        try stream.launchWithSharedMem(f, grid, 0, args_ptrs);
     }
 
-    pub fn launchWithSharedMem(self: *const Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args_ptrs: Args) !void {
+    pub fn launchWithSharedMem(stream: Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args_ptrs: Args) !void {
         // Create an array of pointers pointing to the given args.
 
         log.debug("Launching kernel {x} with grid: {any}", .{ @intFromPtr(f), grid });
@@ -164,7 +163,7 @@ pub const Stream = struct {
             grid.blocks.y,
             grid.blocks.z,
             @intCast(shared_mem),
-            self._stream,
+            stream._stream,
             @ptrCast(@constCast(args_ptrs)),
             null,
         );
@@ -172,17 +171,17 @@ pub const Stream = struct {
         // TODO use callback API to keep the asynchronous scheduling
     }
 
-    pub fn synchronize(self: *const Stream) void {
-        check(cu.cuStreamSynchronize(self._stream)) catch unreachable;
+    pub fn synchronize(stream: Stream) void {
+        check(cu.cuStreamSynchronize(stream._stream)) catch unreachable;
     }
 
-    pub fn format(self: Stream, writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        try writer.print("CuStream(device={}, stream={*})", .{ self.device, self._stream });
+    pub fn format(stream: Stream, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        try writer.print("CuStream(device={}, stream={*})", .{ stream.device, stream._stream });
     }
 
     // TODO: I'd like to have an async method that suspends until the stream is over.
-    pub fn done(self: *Stream) bool {
-        const res = cu.cuStreamQuery(self._stream);
+    pub fn done(stream: *Stream) bool {
+        const res = cu.cuStreamQuery(stream._stream);
         return res != cu.CUDA_ERROR_NOT_READY;
     }
 };
@@ -246,8 +245,8 @@ pub fn TypedKernel(comptime name: []const u8, comptime func: anytype) type {
 
         f: cu.CUfunction,
 
-        const arg_offsets: [num_args:0]usize = offs: {
-            var offs: [num_args:0]usize = undefined;
+        const arg_offsets: [num_args]usize = offs: {
+            var offs: [num_args]usize = undefined;
             for (offs[0..], @typeInfo(Args).@"struct".fields) |*o, field| {
                 o.* = @offsetOf(Args, field.name);
             }
@@ -259,21 +258,46 @@ pub fn TypedKernel(comptime name: []const u8, comptime func: anytype) type {
             const code = cu.cuModuleGetFunction(&f, @ptrCast(module), @ptrCast(name));
             if (code != cu.CUDA_SUCCESS) log.err("Couldn't load function {s}", .{name});
             try check(code);
-            return .{ .f = f };
+            const kernel: K = .{ .f = f };
+
+            if (builtin.mode == .Debug) kernel.assertParamsLayout();
+            return kernel;
         }
 
         // TODO: deinit -> CUDestroy
 
-        pub fn launch(self: *const K, stream: *const Stream, grid: Grid, args: Args) !void {
+        pub fn launch(self: K, stream: Stream, grid: Grid, args: Args) !void {
             try self.launchWithSharedMem(stream, grid, 0, args);
         }
 
-        pub fn launchWithSharedMem(self: *const K, stream: *const Stream, grid: Grid, shared_mem: usize, args: Args) !void {
+        pub fn launchWithSharedMem(self: K, stream: Stream, grid: Grid, shared_mem: usize, args: Args) !void {
             // TODO: this forces a specific layout for Args, where cuda API doesn't.
-            var args_ptrs: [num_args:0]usize = arg_offsets;
+            var args_ptrs: [num_args]usize = arg_offsets;
             for (args_ptrs[0..]) |*a| a.* += @intFromPtr(&args);
 
             try stream.launchWithSharedMem(self.f, grid, shared_mem, @ptrCast(args_ptrs[0..]));
+        }
+
+        /// Returns the offset and size of a kernel parameter in the device-side parameter layout
+        pub fn paramInfo(kernel: K, param_index: u32) !struct { usize, usize } {
+            var param_offset: usize = undefined;
+            var param_size: usize = undefined;
+            const rc = cu.cuFuncGetParamInfo(kernel.f, param_index, &param_offset, &param_size);
+            try check(rc);
+            return .{ param_offset, param_size };
+        }
+
+        pub fn assertParamsLayout(kernel: K) void {
+            inline for (0..num_args, arg_offsets, @typeInfo(Args).@"struct".fields) |i, zig_offset, arg| {
+                const cuda_offset, const cuda_sizeof = kernel.paramInfo(i) catch @panic("too many arguments on Zig side");
+                // log.debug("Argument {}: offset {}, size: {}", .{ i, cuda_offset, cuda_sizeof });
+                std.debug.assert(cuda_offset == zig_offset); // layout mismatch
+                std.debug.assert(cuda_sizeof == @sizeOf(arg.type)); // size mismatch
+            }
+
+            var param_offset: usize = undefined;
+            const rc = cu.cuFuncGetParamInfo(kernel.f, num_args, &param_offset, null);
+            std.debug.assert(rc == cu.CUDA_ERROR_INVALID_VALUE); // missing arguments on Zig side
         }
 
         // pub fn debugCpuCall(grid: Grid, point: Grid, args: Args) void {
@@ -339,11 +363,11 @@ pub const Grid = struct {
         };
     }
 
-    pub fn threadsPerBlock(self: *const Grid) usize {
+    pub fn threadsPerBlock(self: Grid) usize {
         return self.threads.x * self.threads.y * self.threads.z;
     }
 
-    pub fn sharedMem(self: *const Grid, comptime ty: type, per_thread: usize) usize {
+    pub fn sharedMem(self: Grid, comptime ty: type, per_thread: usize) usize {
         return self.threadsPerBlock() * @sizeOf(ty) * per_thread;
     }
 };
@@ -423,10 +447,10 @@ pub const GpuTimer = struct {
     _stop: cu.CUevent,
     // Here we take a pointer to the Zig struct.
     // This way we can detect if we try to use a timer on a deleted stream
-    stream: *const Stream,
+    stream: Stream,
     _elapsed: f32 = std.math.nan(f32),
 
-    pub fn start(stream: *const Stream) GpuTimer {
+    pub fn start(stream: Stream) GpuTimer {
         // The cuEvent are implicitly reffering to the current context.
         // We don't know if the current context is the same than the stream context.
         // Typically I'm not sure what happens with 2 streams on 2 gpus.

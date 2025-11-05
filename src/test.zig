@@ -29,7 +29,7 @@ test hello_world {
     const module: *cuda.Module = .initFromData(generated_ptx);
     defer module.deinit();
     const gpu_hello_world: cuda.Kernel(@This(), "hello_world") = try .init(module);
-    try gpu_hello_world.launch(&stream, .init1D(32, 32), .{ d_buffer.ptr, @intCast(d_buffer.len) });
+    try gpu_hello_world.launch(stream, .init1D(32, 8), .{ d_buffer.ptr, @intCast(d_buffer.len) });
     var h_buffer = try stream.allocAndCopyResult(u8, std.testing.allocator, d_buffer);
     defer std.testing.allocator.free(h_buffer);
 
@@ -73,10 +73,10 @@ test rgba_to_grayscale {
     const gray_d = try stream.alloc(u8, num_rows * num_cols);
     try cuda.memset(u8, gray_d, 0);
 
-    var timer = cuda.GpuTimer.start(&stream);
+    var timer = cuda.GpuTimer.start(stream);
     try rgba_to_grayscale_f.launch(
-        &stream,
-        .init1D(num_rows * num_cols, num_rows * num_cols),
+        stream,
+        .init1D(num_rows * num_cols, 16),
         .{ rgba_d, gray_d },
     );
     timer.stop();

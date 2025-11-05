@@ -33,10 +33,10 @@ pub fn main() !void {
 
     const C_d = try stream.alloc(f32, shape.m * shape.n);
 
-    var timer = cuda.GpuTimer.start(&stream);
+    var timer = cuda.GpuTimer.start(stream);
     try matmul_f.launch(
-        &stream,
-        .init2D(.{ shape.m, shape.n }, .{ 16, 16 }),
+        stream,
+        .init2D(.{ shape.m, shape.n }, .{ 8, 8 }),
         .{ A_d, B_d, shape, C_d },
     );
     timer.stop();
