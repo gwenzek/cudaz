@@ -93,29 +93,26 @@ pub fn main() anyerror!void {
 
 const blur_kernel_width: i32 = 9;
 fn blurFilter() [blur_kernel_width * blur_kernel_width]f32 {
-    const blurKernelSigma = 2.0;
+    const sigma = 2.0;
 
     // create and fill the filter we will convolve with
     var filter: [blur_kernel_width * blur_kernel_width]f32 = undefined;
-    var filterSum: f32 = 0.0; // for normalization
+    var sum: f32 = 0.0; // for normalization
 
-    const halfWidth: i8 = @divTrunc(blur_kernel_width, 2);
-    var r: i8 = -halfWidth;
-    while (r <= halfWidth) : (r += 1) {
-        var c: i8 = -halfWidth;
-        while (c <= halfWidth) : (c += 1) {
-            const filterValue: f32 = math.exp(-@as(f32, @floatFromInt(c * c + r * r)) /
-                (2.0 * blurKernelSigma * blurKernelSigma));
-            filter[@intCast((r + halfWidth) * blur_kernel_width + c + halfWidth)] = filterValue;
-            filterSum += filterValue;
+    const half_width: i8 = @divTrunc(blur_kernel_width, 2);
+    var r: i8 = -half_width;
+    while (r <= half_width) : (r += 1) {
+        var c: i8 = -half_width;
+        while (c <= half_width) : (c += 1) {
+            const weight: f32 = math.exp(-@as(f32, @floatFromInt(c * c + r * r)) /
+                (2.0 * sigma * sigma));
+            filter[@intCast((r + half_width) * blur_kernel_width + c + half_width)] = weight;
+            sum += weight;
         }
     }
 
-    const normalizationFactor = 1.0 / filterSum;
-    var result: f32 = 0.0;
-    for (filter[0..]) |*v| {
-        v.* *= normalizationFactor;
-        result += v.*;
-    }
+    // normalize filter
+    for (filter[0..]) |*v| v.* /= sum;
+
     return filter;
 }

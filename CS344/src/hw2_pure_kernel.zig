@@ -106,6 +106,8 @@ pub fn gaussianBlur(
 
 comptime {
     if (ptx.is_nvptx) {
+        // Export two versions of the same kernel.
+        // Showcasing that you can pass complex Zig struct to kernels.
         @export(&gaussianBlur, .{ .name = "gaussianBlur" });
         @export(&gaussianBlurVerbose, .{ .name = "gaussianBlurVerbose" });
     }
