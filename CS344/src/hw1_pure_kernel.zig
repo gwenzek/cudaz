@@ -1,9 +1,9 @@
-const ptx = @import("kernel_utils.zig");
+const ptx = @import("nvptx");
 pub const panic = ptx.panic;
 
-pub fn rgba_to_greyscale(rgbaImage: []u8, greyImage: []u8) callconv(ptx.kernel) void {
+pub fn rgba_to_greyscale(rgbaImage: [*]const u8, len: u64, greyImage: [*]u8) callconv(ptx.kernel) void {
     const i = ptx.getIdX();
-    if (i >= greyImage.len) return;
+    if (i >= len) return;
     const px = rgbaImage[i * 3 .. i * 3 + 3];
     const R: u32 = @intCast(px[0]);
     const G: u32 = @intCast(px[1]);

@@ -1,51 +1,23 @@
 const std = @import("std");
-const Build = std.Build;
-const Step = std.Build.Step;
 
-const cuda_sdk = @import("cudaz/sdk.zig");
-
-const CUDA_PATH = "/usr/";
+const cudaz_sdk = @import("cudaz");
 
 // const LibExeObjStep = std.build.LibExeObjStep;
 // const RunStep = std.build.RunStep;
 
-var target: Build.ResolvedTarget = undefined;
+var target: std.Build.ResolvedTarget = undefined;
 var optimize: std.builtin.OptimizeMode = undefined;
 
-pub fn build(b: *Build) void {
-    // Standard target options allows the person running `zig build` to choose
-    // what target to build for. Here we do not override the defaults, which
-    // means any target is allowed, and the default is native. Other options
-    // for restricting supported target set are available.
+pub fn build(b: *std.Build) void {
     target = b.standardTargetOptions(.{});
-
-    // Standard release options allow the person running `zig build` to select
-    // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
     optimize = b.standardOptimizeOption(.{});
 
-    // const lode_png = b.addTranslateC(.{
-    //     .root_source_file
-    //     })
-
-    const png = b.addModule("png", .{
-        .root_source_file = b.path("src/png.zig"),
-        .target = target,
-        .optimize = optimize,
-        .link_libc = true,
-    });
-
-    const test_png = b.addTest(.{
-        .name = "test_png",
-        .root_module = png,
-    });
-    addLodePng(b, test_png);
-
-    const tests = b.step("test", "Runs the ZML test suite");
-    tests.dependOn(&b.addRunArtifact(test_png).step);
+    const tests = b.step("test", "Runs tests found inside homework code");
 
     // CS344 lessons and home works
-    const run_step = b.step("run", "Run the example");
+    const run_step = b.step("run", "Run the examples");
     const hw1 = addZigHomework(b, tests, "hw1_pure");
+    run_step.dependOn(&b.addRunArtifact(hw1).step);
 
     // addLesson(b, "lesson2");
     // const hw2 = addHomework(b, tests, "hw2");
@@ -54,10 +26,8 @@ pub fn build(b: *Build) void {
     // const hw4 = addHomework(b, tests, "hw4");
     // // addZigLesson(b, "lesson5");
 
-    run_step.dependOn(&b.addRunArtifact(hw1).step);
-    // const run_hw2 = hw2.run();
-    // run_hw2.step.dependOn(b.getInstallStep());
-    // run_step.dependOn(&run_hw2.step);
+    const hw2 = addZigHomework(b, tests, "hw2_pure");
+    run_step.dependOn(&b.addRunArtifact(hw2).step);
 
     // const run_hw3 = hw3.run();
     // run_hw3.step.dependOn(b.getInstallStep());
@@ -79,14 +49,14 @@ pub fn build(b: *Build) void {
     // run_pure_step.dependOn(&hw5.step);
 }
 
-fn addLodePng(b: *Build, exe: *Step.Compile) void {
+fn addLodePng(b: *std.Build, exe: *std.Build.Step.Compile) void {
     // TODO remove libc dependency
     exe.linkLibC();
     exe.addIncludePath(b.path("lodepng"));
     exe.addCSourceFile(.{ .file = b.path("lodepng/lodepng.c"), .flags = &.{"-DLODEPNG_COMPILE_ERROR_TEXT"} });
 }
 
-// fn addHomework(b: *Build, tests: *Step, comptime name: []const u8) *Step.Compile {
+// fn addHomework(b: *std.Build, tests: *Step, comptime name: []const u8) *Step.Compile {
 //     const hw = b.addModule(name, .{
 //         .root_source_file = b.path("src/" ++ name ++ ".zig"),
 //         .target = target,
@@ -97,7 +67,7 @@ fn addLodePng(b: *Build, exe: *Step.Compile) void {
 //         .root_module = hw,
 //     });
 
-//     cuda_sdk.addCudazWithNvcc(b, hw_exe, CUDA_PATH, "src/" ++ name ++ ".cu");
+//     cudaz.addCudazWithNvcc(b, hw_exe, CUDA_PATH, "src/" ++ name ++ ".cu");
 //     addLodePng(b, hw);
 //     // hw.install();
 
@@ -107,41 +77,60 @@ fn addLodePng(b: *Build, exe: *Step.Compile) void {
 //         .target = target,
 //         .optimize = optimize,
 //     });
-//     cuda_sdk.addCudazWithNvcc(b, test_hw, CUDA_PATH, "src/" ++ name ++ ".cu");
+//     cudaz.addCudazWithNvcc(b, test_hw, CUDA_PATH, "src/" ++ name ++ ".cu");
 
 //     tests.dependOn(&b.addRunArtifact(test_hw).step);
 
 //     return hw;
 // }
 
-fn addZigHomework(b: *Build, tests: *std.Build.Step, comptime name: []const u8) *std.Build.Step.Compile {
-    const hw = b.addModule(name, .{
-        .root_source_file = b.path("src/" ++ name ++ ".zig"),
-        .target = target,
-        .optimize = optimize,
+fn addZigHomework(b: *std.Build, tests: *std.Build.Step, name: []const u8) *std.Build.Step.Compile {
+    _ = tests; // autofix
+    const cudaz_pkg = b.dependency("cudaz", .{});
+    const nvptx = cudaz_pkg.module("nvptx_device");
+
+    const hw_zig = path(b, &.{ "src/", name, ".zig" });
+    const hw_kernel_zig = path(b, &.{ "src/", name, "_kernel.zig" });
+
+    const hw_kernel_device_mod = b.createModule(.{
+        .root_source_file = hw_kernel_zig,
+        .target = nvptx.resolved_target,
+        .optimize = .ReleaseFast,
+        .imports = &.{
+            .{ .name = "nvptx", .module = nvptx },
+        },
     });
+
+    const hw_ptx = cudaz_sdk.createPtx(b, hw_kernel_device_mod);
+    const hw_ptx_install = b.addInstallFile(hw_ptx.root_source_file.?, join(b, &.{ name, ".ptx" }));
+    b.getInstallStep().dependOn(&hw_ptx_install.step);
+
+    const img_pkg = b.dependency("zigimg", .{});
     const hw_exe = b.addExecutable(.{
-        .name = name ++ "_exe",
-        .root_module = hw,
+        .name = name,
+        .root_module = b.createModule(.{
+            .root_source_file = hw_zig,
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zigimg", .module = img_pkg.module("zigimg") },
+                .{ .name = "cuda", .module = cudaz_pkg.module("cudaz") },
+                .{ .name = join(b, &.{ name, "_ptx" }), .module = hw_ptx },
+                .{ .name = "nvptx", .module = cudaz_pkg.module("nvptx_cpu") },
+            },
+        }),
+        .use_llvm = true,
     });
 
-    cuda_sdk.addCudazWithZigKernel(b, hw_exe, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
-    addLodePng(b, hw_exe);
-    b.installArtifact(hw_exe);
-
-    const test_hw = b.addTest(.{
-        .name = name ++ "__test",
-        .root_module = hw,
-    });
-    cuda_sdk.addCudazWithZigKernel(b, test_hw, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
-    tests.dependOn(&test_hw.step);
+    const run_step = b.step(name, join(b, &.{ "Run ", name }));
+    run_step.dependOn(&b.addRunArtifact(hw_exe).step);
 
     return hw_exe;
 }
 
-// fn addLesson(b: *Build, comptime name: []const u8) void {
+// fn addLesson(b: *std.Build, comptime name: []const u8) void {
 //     const lesson = b.addExecutable(name, "src/" ++ name ++ ".zig");
-//     cuda_sdk.addCudazWithNvcc(b, lesson, CUDA_PATH, "src/" ++ name ++ ".cu");
+//     cudaz.addCudazWithNvcc(b, lesson, CUDA_PATH, "src/" ++ name ++ ".cu");
 //     lesson.setTarget(target);
 //     lesson.setBuildMode(mode);
 //     lesson.install();
@@ -152,9 +141,9 @@ fn addZigHomework(b: *Build, tests: *std.Build.Step, comptime name: []const u8) 
 //     run_lesson_step.dependOn(&run_lesson.step);
 // }
 
-// fn addZigLesson(b: *Build, comptime name: []const u8) void {
+// fn addZigLesson(b: *std.Build, comptime name: []const u8) void {
 //     const lesson = b.addExecutable(name, "src/" ++ name ++ ".zig");
-//     cuda_sdk.addCudazWithZigKernel(b, lesson, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
+//     cudaz.addCudazWithZigKernel(b, lesson, CUDA_PATH, "src/" ++ name ++ "_kernel.zig");
 //     lesson.setTarget(target);
 //     lesson.setBuildMode(mode);
 //     lesson.install();
@@ -164,3 +153,11 @@ fn addZigHomework(b: *Build, tests: *std.Build.Step, comptime name: []const u8) 
 //     run_lesson.step.dependOn(b.getInstallStep());
 //     run_lesson_step.dependOn(&run_lesson.step);
 // }
+
+fn path(b: *std.Build, parts: []const []const u8) std.Build.LazyPath {
+    return b.path(join(b, parts));
+}
+
+fn join(b: *std.Build, parts: []const []const u8) []const u8 {
+    return std.mem.joinZ(b.allocator, "", parts) catch @panic("OOM");
+}

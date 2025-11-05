@@ -1,6 +1,8 @@
+const CallingConvention = @import("std").builtin.CallingConvention;
 const std = @import("std");
 const assert = std.debug.assert;
 const log = std.log;
+const builtin = @import("builtin");
 
 const cuda = @import("cudaz");
 const cu = cuda.cu;
@@ -8,29 +10,28 @@ const cu = cuda.cu;
 const png = @import("png.zig");
 const Image = png.Image;
 
-const builtin = @import("builtin");
-const CallingConvention = @import("std").builtin.CallingConvention;
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
 pub const kernel: CallingConvention = if (is_nvptx) .PtxKernel else .Unspecified;
 
-pub fn validate_output(alloc: std.mem.Allocator, comptime dir: []const u8, threshold: f32) !void {
-    const output = try Image.fromFilePath(alloc, dir ++ "output.png");
-    const reference = try Image.fromFilePath(alloc, dir ++ "reference.png");
+pub fn validate_output(allocator: std.mem.Allocator, comptime dir: []const u8, threshold: f32) !void {
+    const output = try png.fromFilePath(allocator, dir ++ "output.png");
+    const reference = try png.fromFilePath(allocator, dir ++ "reference.png");
 
     log.info("Loaded output image and reference image for comparison", .{});
     assert(output.width == reference.width);
     assert(output.height == reference.height);
     // assert(output.image_format == reference.image_format);
-    assert(output.raw().len == reference.raw().len);
+    assert(output.rawBytes().len == reference.rawBytes().len);
 
-    const avg_diff = try eq_and_show_diff(alloc, dir, output, reference);
+    const avg_diff = try eq_and_show_diff(allocator, dir, output, reference);
     if (avg_diff < threshold) {
         log.info("*** The image matches, Congrats ! ***", .{});
     }
 }
 
-pub fn eq_and_show_diff(alloc: std.mem.Allocator, comptime dir: []const u8, output: Image, reference: Image) !f32 {
-    var diff = try png.Image.init(alloc, reference.width, reference.height, .gray8);
+pub fn eq_and_show_diff(allocator: std.mem.Allocator, comptime dir: []const u8, output: Image, reference: Image) !f32 {
+    var diff = try png.grayscale(allocator, reference.width, reference.height);
+    defer diff.deinit(allocator);
     var out_pxls = output.iterator();
     var ref_pxls = reference.iterator();
 
@@ -43,28 +44,26 @@ pub fn eq_and_show_diff(alloc: std.mem.Allocator, comptime dir: []const u8, outp
         const ref_pxl = ref_pxls.next();
         if (ref_pxl == null) break;
         const out_pxl = out_pxls.next();
-        var d = ref_pxl.?.r - out_pxl.?.r;
-        d = std.math.fabs(d);
-        min_val = std.math.min(min_val, d);
-        max_val = std.math.max(max_val, d);
+        const d = @abs(ref_pxl.?.r - out_pxl.?.r);
+        min_val = @min(min_val, d);
+        max_val = @max(max_val, d);
         i += 1;
         total += d;
     }
     const avg_diff = 255.0 * total / @as(f32, @floatFromInt(num_pixels));
     i = 0;
-    var diff_pxls = diff.px.gray8;
+    var diff_pxls = diff.pixels.grayscale8;
     while (true) {
         const ref_pxl = ref_pxls.next();
         if (ref_pxl == null) break;
         const out_pxl = out_pxls.next();
-        var d = ref_pxl.?.r - out_pxl.?.r;
-        d = std.math.fabs(d);
+        const d = @abs(ref_pxl.?.r - out_pxl.?.r);
         const centered_d = 255.0 * (d - min_val) / (max_val - min_val);
-        diff_pxls[i] = @floatFromInt(centered_d);
+        diff_pxls[i] = .{ .value = @intFromFloat(centered_d) };
         i += 1;
     }
 
-    try diff.writeToFilePath(dir ++ "output_diff.png");
+    try png.writeToFilePath(diff, dir ++ "output_diff.png");
     if (min_val != 0 or max_val != 0) {
         std.log.err("Found diffs between two images, avg: {d:.3}, ranging from {d:.1} to {d:.1} pixel value.", .{ avg_diff, 255 * min_val, 255 * max_val });
     }

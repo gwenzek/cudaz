@@ -1,0 +1,22 @@
+.{
+    .name = .CS344,
+    .version = "0.0.0",
+    .fingerprint = 0xbc7a2943eed24b62, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        .zigimg = .{
+            .url = "git+https://github.com/zigimg/zigimg.git#f5783e87627cbd9e0b45fad112e9f73503914f36",
+            .hash = "zigimg-0.1.0-8_eo2vBrFQBhsrLpexdcDQY-zrlzkyFZfKuYX-Nry6KN",
+        },
+        .cudaz = .{
+            // .url = "git+https://github.com/gwenzek/cudaz.git#249fd9bcf3cbb80a89a9954db6f6b36fce9e504e",
+            // .hash = "cudaz-0.1.0-H9Q4ZatKDQAs7KgExK2NMOjOf9aF0X4o1P0MsPjxXJRX",
+            .path = "..",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
