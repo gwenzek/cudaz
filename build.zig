@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     const target_nvptx = b.resolveTargetQuery(.{
         .os_tag = .cuda,
         .cpu_arch = .nvptx64,
-        .cpu_model = .{ .explicit = &std.Target.nvptx.cpu.sm_32 },
+        .cpu_model = .{ .explicit = &std.Target.nvptx.cpu.sm_120a },
     });
 
     const cuda_h_translate = b.addTranslateC(.{

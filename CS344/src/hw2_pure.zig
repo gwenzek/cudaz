@@ -5,6 +5,8 @@ const assert = std.debug.assert;
 
 const cuda = @import("cuda");
 const cu = cuda.cu;
+const ptx = @import("nvptx");
+pub const panic = ptx.panic;
 
 const kernels = @import("hw2_pure_kernel.zig");
 const Mat3 = kernels.Mat3;
@@ -30,7 +32,7 @@ pub fn main() anyerror!void {
     const module: *cuda.Module = .initFromData(hw2_ptx);
     defer module.deinit();
     const gaussianBlurVerbose: cuda.Kernel(kernels, "gaussianBlurVerbose") = try .init(module);
-    const gaussianBlurStruct: cuda.Kernel(kernels, "gaussianBlurStruct") = try .init(module);
+    const gaussianBlur: cuda.Kernel(kernels, "gaussianBlur") = try .init(module);
 
     var img = try png.fromFilePath(alloc, resources_dir ++ "cinque_terre_small.png");
     defer img.deinit(alloc);
@@ -40,20 +42,21 @@ pub fn main() anyerror!void {
     defer stream.free(d_img);
 
     const d_out = try stream.alloc(png.Rgb24, img.width * img.height);
+    // stream.memset(png.Rgb24, d_out, .{ .r = 0xff, .g = 0, .b = 0 });
     defer stream.free(d_out);
 
     const d_filter = Mat2Float{
         .data = (try stream.allocAndCopy(f32, &blurFilter())).ptr,
-        .shape = [_]i32{ blur_kernel_width, blur_kernel_width },
+        .shape = .{ blur_kernel_width, blur_kernel_width },
     };
     defer stream.free(d_filter.data[0..@intCast(d_filter.shape[0])]);
     const img_mat: Mat3 = .{
         .data = std.mem.sliceAsBytes(d_img).ptr,
-        .shape = [3]u32{ @intCast(img.height), @intCast(img.width), 3 },
+        .shape = .{ @intCast(img.height), @intCast(img.width), 3 },
     };
     const grid3D: cuda.Grid = .init3D(.{ img.height, img.width, 3 }, .{ 32, 32, 1 });
-    var timer = cuda.GpuTimer.start(stream);
 
+    var timer = cuda.GpuTimer.start(stream);
     try gaussianBlurVerbose.launch(
         stream,
         grid3D,
@@ -66,22 +69,14 @@ pub fn main() anyerror!void {
             std.mem.sliceAsBytes(d_out).ptr,
         },
     );
+    timer.stop();
     stream.memcpyDtoH(png.Rgb24, img.pixels.rgb24, d_out);
     stream.synchronize();
-    try png.writeToFilePath(img, resources_dir ++ "output.png");
-    // try utils.validate_output(alloc, resources_dir, 2.0);
 
-    try gaussianBlurStruct.launch(
-        stream,
-        grid3D,
-        .{.{
-            .img = img_mat,
-            .filter = d_filter.data[0 .. blur_kernel_width * blur_kernel_width],
-            .filter_width = @intCast(blur_kernel_width),
-            .output = std.mem.sliceAsBytes(d_out).ptr,
-        }},
-    );
-    const gaussianBlur: cuda.Kernel(kernels, "gaussianBlur") = try .init(module);
+    // std.log.debug("out: {any}", .{img.pixels.rgb24[0..24]});
+    try png.writeToFilePath(img, resources_dir ++ "output.png");
+    try utils.validate_output(alloc, resources_dir, 2.0);
+
     try gaussianBlur.launch(
         stream,
         grid3D,
@@ -91,7 +86,6 @@ pub fn main() anyerror!void {
             std.mem.sliceAsBytes(d_out),
         },
     );
-    timer.stop();
     stream.memcpyDtoH(png.Rgb24, img.pixels.rgb24, d_out);
     stream.synchronize();
     try png.writeToFilePath(img, resources_dir ++ "output.png");

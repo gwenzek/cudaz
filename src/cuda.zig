@@ -114,6 +114,7 @@ pub const Stream = struct {
         // can't recover.
     }
 
+    /// Allocate a device buffer and copy the give host data into it.
     pub fn allocAndCopy(stream: Stream, comptime DestType: type, h_source: []const DestType) ![]DestType {
         const ptr = try stream.alloc(DestType, h_source.len);
         stream.memcpyHtoD(DestType, ptr, h_source);
@@ -185,24 +186,6 @@ pub const Stream = struct {
         return res != cu.CUDA_ERROR_NOT_READY;
     }
 };
-
-pub fn memset(comptime DestType: type, slice: []DestType, value: DestType) !void {
-    const d_ptr = @intFromPtr(slice.ptr);
-    const n = slice.len;
-    const memset_res = switch (@sizeOf(DestType)) {
-        1 => cu.cuMemsetD8(d_ptr, @bitCast(value), n),
-        2 => cu.cuMemsetD16(d_ptr, @bitCast(value), n),
-        4 => cu.cuMemsetD32(d_ptr, @bitCast(value), n),
-        else => @compileError("memset doesn't support type: " ++ @typeName(DestType)),
-    };
-    try check(memset_res);
-}
-
-pub fn memsetD8(comptime DestType: type, slice: []DestType, value: u8) !void {
-    const d_ptr = @intFromPtr(slice.ptr);
-    const n = slice.len * @sizeOf(DestType);
-    try check(cu.cuMemsetD8(d_ptr, value, n));
-}
 
 test "cuda version" {
     log.warn("Cuda version: {d}", .{cu.CUDA_VERSION});
@@ -290,11 +273,12 @@ pub fn TypedKernel(comptime name: []const u8, comptime func: anytype) type {
         pub fn assertParamsLayout(kernel: K) void {
             inline for (0..num_args, arg_offsets, @typeInfo(Args).@"struct".fields) |i, zig_offset, arg| {
                 const cuda_offset, const cuda_sizeof = kernel.paramInfo(i) catch @panic("too many arguments on Zig side");
-                // log.debug("Argument {}: offset {}, size: {}", .{ i, cuda_offset, cuda_sizeof });
+                // log.debug("Argument {} ({s}): offset {}, size: {}", .{ i, @typeName(arg.type), cuda_offset, cuda_sizeof });
                 std.debug.assert(cuda_offset == zig_offset); // layout mismatch
                 std.debug.assert(cuda_sizeof == @sizeOf(arg.type)); // size mismatch
             }
 
+            // Try one more time to get param, info. It should fail now.
             var param_offset: usize = undefined;
             const rc = cu.cuFuncGetParamInfo(kernel.f, num_args, &param_offset, null);
             std.debug.assert(rc == cu.CUDA_ERROR_INVALID_VALUE); // missing arguments on Zig side
@@ -396,7 +380,7 @@ test "cuda alloc" {
     defer stream.deinit();
 
     const d_greyImage = try stream.alloc(u8, 128);
-    try memset(u8, d_greyImage, 0);
+    try stream.memset(u8, d_greyImage, 0);
     defer stream.free(d_greyImage);
 }
 

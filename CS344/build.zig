@@ -27,6 +27,7 @@ pub fn build(b: *std.Build) void {
     // // addZigLesson(b, "lesson5");
 
     const hw2 = addZigHomework(b, tests, "hw2_pure");
+    b.getInstallStep().dependOn(&b.addInstallArtifact(hw2, .{}).step);
     run_step.dependOn(&b.addRunArtifact(hw2).step);
 
     // const run_hw3 = hw3.run();
@@ -95,10 +96,11 @@ fn addZigHomework(b: *std.Build, tests: *std.Build.Step, name: []const u8) *std.
     const hw_kernel_device_mod = b.createModule(.{
         .root_source_file = hw_kernel_zig,
         .target = nvptx.resolved_target,
-        .optimize = .ReleaseFast,
+        .optimize = .ReleaseSafe,
         .imports = &.{
             .{ .name = "nvptx", .module = nvptx },
         },
+        .strip = false,
     });
 
     const hw_ptx = cudaz_sdk.createPtx(b, hw_kernel_device_mod);

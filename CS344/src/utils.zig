@@ -23,10 +23,21 @@ pub fn validate_output(allocator: std.mem.Allocator, comptime dir: []const u8, t
     // assert(output.image_format == reference.image_format);
     assert(output.rawBytes().len == reference.rawBytes().len);
 
+    var stdout_buffer: [4096 + 128]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&stdout_buffer);
     const avg_diff = try eq_and_show_diff(allocator, dir, output, reference);
     if (avg_diff < threshold) {
-        log.info("*** The image matches, Congrats ! ***", .{});
+        try stdout.interface.print(
+            "Generated:\n{f}\n*** The image matches, Congrats ! ***\n",
+            .{png.KittyFmt{ .img = reference }},
+        );
+    } else {
+        try stdout.interface.print("Reference:\n{f}\nGenerated:\n{f}\n*** The images don't match ! ***\n", .{
+            png.KittyFmt{ .img = reference },
+            png.KittyFmt{ .img = output },
+        });
     }
+    try stdout.interface.flush();
 }
 
 pub fn eq_and_show_diff(allocator: std.mem.Allocator, comptime dir: []const u8, output: Image, reference: Image) !f32 {

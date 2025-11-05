@@ -1,7 +1,7 @@
 const ptx = @import("nvptx");
 pub const panic = ptx.panic;
 
-pub fn rgba_to_greyscale(rgbaImage: [*]const u8, len: u64, greyImage: [*]u8) callconv(ptx.kernel) void {
+pub fn rgba_to_greyscale(rgbaImage: [*]const u8, greyImage: [*]u8, len: u64) callconv(ptx.kernel) void {
     const i = ptx.getIdX();
     if (i >= len) return;
     const px = rgbaImage[i * 3 .. i * 3 + 3];

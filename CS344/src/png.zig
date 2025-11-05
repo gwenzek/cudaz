@@ -68,3 +68,43 @@ test "read/write/read" {
     try testing.expectEqualSlices(u8, base.raw(), loaded.raw());
     try testing.expect(img_eq(base, loaded));
 }
+
+pub const KittyFmt = struct {
+    img: Image,
+    cols: u32 = 120,
+    rows: ?u32 = null,
+
+    pub fn format(fmt: KittyFmt, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const img = fmt.img;
+
+        const pixel_type: u8 = switch (img.pixels) {
+            .rgb24 => 24,
+            .rgba32 => 32,
+            else => return try writer.print("Img {d}x{d} {t} -> not supported", .{ img.width, img.height, img.pixels }),
+        };
+
+        const scaled_rows = std.math.divCeil(usize, fmt.cols * img.height, img.width * 2) catch unreachable;
+
+        try writer.print("\x1b_Gf={d},a=T,t=d,s={d},v={d},c={d},r={d},m=1;", .{
+            pixel_type,
+            img.width,
+            img.height,
+            fmt.cols,
+            fmt.rows orelse scaled_rows,
+        });
+
+        var it = std.mem.window(u8, img.rawBytes(), 4096, 4096);
+        const first_chunk = it.first();
+        try std.base64.standard.Encoder.encodeWriter(writer, first_chunk);
+        try writer.writeAll("\x1b\\");
+
+        while (it.next()) |chunk| {
+            const has_next = it.index != null;
+            try writer.print("\x1b_Gm={d};", .{@intFromBool(has_next)});
+            try std.base64.standard.Encoder.encodeWriter(writer, chunk);
+            try writer.writeAll("\x1b\\");
+        }
+        try writer.writeAll("\n");
+        try writer.flush();
+    }
+};

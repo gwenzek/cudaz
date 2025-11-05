@@ -1,21 +1,22 @@
 const std = @import("std");
 
 const cuda = @import("cudaz");
-const nvptx = @import("nvptx");
+const ptx = @import("nvptx");
+pub const panic = ptx.panic;
 
 const generated_ptx = @embedFile("generated_ptx");
 const message = "Hello World !\x00";
 
 const log = std.log.scoped(.@"test");
 
-pub fn hello_world(out: [*]u8, len: u32) callconv(nvptx.kernel) void {
-    const i = nvptx.getIdX();
+pub fn hello_world(out: [*]u8, len: u32) callconv(ptx.kernel) void {
+    const i = ptx.getIdX();
     if (i > len) return;
     out[i] = if (i > message.len) 0 else message[i];
 }
 
 comptime {
-    if (nvptx.is_nvptx) {
+    if (ptx.is_nvptx) {
         @export(&hello_world, .{ .name = "hello_world" });
     }
 }
@@ -39,8 +40,8 @@ test hello_world {
     try std.testing.expectEqualSlices(u8, expected, h_buffer[0..expected.len]);
 }
 
-pub fn rgba_to_grayscale(rgbaImage: []const [4]u8, grayImage: []u8) callconv(nvptx.kernel) void {
-    const i = nvptx.getIdX();
+pub fn rgba_to_grayscale(rgbaImage: []const [4]u8, grayImage: []u8) callconv(ptx.kernel) void {
+    const i = ptx.getIdX();
     if (i >= grayImage.len) return;
     const px = rgbaImage[i];
     const R: u16 = @intCast(px[0]);
@@ -51,7 +52,7 @@ pub fn rgba_to_grayscale(rgbaImage: []const [4]u8, grayImage: []u8) callconv(nvp
 }
 
 comptime {
-    if (nvptx.is_nvptx) {
+    if (ptx.is_nvptx) {
         @export(&rgba_to_grayscale, .{ .name = "rgba_to_grayscale" });
     }
 }

@@ -34,24 +34,26 @@ pub fn main() anyerror!void {
     log.info("Loaded img {}x{}: ({any}...)", .{ img.width, img.height, img.pixels.rgb24[200 .. 200 + max_show] });
 
     const d_img = try stream.allocAndCopy(u8, img.rawBytes());
-    // defer stream.free(d_img);
+    defer stream.free(d_img);
 
     const d_gray = try stream.alloc(u8, img.width * img.height);
-    // defer stream.free(d_gray);
+    stream.memset(u8, d_gray, 0xff);
+    defer stream.free(d_gray);
 
     const rgba_to_gray: cuda.Kernel(hw1_kernel, "rgba_to_greyscale") = try .init(module);
 
     var timer = cuda.GpuTimer.start(stream);
-    try stream.launch(
-        rgba_to_gray.f,
-        .init1D(img.height * img.width, 64),
-        &.{ @ptrCast(&d_img.ptr), &d_gray.len, @ptrCast(&d_gray.ptr) },
-    );
-    // try rgba_to_gray.launch(
-    //     stream,
-    //     .init1D(img.height * img.width, 64),
-    //     .{ d_img.ptr, d_gray.len, d_gray.ptr },
+
+    // try stream.launch(
+    //     rgba_to_gray.f,
+    //     .init1D(img.height * img.width, 128),
+    //     &.{ @ptrCast(&d_img.ptr), @ptrCast(&d_gray.ptr), &d_gray.len },
     // );
+    try rgba_to_gray.launch(
+        stream,
+        .init1D(img.height * img.width, 64),
+        .{ d_img.ptr, d_gray.ptr, d_gray.len },
+    );
     timer.stop();
 
     var gray = try png.grayscale(allocator, img.width, img.height);

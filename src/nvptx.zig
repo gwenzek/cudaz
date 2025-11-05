@@ -14,9 +14,18 @@
 const std = @import("std");
 const CallingConvention = std.builtin.CallingConvention;
 const builtin = @import("builtin");
+pub const root = @import("root");
 
 pub const is_nvptx = builtin.cpu.arch == .nvptx64;
 pub const kernel: CallingConvention = if (builtin.cpu.arch == .nvptx64) .nvptx_kernel else .auto;
+
+comptime {
+    if (!@hasDecl(root, "panic")) {
+        @compileError("You must add a `pub const panic = ptx.panic;` at the top of zig kernel files");
+    }
+}
+
+pub const panic = if (is_nvptx) std.debug.no_panic else std.debug.simple_panic;
 
 // Equivalent of Cuda's __syncthreads()
 /// Wait to all the threads in this block to reach this barrier
@@ -49,19 +58,19 @@ pub fn numCTAsX() u32 {
     );
 }
 
-pub fn getIdX() usize {
+pub fn getIdX() u32 {
     return threadIdX() + numThreadsX() * ctaIdX();
 }
 
-pub fn threadIdY() usize {
+pub fn threadIdY() u32 {
     return @workItemId(1);
 }
 
-pub fn numThreadsY() usize {
+pub fn numThreadsY() u32 {
     return @workGroupSize(1);
 }
 
-pub fn ctaIdY() usize {
+pub fn ctaIdY() u32 {
     return @workGroupId(1);
 }
 
@@ -72,19 +81,19 @@ pub fn numCTAsY() u32 {
     );
 }
 
-pub fn getIdY() usize {
+pub fn getIdY() u32 {
     return threadIdY() + numThreadsY() * ctaIdY();
 }
 
-pub fn threadIdZ() usize {
+pub fn threadIdZ() u32 {
     return @workItemId(2);
 }
 
-pub fn numThreadsZ() usize {
+pub fn numThreadsZ() u32 {
     return @workGroupSize(2);
 }
 
-pub fn ctaIdZ() usize {
+pub fn ctaIdZ() u32 {
     return @workGroupId(2);
 }
 
@@ -95,11 +104,11 @@ pub fn numCTAsZ() u32 {
     );
 }
 
-pub fn getIdZ() usize {
+pub fn getIdZ() u32 {
     return threadIdZ() + numThreadsZ() * ctaIdZ();
 }
 
-pub const Dim2 = struct { x: usize, y: usize };
+pub const Dim2 = struct { x: u32, y: u32 };
 pub fn getId_2D() Dim2 {
     return Dim2{
         .x = threadIdX() + numThreadsX() * ctaIdX(),
@@ -107,7 +116,7 @@ pub fn getId_2D() Dim2 {
     };
 }
 
-pub const Dim3 = struct { x: usize, y: usize, z: usize };
+pub const Dim3 = struct { x: u32, y: u32, z: u32 };
 pub fn getId_3D() Dim3 {
     return Dim3{
         .x = threadIdX() + numThreadsX() * ctaIdX(),
