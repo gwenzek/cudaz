@@ -20,18 +20,18 @@ pub fn main() !void {
     var stream = try cuda.Stream.init(0);
     defer stream.deinit();
     log.warn("cuda: {f}", .{stream});
-    const module: cuda.Module = .initFromData(matmul_ptx);
+    const module: *cuda.Module = .initFromData(matmul_ptx);
     defer module.deinit();
 
     const matmul_f: matmulK = try .init(module);
     const shape: matmul.Shape = .{ .m = 3, .n = 3, .k = 2 };
 
-    const A_d = try cuda.alloc(f32, shape.m * shape.k);
+    const A_d = try stream.alloc(f32, shape.m * shape.k);
     stream.memcpyHtoD(f32, A_d, &.{ 1.0, 2.0, -1.0, -2.0, 0.0, 0.0 });
-    const B_d = try cuda.alloc(f32, shape.n * shape.k);
+    const B_d = try stream.alloc(f32, shape.n * shape.k);
     stream.memcpyHtoD(f32, B_d, &.{ 1.0, 1.0, -1.0, -1.0, 0.0, 0.0 });
 
-    const C_d = try cuda.alloc(f32, shape.m * shape.n);
+    const C_d = try stream.alloc(f32, shape.m * shape.n);
 
     var timer = cuda.GpuTimer.start(&stream);
     try matmul_f.launch(
