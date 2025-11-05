@@ -1,3 +1,16 @@
+//! Bindings to ptx intrinsics.
+//!
+//! The Parallel Thread Execution (PTX) programming model is explicitly parallel: a PTX program specifies the execution of a given thread of a parallel thread array. A cooperative thread array, or CTA, is an array of threads that execute a kernel concurrently or in parallel.
+//!
+//! Threads within a CTA can communicate with each other. To coordinate the communication of the threads within the CTA, one can specify synchronization points where threads wait until all threads in the CTA have arrived.
+//!
+//! Each thread has a unique thread identifier within the CTA. Programs use a data parallel decomposition to partition inputs, work, and results across the threads of the CTA.
+//! Each CTA thread uses its thread identifier to determine its assigned role, assign specific input and output positions, compute addresses, and select work to perform.
+//! Each thread identifier component ranges from zero up to the number of thread ids in that CTA dimension.
+//!
+//! Each CTA has a 1D, 2D, or 3D shape specified by a three-element vector ntid (with elements ntid.x, ntid.y, and ntid.z). The vector ntid specifies the number of threads in each CTA dimension.
+//!
+//! Threads within a CTA execute in SIMT (single-instruction, multiple-thread) fashion in groups called warps. A warp is a maximal subset of threads from a single CTA, such that the threads execute the same instructions at the same time. Threads within a warp are sequentially numbered. The warp size is a machine-dependent constant. Typically, a warp has 32 threads.
 const std = @import("std");
 const CallingConvention = std.builtin.CallingConvention;
 const builtin = @import("builtin");
@@ -9,155 +22,96 @@ pub const kernel: CallingConvention = if (builtin.cpu.arch == .nvptx64) .nvptx_k
 /// Wait to all the threads in this block to reach this barrier
 /// before going on.
 pub inline fn syncThreads() void {
-    // @"llvm.nvvm.barrier0"();
     if (!is_nvptx) return;
     asm volatile ("bar.sync \t0;");
 }
 
-// extern fn @"llvm.nvvm.barrier0"() void;
-
-// This doesn't seem to work. LLVM (called from Zig) crashes with a "Cannot select error"
-// pub inline fn threadDimX() usize {
-//     return @intCast(@"llvm.nvvm.read.ptx.sreg.ntid.x"());
-// }
-// extern fn @"llvm.nvvm.read.ptx.sreg.ntid.x"() i32;
-
-pub fn threadIdX() usize {
-    return @workGroupId(0);
-}
-
-pub fn blockDimX() usize {
-    return @workGroupSize(0);
-}
-
-pub fn blockIdX() usize {
+/// Id of the thread in current CTA.
+pub fn threadIdX() u32 {
     return @workItemId(0);
 }
 
-pub fn gridDimX() usize {
-    if (!is_nvptx) return 0;
-    const nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.x;"
+/// Number of threads in current CTA.
+pub fn numThreadsX() u32 {
+    return @workGroupSize(0);
+}
+
+/// Id of current CTA
+pub fn ctaIdX() u32 {
+    return @workGroupId(0);
+}
+
+/// Number of CTA
+pub fn numCTAsX() u32 {
+    if (comptime !is_nvptx) return 0;
+    return asm ("mov.u32 \t%[r], %nctaid.x;"
         : [r] "=r" (-> u32),
     );
-    return @as(usize, nctaid);
 }
 
 pub fn getIdX() usize {
-    return threadIdX() + blockDimX() * blockIdX();
+    return threadIdX() + numThreadsX() * ctaIdX();
 }
 
 pub fn threadIdY() usize {
-    return @workGroupId(1);
-}
-
-pub fn blockDimY() usize {
-    return @workGroupSize(1);
-}
-
-pub fn blockIdY() usize {
     return @workItemId(1);
 }
 
+pub fn numThreadsY() usize {
+    return @workGroupSize(1);
+}
+
+pub fn ctaIdY() usize {
+    return @workGroupId(1);
+}
+
+pub fn numCTAsY() u32 {
+    if (comptime !is_nvptx) return 0;
+    return asm ("mov.u32 \t%[r], %nctaid.y;"
+        : [r] "=r" (-> u32),
+    );
+}
+
 pub fn getIdY() usize {
-    return threadIdY() + blockDimY() * blockIdY();
+    return threadIdY() + numThreadsY() * ctaIdY();
 }
 
-/// threadId.z
-pub inline fn threadIdZ() usize {
-    const tid = asm volatile ("mov.u32 \t%[r], %tid.z;"
-        : [r] "=r" (-> u32),
-    );
-    return @intCast(tid);
+pub fn threadIdZ() usize {
+    return @workItemId(2);
 }
 
-/// threadDim.y
-pub inline fn threadDimY() usize {
-    const ntid = asm volatile ("mov.u32 \t%[r], %ntid.y;"
-        : [r] "=r" (-> u32),
-    );
-    return @intCast(ntid);
-}
-/// threadDim.z
-pub inline fn threadDimZ() usize {
-    const ntid = asm volatile ("mov.u32 \t%[r], %ntid.z;"
-        : [r] "=r" (-> u32),
-    );
-    return @intCast(ntid);
+pub fn numThreadsZ() usize {
+    return @workGroupSize(2);
 }
 
-/// gridId.y
-pub inline fn gridIdY() usize {
-    const ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.y;"
-        : [r] "=r" (-> u32),
-    );
-    return @intCast(ctaid);
-}
-/// gridId.z
-pub inline fn gridIdZ() usize {
-    const ctaid = asm volatile ("mov.u32 \t%[r], %ctaid.z;"
-        : [r] "=r" (-> u32),
-    );
-    return @intCast(ctaid);
+pub fn ctaIdZ() usize {
+    return @workGroupId(2);
 }
 
-/// gridDim.y
-pub inline fn gridDimY() usize {
-    const nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.y;"
+pub fn numCTAsZ() u32 {
+    if (comptime !is_nvptx) return 0;
+    return asm ("mov.u32 \t%[r], %nctaid.z;"
         : [r] "=r" (-> u32),
     );
-    return @intCast(nctaid);
-}
-/// gridDim.z
-pub inline fn gridDimZ() usize {
-    const nctaid = asm volatile ("mov.u32 \t%[r], %nctaid.z;"
-        : [r] "=r" (-> u32),
-    );
-    return @intCast(nctaid);
 }
 
-const Dim2 = struct { x: usize, y: usize };
+pub fn getIdZ() usize {
+    return threadIdZ() + numThreadsZ() * ctaIdZ();
+}
+
+pub const Dim2 = struct { x: usize, y: usize };
 pub fn getId_2D() Dim2 {
     return Dim2{
-        .x = threadIdX() + blockDimX() * blockIdX(),
-        .y = threadIdY() + threadDimY() * gridIdY(),
+        .x = threadIdX() + numThreadsX() * ctaIdX(),
+        .y = threadIdY() + numThreadsY() * ctaIdY(),
     };
 }
 
-const Dim3 = struct { x: usize, y: usize, z: usize };
+pub const Dim3 = struct { x: usize, y: usize, z: usize };
 pub fn getId_3D() Dim3 {
     return Dim3{
-        .x = threadIdX() + blockDimX() * blockIdX(),
-        .y = threadIdY() + threadDimY() * gridIdY(),
-        .z = threadIdZ() + threadDimZ() * gridIdZ(),
+        .x = threadIdX() + numThreadsX() * ctaIdX(),
+        .y = threadIdY() + numThreadsY() * ctaIdY(),
+        .z = threadIdZ() + numThreadsZ() * ctaIdZ(),
     };
 }
-
-// var panic_message_buffer: ?[]u8 = null;
-
-// pub export fn init_panic_message_buffer(buffer: []u8) callconv(kernel) void {
-//     panic_message_buffer = buffer;
-// }
-// if (!is_nvptx) @compileError("This panic handler is made for GPU");
-
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    _ = ret_addr;
-    _ = error_return_trace;
-    _ = msg;
-    // asm volatile ("trap;");
-    // `unreachable` implictly calls panic recursively and confuses ptxas.
-    unreachable;
-    // `noreturn` crashes LLVM because "Basic Block in function 'nvptx.panic' does not have terminator!"
-    // This seems to be a bad .ll generation
-    // return asm volatile ("trap;"
-    //     : [r] "=r" (-> noreturn),
-    // );
-    // while(true) fails to compile because of "LLVM ERROR: Symbol name with unsupported characters"
-    // while(true){}
-}
-// if (panic_message_buffer) |*buffer| {
-// const len = std.math.min(msg.len, buffer.len);
-// std.mem.copy(u8, buffer.*.ptr[0..len], msg[0..len]);
-// TODO: this assumes nobody will try to write afterward, which I'm not sure
-// TODO: prevent all threads wirting in the same place
-// buffer.*.len = len;
-// }
