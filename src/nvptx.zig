@@ -20,7 +20,7 @@ pub const is_nvptx = builtin.cpu.arch == .nvptx64;
 pub const kernel: CallingConvention = if (builtin.cpu.arch == .nvptx64) .nvptx_kernel else .auto;
 
 comptime {
-    if (!@hasDecl(root, "panic")) {
+    if (is_nvptx and !@hasDecl(root, "panic")) {
         @compileError("You must add a `pub const panic = ptx.panic;` at the top of zig kernel files");
     }
 }

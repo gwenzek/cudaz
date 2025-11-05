@@ -70,9 +70,9 @@ test rgba_to_grayscale {
     const num_rows: u32 = 10;
     const num_cols: u32 = 20;
     const rgba_d = try stream.alloc([4]u8, num_rows * num_cols);
-    try cuda.memset([4]u8, rgba_d, [4]u8{ 0xaa, 0, 0, 255 });
+    stream.memset([4]u8, rgba_d, [4]u8{ 0xaa, 0, 0, 255 });
     const gray_d = try stream.alloc(u8, num_rows * num_cols);
-    try cuda.memset(u8, gray_d, 0);
+    stream.memset(u8, gray_d, 0);
 
     var timer = cuda.GpuTimer.start(stream);
     try rgba_to_grayscale_f.launch(
@@ -106,9 +106,9 @@ test "rgba_to_grayscale raw API" {
     const num_rows: u32 = 10;
     const num_cols: u32 = 20;
     const rgba_d = try stream.alloc([4]u8, num_rows * num_cols);
-    try cuda.memset([4]u8, rgba_d, [4]u8{ 0xaa, 0, 0, 255 });
+    stream.memset([4]u8, rgba_d, [4]u8{ 0xaa, 0, 0, 255 });
     const gray_d = try stream.alloc(u8, num_rows * num_cols);
-    try cuda.memset(u8, gray_d, 0);
+    stream.memset(u8, gray_d, 0);
 
     // This test uses the stream.launch api that takes argument by pointers.
     // It's a bit more error prone because of the `@ptrCast`.

@@ -1,6 +1,7 @@
 const std = @import("std");
 
-const nvptx = @import("nvptx");
+const ptx = @import("nvptx");
+pub const panic = ptx.panic;
 
 pub const Shape = extern struct {
     m: u32,
@@ -14,9 +15,9 @@ pub fn matmul(
     B: []const f32,
     shape: Shape,
     C: []f32,
-) callconv(nvptx.kernel) void {
-    const i = nvptx.getIdX();
-    const j = nvptx.getIdY();
+) callconv(ptx.kernel) void {
+    const i = ptx.getIdX();
+    const j = ptx.getIdY();
 
     if (i >= shape.m or j >= shape.m) return;
 
@@ -31,7 +32,7 @@ pub fn matmul(
 }
 
 comptime {
-    if (nvptx.is_nvptx) {
+    if (ptx.is_nvptx) {
         @export(&matmul, .{ .name = "matmul" });
     }
 }

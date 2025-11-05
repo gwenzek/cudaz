@@ -380,7 +380,7 @@ test "cuda alloc" {
     defer stream.deinit();
 
     const d_greyImage = try stream.alloc(u8, 128);
-    try stream.memset(u8, d_greyImage, 0);
+    stream.memset(u8, d_greyImage, 0);
     defer stream.free(d_greyImage);
 }
 

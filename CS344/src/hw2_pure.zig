@@ -6,7 +6,6 @@ const assert = std.debug.assert;
 const cuda = @import("cuda");
 const cu = cuda.cu;
 const ptx = @import("nvptx");
-pub const panic = ptx.panic;
 
 const kernels = @import("hw2_pure_kernel.zig");
 const Mat3 = kernels.Mat3;
