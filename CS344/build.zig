@@ -16,17 +16,16 @@ pub fn build(b: *std.Build) void {
 
     // CS344 lessons and home works
     const run_step = b.step("run", "Run the examples");
-    const hw1 = addZigHomework(b, tests, "hw1_pure");
+    const hw1 = addZigHomework(b, tests, "hw1");
     run_step.dependOn(&b.addRunArtifact(hw1).step);
 
     // addLesson(b, "lesson2");
-    // const hw2 = addHomework(b, tests, "hw2");
     // addLesson(b, "lesson3");
     // const hw3 = addHomework(b, tests, "hw3");
     // const hw4 = addHomework(b, tests, "hw4");
     // // addZigLesson(b, "lesson5");
 
-    const hw2 = addZigHomework(b, tests, "hw2_pure");
+    const hw2 = addZigHomework(b, tests, "hw2");
     b.getInstallStep().dependOn(&b.addInstallArtifact(hw2, .{}).step);
     run_step.dependOn(&b.addRunArtifact(hw2).step);
 
@@ -38,24 +37,9 @@ pub fn build(b: *std.Build) void {
     // run_hw4.step.dependOn(b.getInstallStep());
     // run_step.dependOn(&run_hw4.step);
 
-    // // Pure
-    // const run_pure_step = b.step("run_pure", "Run the example");
-    // const hw1_pure = addZigHomework(b, tests, "hw1_pure");
-    // run_pure_step.dependOn(&hw1_pure.step);
-
-    // const hw2_pure = addZigHomework(b, tests, "hw2_pure");
-    // run_pure_step.dependOn(&hw2_pure.step);
-
     const hw5 = addZigHomework(b, tests, "hw5");
     run_step.dependOn(&b.addRunArtifact(hw5).step);
     b.getInstallStep().dependOn(&b.addInstallArtifact(hw5, .{}).step);
-}
-
-fn addLodePng(b: *std.Build, exe: *std.Build.Step.Compile) void {
-    // TODO remove libc dependency
-    exe.linkLibC();
-    exe.addIncludePath(b.path("lodepng"));
-    exe.addCSourceFile(.{ .file = b.path("lodepng/lodepng.c"), .flags = &.{"-DLODEPNG_COMPILE_ERROR_TEXT"} });
 }
 
 // fn addHomework(b: *std.Build, tests: *Step, comptime name: []const u8) *Step.Compile {

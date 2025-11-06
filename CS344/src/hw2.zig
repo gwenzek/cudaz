@@ -7,13 +7,11 @@ const cuda = @import("cuda");
 const cu = cuda.cu;
 const ptx = @import("nvptx");
 
-const kernels = @import("hw2_pure_kernel.zig");
-const Mat3 = kernels.Mat3;
-const Mat2Float = kernels.Mat2Float;
+const kernels = @import("hw2_kernel.zig");
 const png = @import("png.zig");
 const utils = @import("utils.zig");
 
-const hw2_ptx = @embedFile("hw2_pure_ptx");
+const hw2_ptx = @embedFile("hw2_ptx");
 
 const resources_dir = "resources/hw2_resources/";
 
@@ -44,12 +42,12 @@ pub fn main() anyerror!void {
     // stream.memset(png.Rgb24, d_out, .{ .r = 0xff, .g = 0, .b = 0 });
     defer stream.free(d_out);
 
-    const d_filter = Mat2Float{
+    const d_filter: kernels.Mat2Float = .{
         .data = (try stream.allocAndCopy(f32, &blurFilter())).ptr,
         .shape = .{ blur_kernel_width, blur_kernel_width },
     };
     defer stream.free(d_filter.data[0..@intCast(d_filter.shape[0])]);
-    const img_mat: Mat3 = .{
+    const img_mat: kernels.Mat3 = .{
         .data = std.mem.sliceAsBytes(d_img).ptr,
         .shape = .{ @intCast(img.height), @intCast(img.width), 3 },
     };

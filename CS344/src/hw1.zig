@@ -5,11 +5,11 @@ const assert = std.debug.assert;
 const cuda = @import("cuda");
 const cu = cuda.cu;
 
-const hw1_kernel = @import("hw1_pure_kernel.zig");
+const hw1_kernel = @import("hw1_kernel.zig");
 const png = @import("png.zig");
 const utils = @import("utils.zig");
 
-const hw1_ptx = @embedFile("hw1_pure_ptx");
+const hw1_ptx = @embedFile("hw1_ptx");
 
 const resources_dir = "resources/hw1_resources/";
 
@@ -37,7 +37,7 @@ pub fn main() anyerror!void {
     defer stream.free(d_img);
 
     const d_gray = try stream.alloc(u8, img.width * img.height);
-    stream.memset(u8, d_gray, 0xff);
+    // stream.memset(u8, d_gray, 0xff);
     defer stream.free(d_gray);
 
     const rgba_to_gray: cuda.Kernel(hw1_kernel, "rgba_to_greyscale") = try .init(module);
@@ -51,7 +51,7 @@ pub fn main() anyerror!void {
     // );
     try rgba_to_gray.launch(
         stream,
-        .init1D(img.height * img.width, 64),
+        .init1D(img.height * img.width, 1024),
         .{ d_img.ptr, d_gray.ptr, d_gray.len },
     );
     timer.stop();
