@@ -124,3 +124,65 @@ pub fn getId_3D() Dim3 {
         .z = threadIdZ() + numThreadsZ() * ctaIdZ(),
     };
 }
+
+pub fn lastTid(n: usize) u32 {
+    if (ctaIdX() == numCTAsX() - 1) {
+        return @intCast((n - 1) % numThreadsX());
+    } else {
+        return numThreadsX() - 1;
+    }
+}
+
+/// Exclusive scan using Blelloch algorithm
+/// Returns the total value which won't be part of the array
+pub fn exclusiveScan(
+    comptime op: std.builtin.ReduceOp,
+    data: anytype,
+    tid: usize,
+    last_tid: usize,
+) u32 {
+    var step: u32 = 1;
+    while (step <= last_tid) : (step *= 2) {
+        if (tid >= step and (last_tid - tid) % (step * 2) == 0) {
+            const right = data[tid];
+            const left = data[tid - step];
+            data[tid] = switch (op) {
+                .Add => right + left,
+                .Mul => right * left,
+                .Min => @min(left, right),
+                .Max => @max(left, right),
+                .And => right & left,
+                .Or => right | left,
+                .Xor => right ^ left,
+            };
+        }
+        syncThreads();
+    }
+
+    var total: u32 = 0;
+    if (tid == last_tid) {
+        total = data[tid];
+        data[tid] = 0;
+    }
+    syncThreads();
+
+    step /= 2;
+    while (step > 0) : (step /= 2) {
+        if (tid >= step and (last_tid - tid) % (step * 2) == 0) {
+            const right = data[tid];
+            const left = data[tid - step];
+            data[tid] = switch (op) {
+                .Add => right + left,
+                .Mul => right * left,
+                .Min => @min(left, right),
+                .Max => @max(left, right),
+                .And => right & left,
+                .Or => right | left,
+                .Xor => right ^ left,
+            };
+            data[tid - step] = right;
+        }
+        syncThreads();
+    }
+    return total;
+}

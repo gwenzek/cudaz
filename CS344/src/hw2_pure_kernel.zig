@@ -89,9 +89,9 @@ pub fn gaussianBlurVerbose(
     output: [*]u8,
 ) callconv(ptx.kernel) void {
     return gaussianBlurImpl(
-        .{ .data = raw_input, .shape = .{ num_cols, num_rows, 3 } },
+        Mat3{ .data = raw_input, .shape = .{ num_cols, num_rows, 3 } },
 
-        .{ .data = @constCast(filter), .shape = .{ filter_width, filter_width } },
+        Mat2Float{ .data = @constCast(filter), .shape = .{ filter_width, filter_width } },
         output[0 .. num_cols * num_rows * 3],
     );
 }

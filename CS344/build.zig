@@ -46,8 +46,9 @@ pub fn build(b: *std.Build) void {
     // const hw2_pure = addZigHomework(b, tests, "hw2_pure");
     // run_pure_step.dependOn(&hw2_pure.step);
 
-    // const hw5 = addZigHomework(b, tests, "hw5");
-    // run_pure_step.dependOn(&hw5.step);
+    const hw5 = addZigHomework(b, tests, "hw5");
+    run_step.dependOn(&b.addRunArtifact(hw5).step);
+    b.getInstallStep().dependOn(&b.addInstallArtifact(hw5, .{}).step);
 }
 
 fn addLodePng(b: *std.Build, exe: *std.Build.Step.Compile) void {
