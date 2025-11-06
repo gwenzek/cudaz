@@ -24,7 +24,7 @@ pub fn main() !void {
     try initModule(module);
 
     log.info("***** HW5 ******", .{});
-    const num_bins: usize = 1024;
+    const num_bins: usize = 64;
     const num_elems: usize = 10_000 * num_bins;
 
     const data = try allocator.alloc(u32, num_elems);
@@ -34,11 +34,11 @@ pub fn main() !void {
 
     // make the mean unpredictable, but close enough to the middle
     // so that timings are unaffected
-    const mean = random.intRangeLessThan(u32, num_bins / 2 - num_bins / 8, num_bins / 2 + num_bins / 8);
-    const std_dev: f32 = 100;
+    const mean: f32 = @floatFromInt(num_bins / 2);
+    const std_dev: f32 = 5;
     // TODO: generate this on the GPU
     for (data) |*x| {
-        const r: f32 = random.floatNorm(f32) * std_dev + @as(f32, @floatFromInt(mean));
+        const r: f32 = random.floatNorm(f32) * std_dev + mean;
         const clipped_r = @min(@max(r, 0), @as(f32, @floatFromInt(num_bins - 1)));
         x.* = @intFromFloat(clipped_r);
     }
@@ -49,17 +49,23 @@ pub fn main() !void {
 
     const atomic_histo = try allocator.alloc(u32, num_bins);
     defer allocator.free(atomic_histo);
-    var elapsed = try histogram(k.atomicHistogram, data, atomic_histo, ref_histo, .init1D(data.len, 1024));
-    log.info("atomicHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
-    log.info("atomicHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    if (true) {
+        const elapsed = try histogram(k.atomicHistogram, data, atomic_histo, ref_histo, .init1D(data.len, 1024));
+        log.info("atomicHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
+        log.info("atomicHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    }
 
-    elapsed = try histogram(k.bychunkHistogram, data, atomic_histo, ref_histo, .init1D(data.len / 32, 1024));
-    log.info("bychunkHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
-    log.info("bychunkHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    {
+        const elapsed = try histogram(k.bychunkHistogram, data, atomic_histo, ref_histo, .init1D(data.len / 32, 1024));
+        log.info("bychunkHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
+        log.info("bychunkHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    }
 
-    elapsed = try fastHistogram(data, atomic_histo, ref_histo);
-    log.info("fastHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
-    log.info("fastHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    if (false) {
+        const elapsed = try fastHistogramBroken(data, atomic_histo, ref_histo);
+        log.info("fastHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
+        log.info("fastHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
+    }
 }
 
 pub fn cpu_histogram(data: []const u32, histo: []u32) void {
@@ -183,7 +189,7 @@ fn fastHistogramBroken(data: []const u32, histo: []u32, ref_histo: []const u32) 
     const elapsed = timer.elapsed();
     std.testing.expectEqualSlices(u32, ref_histo, histo) catch {
         if (ref_histo.len < 100) {
-            log.err("Histogram mismatch. Expected: {d}, got {d}", .{ ref_histo, histo });
+            log.err("Histogram mismatch. Expected: {any}, got {any}", .{ ref_histo, histo });
         }
         // return err;
     };
@@ -193,7 +199,7 @@ fn fastHistogramBroken(data: []const u32, histo: []u32, ref_histo: []const u32) 
 // TODO: the cdf kernels should be part of cudaz
 pub fn inPlaceCdf(stream: cuda.Stream, d_values: []u32, n_threads: u32) cuda.Error!void {
     const n = d_values.len;
-    const grid_N = .init1D(n, n_threads);
+    const grid_N: cuda.Grid = .init1D(n, n_threads);
     const n_blocks = grid_N.blocks.x;
     const d_grid_bins = try stream.alloc(u32, n_blocks);
     defer stream.free(d_grid_bins);

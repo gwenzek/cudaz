@@ -244,10 +244,8 @@ pub const Attribute = enum(c_uint) {
 };
 
 // TODO: take a CUdevice here, and expose device in the Stream object
-pub fn getAttr(device: u8, attr: Attribute) i32 {
-    var d: cu.CUdevice = undefined;
-    _ = cu.cuDeviceGet(&d, device);
-    var value: i32 = std.math.minInt(i32);
-    _ = cu.cuDeviceGetAttribute(&value, @intFromEnum(attr), d);
-    return value;
+pub fn getAttr(device: cu.CUdevice, attr: Attribute) u32 {
+    var value: c_int = 0;
+    _ = cu.cuDeviceGetAttribute(&value, @intFromEnum(attr), device);
+    return @intCast(value);
 }

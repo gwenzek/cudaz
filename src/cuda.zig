@@ -14,14 +14,7 @@ pub const Error = errors.Error;
 const log = std.log.scoped(.cuda);
 
 var _devices: [8]cu.CUdevice = @splat(-1);
-pub fn initDevice(device: u3) !cu.CUdevice {
-    const cu_dev = &_devices[device];
-    if (cu_dev.* == -1) {
-        try check(cu.cuInit(0));
-        try check(cu.cuDeviceGet(cu_dev, device));
-    }
-    return cu_dev.*;
-}
+var _device_info: [8]DeviceInfo = undefined;
 
 /// Returns the ctx for the given device
 /// We assume one program == one context per GPU.
@@ -144,29 +137,50 @@ pub const Stream = struct {
         check(memset_res) catch unreachable;
     }
 
-    pub const Args = []const ?*const anyopaque;
-
-    pub fn launch(stream: Stream, f: cu.CUfunction, grid: Grid, args_ptrs: Args) !void {
-        try stream.launchWithSharedMem(f, grid, 0, args_ptrs);
+    pub fn launch(stream: Stream, f: cu.CUfunction, grid: Grid, params_buffer: []const u8) !void {
+        try stream.launchWithSharedMem(f, grid, 0, params_buffer);
     }
 
-    pub fn launchWithSharedMem(stream: Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, args_ptrs: Args) !void {
-        // Create an array of pointers pointing to the given args.
+    /// Launch the given kernel.
+    pub fn launchWithSharedMem(stream: Stream, f: cu.CUfunction, grid: Grid, shared_mem: usize, params_buffer: []const u8) !void {
+        // This check is optional cause it's only here to provide a better error message than just CUDA_ERROR_INVALID_VALUE
+        if (builtin.mode == .Debug) {
+            const gpu_id = std.mem.indexOfScalar(cu.CUdevice, _devices[0..], stream.device);
+            if (gpu_id) |d| {
+                const info = _device_info[d];
+                if (!info.gridIsOk(grid)) {
+                    std.debug.panic("Cuda launch kernel failed ! Grid is too big. Device constraint: {any}, received: {any}", .{ info, grid });
+                }
+                log.debug("Grid constraint: {}", .{info});
+            }
 
-        log.debug("Launching kernel {x} with grid: {any}", .{ @intFromPtr(f), grid });
+            log.debug("Launching kernel {x} with grid: {any}, params: {x}", .{ @intFromPtr(f), grid, @intFromPtr(params_buffer.ptr) });
+        }
 
+        // Note: There are two ways to pass kernel arguments, this way aligns better with Zig,
+        // telling the driver to copy the full args struct somewhere safe.
+        var extras = [_]?*anyopaque{
+            cu.CU_LAUNCH_PARAM_BUFFER_POINTER,
+            @constCast(params_buffer.ptr),
+            cu.CU_LAUNCH_PARAM_BUFFER_SIZE,
+            @constCast(&params_buffer.len),
+            cu.CU_LAUNCH_PARAM_END,
+            null,
+        };
+
+        // TODO: switch to cuLaunchKernelEx and merge launch and launchWithSharedMem.
         const res = cu.cuLaunchKernel(
             f,
-            grid.threads.x,
-            grid.threads.y,
-            grid.threads.z,
             grid.blocks.x,
             grid.blocks.y,
             grid.blocks.z,
+            grid.threads.x,
+            grid.threads.y,
+            grid.threads.z,
             @intCast(shared_mem),
             stream._stream,
-            @ptrCast(@constCast(args_ptrs)),
             null,
+            &extras,
         );
         try check(res);
         // TODO use callback API to keep the asynchronous scheduling
@@ -215,6 +229,50 @@ pub const Module = opaque {
     }
 };
 
+pub fn initDevice(device: u3) !cu.CUdevice {
+    const cu_dev = &_devices[device];
+    if (cu_dev.* == -1) {
+        try check(cu.cuInit(0));
+        try check(cu.cuDeviceGet(cu_dev, device));
+
+        _device_info[device] = .init(cu_dev.*);
+    }
+    return cu_dev.*;
+}
+
+const DeviceInfo = struct {
+    max_num_blocks: Dim3,
+    max_num_threads: Dim3,
+    max_threads_per_block: u32,
+
+    pub fn init(d: cu.CUdevice) DeviceInfo {
+        return .{
+            .max_num_blocks = .{
+                .x = getAttr(d, .MaxGridDimX),
+                .y = getAttr(d, .MaxGridDimY),
+                .z = getAttr(d, .MaxGridDimZ),
+            },
+            .max_num_threads = .{
+                .x = getAttr(d, .MaxBlockDimX),
+                .y = getAttr(d, .MaxBlockDimY),
+                .z = getAttr(d, .MaxBlockDimZ),
+            },
+            .max_threads_per_block = getAttr(d, .MaxThreadsPerBlock),
+        };
+    }
+
+    pub fn gridIsOk(info: DeviceInfo, grid: Grid) bool {
+        return (info.max_num_blocks.x >= grid.blocks.x //
+        and info.max_num_blocks.y >= grid.blocks.y //
+        and info.max_num_blocks.z >= grid.blocks.z //
+        and info.max_num_threads.x >= grid.threads.x //
+        and info.max_num_threads.y >= grid.threads.y //
+        and info.max_num_threads.z >= grid.threads.z //
+        and info.max_threads_per_block >= grid.threads.x * grid.threads.y * grid.threads.z //
+        );
+    }
+};
+
 pub inline fn Kernel(comptime ZigModule: anytype, comptime name: [:0]const u8) type {
     return TypedKernel(name, @field(ZigModule, name));
 }
@@ -254,11 +312,7 @@ pub fn TypedKernel(comptime name: []const u8, comptime func: anytype) type {
         }
 
         pub fn launchWithSharedMem(self: K, stream: Stream, grid: Grid, shared_mem: usize, args: Args) !void {
-            // TODO: this forces a specific layout for Args, where cuda API doesn't.
-            var args_ptrs: [num_args]usize = arg_offsets;
-            for (args_ptrs[0..]) |*a| a.* += @intFromPtr(&args);
-
-            try stream.launchWithSharedMem(self.f, grid, shared_mem, @ptrCast(args_ptrs[0..]));
+            try stream.launchWithSharedMem(self.f, grid, shared_mem, std.mem.asBytes(&args));
         }
 
         /// Returns the offset and size of a kernel parameter in the device-side parameter layout

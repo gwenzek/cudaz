@@ -14,8 +14,10 @@ pub const is_nvptx = builtin.cpu.arch == .nvptx64;
 pub const kernel: CallingConvention = if (is_nvptx) .PtxKernel else .Unspecified;
 
 pub fn validate_output(allocator: std.mem.Allocator, comptime dir: []const u8, threshold: f32) !void {
-    const output = try png.fromFilePath(allocator, dir ++ "output.png");
-    const reference = try png.fromFilePath(allocator, dir ++ "reference.png");
+    var output = try png.fromFilePath(allocator, dir ++ "output.png");
+    defer output.deinit(allocator);
+    var reference = try png.fromFilePath(allocator, dir ++ "reference.png");
+    defer reference.deinit(allocator);
 
     log.info("Loaded output image and reference image for comparison", .{});
     assert(output.width == reference.width);

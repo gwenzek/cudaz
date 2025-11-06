@@ -77,7 +77,7 @@ pub fn silent_check(result: cu.CUresult) Error!void {
         // but this should be caught at compile time by Cudaz, so we will ignore this.
         cu.CUDA_ERROR_LAUNCH_OUT_OF_RESOURCES => error.NotSupported,
         // API usage errors:
-        cu.CUDA_ERROR_INVALID_VALUE => @panic("Received invalid parameters (typically device/host pointer mismatch"),
+        cu.CUDA_ERROR_INVALID_VALUE,
         cu.CUDA_ERROR_NOT_INITIALIZED,
         cu.CUDA_ERROR_DEINITIALIZED,
         cu.CUDA_ERROR_PROFILER_NOT_INITIALIZED,

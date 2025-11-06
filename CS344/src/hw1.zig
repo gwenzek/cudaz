@@ -44,14 +44,9 @@ pub fn main() anyerror!void {
 
     var timer = cuda.GpuTimer.start(stream);
 
-    // try stream.launch(
-    //     rgba_to_gray.f,
-    //     .init1D(img.height * img.width, 128),
-    //     &.{ @ptrCast(&d_img.ptr), @ptrCast(&d_gray.ptr), &d_gray.len },
-    // );
     try rgba_to_gray.launch(
         stream,
-        .init1D(img.height * img.width, 1024),
+        .init1D(img.height * img.width, 32),
         .{ d_img.ptr, d_gray.ptr, d_gray.len },
     );
     timer.stop();
