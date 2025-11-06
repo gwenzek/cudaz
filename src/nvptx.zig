@@ -186,3 +186,18 @@ pub fn exclusiveScan(
     }
     return total;
 }
+
+pub const SharedMem = opaque {};
+pub extern var shared_memory: SharedMem align(64) addrspace(.shared);
+
+pub fn sharedMemory(T: type) []align(64) addrspace(.shared) T {
+    const mem_u8: [*]align(64) addrspace(.shared) u8 = @ptrCast(&shared_memory);
+    return @ptrCast(mem_u8[0..totalSharedMemory()]);
+}
+
+pub fn totalSharedMemory() u32 {
+    if (comptime !is_nvptx) return 0;
+    return asm ("mov.u32 \t%[r], %total_smem_size;"
+        : [r] "=r" (-> u32),
+    );
+}

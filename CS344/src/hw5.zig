@@ -56,7 +56,7 @@ pub fn main() !void {
     }
 
     {
-        const elapsed = try histogram(k.bychunkHistogram, data, atomic_histo, ref_histo, .init1D(data.len / 32, 1024));
+        const elapsed = try histogram(k.bychunkHistogram, data, atomic_histo, ref_histo, .init1D(data.len / hw5_kernel.bychunkHistogram_step, 1024));
         log.info("bychunkHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
         log.info("bychunkHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
     }

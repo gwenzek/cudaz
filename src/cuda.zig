@@ -151,7 +151,7 @@ pub const Stream = struct {
                 if (!info.gridIsOk(grid)) {
                     std.debug.panic("Cuda launch kernel failed ! Grid is too big. Device constraint: {any}, received: {any}", .{ info, grid });
                 }
-                log.debug("Grid constraint: {}", .{info});
+                // log.debug("Grid constraint: {}", .{info});
             }
 
             log.debug("Launching kernel {x} with grid: {any}, params: {x}", .{ @intFromPtr(f), grid, @intFromPtr(params_buffer.ptr) });

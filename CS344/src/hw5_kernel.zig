@@ -12,12 +12,7 @@ pub fn atomicHistogram(d_data: []u32, d_bins: []u32) callconv(ptx.kernel) void {
     _ = @atomicRmw(u32, &d_bins[bin], .Add, 1, .seq_cst);
 }
 
-// const step: u32 = 32;
-const SharedMem = opaque {};
-// extern var bychunkHistogram_shared: SharedMem align(8) addrspace(.shared); // stage2
-var bychunkHistogram_shared: [1024]u32 = undefined; // stage1
-
-const bychunkHistogram_step: u32 = 32;
+pub const bychunkHistogram_step: u32 = 32;
 
 /// Fist accumulate into a shared histogram
 /// then accumulate to the global histogram.
@@ -26,8 +21,7 @@ pub fn bychunkHistogram(d_data: []u32, d_bins: []u32) callconv(ptx.kernel) void 
     const n = d_data.len;
     const num_bins = d_bins.len;
     const step = bychunkHistogram_step;
-    // var s_bins = @ptrCast([*]addrspace(.shared) u32, &bychunkHistogram_shared); // stage2
-    var s_bins: [*]u32 = @ptrCast(&bychunkHistogram_shared); // stage1
+    const s_bins = ptx.sharedMemory(u32);
     const tid = ptx.threadIdX();
     if (tid < num_bins) s_bins[ptx.threadIdX()] = 0;
     ptx.syncThreads();
@@ -36,8 +30,6 @@ pub fn bychunkHistogram(d_data: []u32, d_bins: []u32) callconv(ptx.kernel) void 
     while (i < step) : (i += 1) {
         const offset = ptx.ctaIdX() * ptx.numThreadsX() * step + i * ptx.numThreadsX() + tid;
         if (offset < n) {
-            // Passing a .shared pointer to atomicAdd crashes stage2 here
-            // atomicAdd(&s_bins[d_data[offset]], 1);
             _ = @atomicRmw(u32, &s_bins[d_data[offset]], .Add, 1, .seq_cst);
         }
     }
@@ -79,20 +71,16 @@ pub fn shuffleCoarseBins32(
     }
 }
 
-// extern var cdfIncremental_shared: SharedMem align(8) addrspace(.shared); // stage2
-var cdfIncremental_shared: [1024]u32 = undefined; // stage1
-
 pub fn cdfIncremental(d_glob_bins: []u32, d_block_bins: []u32) callconv(ptx.kernel) void {
     const n = d_glob_bins.len;
     const global_id = ptx.getIdX();
     if (global_id >= n) return;
     const tid = ptx.threadIdX();
 
-    // var d_bins = @ptrCast([*]addrspace(.shared) u32, &cdfIncremental_shared); // stage2
-    const d_bins: [*]u32 = @ptrCast(&cdfIncremental_shared); // stage1
+    const d_bins = ptx.sharedMemory(u32);
     ptx.syncThreads();
     const last_tid = ptx.lastTid(@intCast(n));
-    const total = ptx.exclusiveScan(.Add, d_bins, tid, last_tid);
+    const total = ptx.exclusiveScan(.Add, d_bins[0..ptx.totalSharedMemory()], tid, last_tid);
     if (tid == last_tid) {
         d_block_bins[ptx.ctaIdX()] = total;
     }
