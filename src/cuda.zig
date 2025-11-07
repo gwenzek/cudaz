@@ -244,20 +244,22 @@ const DeviceInfo = struct {
     max_num_blocks: Dim3,
     max_num_threads: Dim3,
     max_threads_per_block: u32,
+    warp_size: u32,
 
     pub fn init(d: cu.CUdevice) DeviceInfo {
         return .{
             .max_num_blocks = .{
-                .x = getAttr(d, .MaxGridDimX),
-                .y = getAttr(d, .MaxGridDimY),
-                .z = getAttr(d, .MaxGridDimZ),
+                .x = getAttr(d, .max_grid_dim_x),
+                .y = getAttr(d, .max_grid_dim_y),
+                .z = getAttr(d, .max_grid_dim_z),
             },
             .max_num_threads = .{
-                .x = getAttr(d, .MaxBlockDimX),
-                .y = getAttr(d, .MaxBlockDimY),
-                .z = getAttr(d, .MaxBlockDimZ),
+                .x = getAttr(d, .max_block_dim_x),
+                .y = getAttr(d, .max_block_dim_y),
+                .z = getAttr(d, .max_block_dim_z),
             },
-            .max_threads_per_block = getAttr(d, .MaxThreadsPerBlock),
+            .max_threads_per_block = getAttr(d, .max_threads_per_block),
+            .warp_size = getAttr(d, .warp_size),
         };
     }
 
@@ -361,6 +363,10 @@ pub const Dim3 = extern struct {
     x: c_uint,
     y: c_uint,
     z: c_uint,
+
+    pub fn _1D(x: usize) Dim3 {
+        return .{ .x = @intCast(x), .y = 1, .z = 1 };
+    }
 
     pub fn init(x: usize, y: usize, z: usize) Dim3 {
         return .{

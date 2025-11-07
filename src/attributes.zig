@@ -4,243 +4,291 @@ const cu = @import("cuda_h");
 
 pub const Attribute = enum(c_uint) {
     /// Maximum number of threads per block
-    MaxThreadsPerBlock = 1,
+    max_threads_per_block = 1,
     /// Maximum block dimension X
-    MaxBlockDimX = 2,
+    max_block_dim_x = 2,
     /// Maximum block dimension Y
-    MaxBlockDimY = 3,
+    max_block_dim_y = 3,
     /// Maximum block dimension Z
-    MaxBlockDimZ = 4,
+    max_block_dim_z = 4,
     /// Maximum grid dimension X
-    MaxGridDimX = 5,
+    max_grid_dim_x = 5,
     /// Maximum grid dimension Y
-    MaxGridDimY = 6,
+    max_grid_dim_y = 6,
     /// Maximum grid dimension Z
-    MaxGridDimZ = 7,
+    max_grid_dim_z = 7,
     /// Maximum shared memory available per block in bytes
-    MaxSharedMemoryPerBlock = 8,
+    max_shared_memory_per_block = 8,
     /// Memory available on device for __constant__ variables in a CUDA C kernel in bytes
-    TotalConstantMemory = 9,
+    total_constant_memory = 9,
     /// Warp size in threads
-    WarpSize = 10,
+    warp_size = 10,
     /// Maximum pitch in bytes allowed by memory copies
-    MaxPitch = 11,
+    max_pitch = 11,
     /// Maximum number of 32-bit registers available per block
-    MaxRegistersPerBlock = 12,
+    max_registers_per_block = 12,
     /// Typical clock frequency in kilohertz
-    ClockRate = 13,
+    clock_rate = 13,
     /// Alignment requirement for textures
-    TextureAlignment = 14,
+    texture_alignment = 14,
     /// Device can possibly copy memory and execute a kernel concurrently. Deprecated. Use instead AsyncEngineCount.
-    GpuOverlap = 15,
+    gpu_overlap = 15,
     /// Number of multiprocessors on device
-    MultiprocessorCount = 16,
+    multiprocessor_count = 16,
     /// Specifies whether there is a run time limit on kernels
-    KernelExecTimeout = 17,
+    kernel_exec_timeout = 17,
     /// Device is integrated with host memory
-    Integrated = 18,
+    integrated = 18,
     /// Device can map host memory into CUDA address space
-    CanMapHostMemory = 19,
+    can_map_host_memory = 19,
     /// Compute mode (See ::CUcomputemode for details)
-    ComputeMode = 20,
+    compute_mode = 20,
     /// Maximum 1D texture width
-    MaximumTexture1dWidth = 21,
+    maximum_texture1d_width = 21,
     /// Maximum 2D texture width
-    MaximumTexture2dWidth = 22,
+    maximum_texture2d_width = 22,
     /// Maximum 2D texture height
-    MaximumTexture2dHeight = 23,
+    maximum_texture2d_height = 23,
     /// Maximum 3D texture width
-    MaximumTexture3dWidth = 24,
+    maximum_texture3d_width = 24,
     /// Maximum 3D texture height
-    MaximumTexture3dHeight = 25,
+    maximum_texture3d_height = 25,
     /// Maximum 3D texture depth
-    MaximumTexture3dDepth = 26,
+    maximum_texture3d_depth = 26,
     /// Maximum 2D layered texture width
-    MaximumTexture2dLayeredWidth = 27,
+    maximum_texture2d_layered_width = 27,
     /// Maximum 2D layered texture height
-    MaximumTexture2dLayeredHeight = 28,
+    maximum_texture2d_layered_height = 28,
     /// Maximum layers in a 2D layered texture
-    MaximumTexture2dLayeredLayers = 29,
+    maximum_texture2d_layered_layers = 29,
     /// Alignment requirement for surfaces
-    SurfaceAlignment = 30,
+    surface_alignment = 30,
     /// Device can possibly execute multiple kernels concurrently
-    ConcurrentKernels = 31,
+    concurrent_kernels = 31,
     /// Device has ECC support enabled
-    EccEnabled = 32,
+    ecc_enabled = 32,
     /// PCI bus ID of the device
-    PciBusID = 33,
+    pci_bus_id = 33,
     /// PCI device ID of the device
-    PciDeviceID = 34,
+    pci_device_id = 34,
     /// Device is using TCC driver model
-    TccDriver = 35,
+    tcc_driver = 35,
     /// Peak memory clock frequency in kilohertz
-    MemoryClockRate = 36,
+    memory_clock_rate = 36,
     /// Global memory bus width in bits
-    GlobalMemoryBusWidth = 37,
+    global_memory_bus_width = 37,
     /// Size of L2 cache in bytes
-    L2CacheSize = 38,
+    l2_cache_size = 38,
     /// Maximum resident threads per multiprocessor
-    MaxThreadsPerMultiprocessor = 39,
+    max_threads_per_multiprocessor = 39,
     /// Number of asynchronous engines
-    AsyncEngineCount = 40,
+    async_engine_count = 40,
     /// Device shares a unified address space with the host
-    UnifiedAddressing = 41,
+    unified_addressing = 41,
     /// Maximum 1D layered texture width
-    MaximumTexture1dLayeredWidth = 42,
+    maximum_texture1d_layered_width = 42,
     /// Maximum layers in a 1D layered texture
-    MaximumTexture1dLayeredLayers = 43,
+    maximum_texture1d_layered_layers = 43,
     /// Deprecated, do not use.
-    CanTex2dGather = 44,
+    can_tex2d_gather = 44,
     /// Maximum 2D texture width if CUDA_ARRAY3D_TEXTURE_GATHER is set
-    MaximumTexture2dGatherWidth = 45,
+    maximum_texture2d_gather_width = 45,
     /// Maximum 2D texture height if CUDA_ARRAY3D_TEXTURE_GATHER is set
-    MaximumTexture2dGatherHeight = 46,
+    maximum_texture2d_gather_height = 46,
     /// Alternate maximum 3D texture width
-    MaximumTexture3dWidthAlternate = 47,
+    maximum_texture3d_width_alternate = 47,
     /// Alternate maximum 3D texture height
-    MaximumTexture3dHeightAlternate = 48,
+    maximum_texture3d_height_alternate = 48,
     /// Alternate maximum 3D texture depth
-    MaximumTexture3dDepthAlternate = 49,
+    maximum_texture3d_depth_alternate = 49,
     /// PCI domain ID of the device
-    PciDomainID = 50,
+    pci_domain_id = 50,
     /// Pitch alignment requirement for textures
-    TexturePitchAlignment = 51,
+    texture_pitch_alignment = 51,
     /// Maximum cubemap texture width/height
-    MaximumTexturecubemapWidth = 52,
+    maximum_texturecubemap_width = 52,
     /// Maximum cubemap layered texture width/height
-    MaximumTexturecubemapLayeredWidth = 53,
+    maximum_texturecubemap_layered_width = 53,
     /// Maximum layers in a cubemap layered texture
-    MaximumTexturecubemapLayeredLayers = 54,
+    maximum_texturecubemap_layered_layers = 54,
     /// Maximum 1D surface width
-    MaximumSurface1dWidth = 55,
+    maximum_surface1d_width = 55,
     /// Maximum 2D surface width
-    MaximumSurface2dWidth = 56,
+    maximum_surface2d_width = 56,
     /// Maximum 2D surface height
-    MaximumSurface2dHeight = 57,
+    maximum_surface2d_height = 57,
     /// Maximum 3D surface width
-    MaximumSurface3dWidth = 58,
+    maximum_surface3d_width = 58,
     /// Maximum 3D surface height
-    MaximumSurface3dHeight = 59,
+    maximum_surface3d_height = 59,
     /// Maximum 3D surface depth
-    MaximumSurface3dDepth = 60,
+    maximum_surface3d_depth = 60,
     /// Maximum 1D layered surface width
-    MaximumSurface1dLayeredWidth = 61,
+    maximum_surface1d_layered_width = 61,
     /// Maximum layers in a 1D layered surface
-    MaximumSurface1dLayeredLayers = 62,
+    maximum_surface1d_layered_layers = 62,
     /// Maximum 2D layered surface width
-    MaximumSurface2dLayeredWidth = 63,
+    maximum_surface2d_layered_width = 63,
     /// Maximum 2D layered surface height
-    MaximumSurface2dLayeredHeight = 64,
+    maximum_surface2d_layered_height = 64,
     /// Maximum layers in a 2D layered surface
-    MaximumSurface2dLayeredLayers = 65,
+    maximum_surface2d_layered_layers = 65,
     /// Maximum cubemap surface width
-    MaximumSurfacecubemapWidth = 66,
+    maximum_surfacecubemap_width = 66,
     /// Maximum cubemap layered surface width
-    MaximumSurfacecubemapLayeredWidth = 67,
+    maximum_surfacecubemap_layered_width = 67,
     /// Maximum layers in a cubemap layered surface
-    MaximumSurfacecubemapLayeredLayers = 68,
+    maximum_surfacecubemap_layered_layers = 68,
     /// Deprecated, do not use. Use cudaDeviceGetTexture1DLinearMaxWidth() or cuDeviceGetTexture1DLinearMaxWidth() instead.
-    MaximumTexture1dLinearWidth = 69,
+    maximum_texture1d_linear_width = 69,
     /// Maximum 2D linear texture width
-    MaximumTexture2dLinearWidth = 70,
+    maximum_texture2d_linear_width = 70,
     /// Maximum 2D linear texture height
-    MaximumTexture2dLinearHeight = 71,
+    maximum_texture2d_linear_height = 71,
     /// Maximum 2D linear texture pitch in bytes
-    MaximumTexture2dLinearPitch = 72,
+    maximum_texture2d_linear_pitch = 72,
     /// Maximum mipmapped 2D texture width
-    MaximumTexture2dMipmappedWidth = 73,
+    maximum_texture2d_mipmapped_width = 73,
     /// Maximum mipmapped 2D texture height
-    MaximumTexture2dMipmappedHeight = 74,
+    maximum_texture2d_mipmapped_height = 74,
     /// Major compute capability version number
-    ComputeCapabilityMajor = 75,
+    compute_capability_major = 75,
     /// Minor compute capability version number
-    ComputeCapabilityMinor = 76,
+    compute_capability_minor = 76,
     /// Maximum mipmapped 1D texture width
-    MaximumTexture1dMipmappedWidth = 77,
+    maximum_texture1d_mipmapped_width = 77,
     /// Device supports stream priorities
-    StreamPrioritiesSupported = 78,
+    stream_priorities_supported = 78,
     /// Device supports caching globals in L1
-    GlobalL1CacheSupported = 79,
+    global_l1_cache_supported = 79,
     /// Device supports caching locals in L1
-    LocalL1CacheSupported = 80,
+    local_l1_cache_supported = 80,
     /// Maximum shared memory available per multiprocessor in bytes
-    MaxSharedMemoryPerMultiprocessor = 81,
+    max_shared_memory_per_multiprocessor = 81,
     /// Maximum number of 32-bit registers available per multiprocessor
-    MaxRegistersPerMultiprocessor = 82,
+    max_registers_per_multiprocessor = 82,
     /// Device can allocate managed memory on this system
-    ManagedMemory = 83,
+    managed_memory = 83,
     /// Device is on a multi-GPU board
-    MultiGpuBoard = 84,
+    multi_gpu_board = 84,
     /// Unique id for a group of devices on the same multi-GPU board
-    MultiGpuBoardGroupID = 85,
+    multi_gpu_board_group_id = 85,
     /// Link between the device and the host supports native atomic operations (this is a placeholder attribute, and is not supported on any current hardware
-    HostNativeAtomicSupported = 86,
+    host_native_atomic_supported = 86,
     /// Ratio of single precision performance (in floating-point operations per second) to double precision performance
-    SingleToDoublePrecisionPerfRatio = 87,
+    single_to_double_precision_perf_ratio = 87,
     /// Device supports coherently accessing pageable memory without calling cudaHostRegister on it
-    PageableMemoryAccess = 88,
+    pageable_memory_access = 88,
     /// Device can coherently access managed memory concurrently with the CPU
-    ConcurrentManagedAccess = 89,
+    concurrent_managed_access = 89,
     /// Device supports compute preemption.
-    ComputePreemptionSupported = 90,
+    compute_preemption_supported = 90,
     /// Device can access host registered memory at the same virtual address as the CPU
-    CanUseHostPointerForRegisteredMem = 91,
+    can_use_host_pointer_for_registered_mem = 91,
     /// ::cuStreamBatchMemOp and related APIs are supported.
-    CanUseStreamMemOps = 92,
+    can_use_stream_mem_ops_v1 = 92,
     /// 64-bit operations are supported in ::cuStreamBatchMemOp and related APIs.
-    CanUse64BitStreamMemOps = 93,
+    can_use64_bit_stream_mem_ops_v1 = 93,
     /// ::CU_STREAM_WAIT_VALUE_NOR is supported.
-    CanUseStreamWaitValueNor = 94,
+    can_use_stream_wait_value_nor_v1 = 94,
     /// Device supports launching cooperative kernels via ::cuLaunchCooperativeKernel
-    CooperativeLaunch = 95,
+    cooperative_launch = 95,
     /// Deprecated, ::cuLaunchCooperativeKernelMultiDevice is deprecated.
-    CooperativeMultiDeviceLaunch = 96,
+    cooperative_multi_device_launch = 96,
     /// Maximum optin shared memory per block
-    MaxSharedMemoryPerBlockOptin = 97,
+    max_shared_memory_per_block_optin = 97,
     /// The ::CU_STREAM_WAIT_VALUE_FLUSH flag and the ::CU_STREAM_MEM_OP_FLUSH_REMOTE_WRITES MemOp are supported on the device. See \ref CUDA_MEMOP for additional details.
-    CanFlushRemoteWrites = 98,
+    can_flush_remote_writes = 98,
     /// Device supports host memory registration via ::cudaHostRegister.
-    HostRegisterSupported = 99,
+    host_register_supported = 99,
     /// Device accesses pageable memory via the host's page tables.
-    PageableMemoryAccessUsesHostPageTables = 100,
+    pageable_memory_access_uses_host_page_tables = 100,
     /// The host can directly access managed memory on the device without migration.
-    DirectManagedMemAccessFromHost = 101,
+    direct_managed_mem_access_from_host = 101,
     /// Device supports virtual memory management APIs like ::cuMemAddressReserve, ::cuMemCreate, ::cuMemMap and related APIs
-    VirtualMemoryManagementSupported = 102,
+    virtual_memory_management_supported = 102,
     /// Device supports exporting memory to a posix file descriptor with ::cuMemExportToShareableHandle, if requested via ::cuMemCreate
-    HandleTypePosixFileDescriptorSupported = 103,
+    handle_type_posix_file_descriptor_supported = 103,
     /// Device supports exporting memory to a Win32 NT handle with ::cuMemExportToShareableHandle, if requested via ::cuMemCreate
-    HandleTypeWin32HandleSupported = 104,
+    handle_type_win32_handle_supported = 104,
     /// Device supports exporting memory to a Win32 KMT handle with ::cuMemExportToShareableHandle, if requested ::cuMemCreate
-    HandleTypeWin32KmtHandleSupported = 105,
+    handle_type_win32_kmt_handle_supported = 105,
     /// Maximum number of blocks per multiprocessor
-    MaxBlocksPerMultiprocessor = 106,
+    max_blocks_per_multiprocessor = 106,
     /// Device supports compression of memory
-    GenericCompressionSupported = 107,
+    generic_compression_supported = 107,
     /// Maximum L2 persisting lines capacity setting in bytes.
-    MaxPersistingL2CacheSize = 108,
+    max_persisting_l2_cache_size = 108,
     /// Maximum value of CUaccessPolicyWindow::num_bytes.
-    MaxAccessPolicyWindowSize = 109,
+    max_access_policy_window_size = 109,
     /// Device supports specifying the GPUDirect RDMA flag with ::cuMemCreate
-    GpuDirectRdmaWithCudaVmmSupported = 110,
+    gpu_direct_rdma_with_cuda_vmm_supported = 110,
     /// Shared memory reserved by CUDA driver per block in bytes
-    ReservedSharedMemoryPerBlock = 111,
+    reserved_shared_memory_per_block = 111,
     /// Device supports sparse CUDA arrays and sparse CUDA mipmapped arrays
-    SparseCudaArraySupported = 112,
+    sparse_cuda_array_supported = 112,
     /// Device supports using the ::cuMemHostRegister flag CU_MEMHOSTERGISTER_READ_ONLY to register memory that must be mapped as read-only to the GPU
-    ReadOnlyHostRegisterSupported = 113,
+    read_only_host_register_supported = 113,
     /// External timeline semaphore interop is supported on the device
-    TimelineSemaphoreInteropSupported = 114,
+    timeline_semaphore_interop_supported = 114,
     /// Device supports using the ::cuMemAllocAsync and ::cuMemPool family of APIs
-    MemoryPoolsSupported = 115,
+    memory_pools_supported = 115,
     /// Device supports GPUDirect RDMA APIs, like nvidia_p2p_get_pages (see https://docs.nvidia.com/cuda/gpudirect-rdma for more information)
-    GpuDirectRdmaSupported = 116,
+    gpu_direct_rdma_supported = 116,
     /// The returned attribute shall be interpreted as a bitmask, where the individual bits are described by the ::CUflushGPUDirectRDMAWritesOptions enum
-    GpuDirectRdmaFlushWritesOptions = 117,
+    gpu_direct_rdma_flush_writes_options = 117,
     /// GPUDirect RDMA writes to the device do not need to be flushed for consumers within the scope indicated by the returned attribute. See ::CUGPUDirectRDMAWritesOrdering for the numerical values returned here.
-    GpuDirectRdmaWritesOrdering = 118,
+    gpu_direct_rdma_writes_ordering = 118,
     /// Handle types supported with mempool based IPC
-    MempoolSupportedHandleTypes = 119,
+    mempool_supported_handle_types = 119,
+    /// Indicates device supports cluster launch
+    cluster_launch = 120,
+    /// Device supports deferred mapping CUDA arrays and CUDA mipmapped arrays
+    deferred_mapping_cuda_array_supported = 121,
+    /// 64-bit operations are supported in ::cuStreamBatchMemOp and related MemOp APIs.
+    can_use_64_bit_stream_mem_ops = 122,
+    /// ::CU_STREAM_WAIT_VALUE_NOR is supported by MemOp APIs.
+    can_use_stream_wait_value_nor = 123,
+    /// Device supports buffer sharing with dma_buf mechanism.
+    dma_buf_supported = 124,
+    /// Device supports IPC Events.
+    ipc_event_supported = 125,
+    /// Number of memory domains the device supports.
+    mem_sync_domain_count = 126,
+    /// Device supports accessing memory using Tensor Map.
+    tensor_map_access_supported = 127,
+    /// Device supports exporting memory to a fabric handle with cuMemExportToShareableHandle() requested with cuMemCreate()
+    handle_type_fabric_supported = 128,
+    /// Device supports unified function pointers.
+    unified_function_pointers = 129,
+    /// NUMA configuration of a device: value is of type ::CUdeviceNumaConfig enum
+    numa_config = 130,
+    /// NUMA node ID of the GPU memory
+    numa_id = 131,
+    /// Device supports switch multicast and reduction operations.
+    multicast_supported = 132,
+    /// Indicates if contexts created on this device will be shared via MPS
+    mps_enabled = 133,
+    /// NUMA ID of the host node closest to the device. Returns -1 when system does not suppoNUMA.
+    host_numa_id = 134,
+    /// Device supports CIG with D3D12.
+    d3d12_cig_supported = 135,
+    /// The returned valued shall be interpreted as a bitmask, where the individual bits adescribed by the ::CUmemDecompressAlgorithm enum.
+    mem_decompress_algorithm_mask = 136,
+    /// The returned valued is the maximum length in bytes of a single decompress operation that allowed.
+    mem_decompress_maximum_length = 137,
+    /// Device supports CIG with Vulkan.
+    vulkan_cig_supported = 138,
+    /// The combined 16-bit PCI device ID and 16-bit PCI vendor ID.
+    gpu_pci_device_id = 139,
+    /// The combined 16-bit PCI subsystem ID and 16-bit PCI subsystem vendor ID.
+    gpu_pci_subsystem_id = 140,
+    /// Device supports HOST_NUMA location with the virtual memory management APIs li::cuMemCreate, ::cuMemMap and related APIs
+    host_numa_virtual_memory_management_supported = 141,
+    /// Device supports HOST_NUMA location with the ::cuMemAllocAsync and ::cuMemPool family APIs
+    host_numa_memory_pools_supported = 142,
+    /// Device supports HOST_NUMA location IPC between nodes in a multi-node system.
+    host_numa_multinode_ipc_supported = 143,
 };
 
 // TODO: take a CUdevice here, and expose device in the Stream object
