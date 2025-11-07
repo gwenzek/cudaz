@@ -51,7 +51,7 @@ pub fn ctaIdX() u32 {
 }
 
 /// Number of CTA
-pub fn numCTAsX() u32 {
+pub fn numCtasX() u32 {
     if (comptime !is_nvptx) return 0;
     return asm ("mov.u32 \t%[r], %nctaid.x;"
         : [r] "=r" (-> u32),
@@ -74,7 +74,7 @@ pub fn ctaIdY() u32 {
     return @workGroupId(1);
 }
 
-pub fn numCTAsY() u32 {
+pub fn numCtasY() u32 {
     if (comptime !is_nvptx) return 0;
     return asm ("mov.u32 \t%[r], %nctaid.y;"
         : [r] "=r" (-> u32),
@@ -97,7 +97,7 @@ pub fn ctaIdZ() u32 {
     return @workGroupId(2);
 }
 
-pub fn numCTAsZ() u32 {
+pub fn numCtasZ() u32 {
     if (comptime !is_nvptx) return 0;
     return asm ("mov.u32 \t%[r], %nctaid.z;"
         : [r] "=r" (-> u32),
@@ -123,14 +123,6 @@ pub fn getId_3D() Dim3 {
         .y = threadIdY() + numThreadsY() * ctaIdY(),
         .z = threadIdZ() + numThreadsZ() * ctaIdZ(),
     };
-}
-
-pub fn lastTid(n: usize) u32 {
-    if (ctaIdX() == numCTAsX() - 1) {
-        return @intCast((n - 1) % numThreadsX());
-    } else {
-        return numThreadsX() - 1;
-    }
 }
 
 /// Exclusive scan using Blelloch algorithm
@@ -190,6 +182,7 @@ pub fn exclusiveScan(
 pub const SharedMem = opaque {};
 pub extern var shared_memory: SharedMem align(64) addrspace(.shared);
 
+/// Expose all shared memory available to the kernel as a single slice.
 pub fn sharedMemory(T: type) []align(64) addrspace(.shared) T {
     const mem_u8: [*]align(64) addrspace(.shared) u8 = @ptrCast(&shared_memory);
     return @ptrCast(mem_u8[0..totalSharedMemory()]);
@@ -200,4 +193,19 @@ pub fn totalSharedMemory() u32 {
     return asm ("mov.u32 \t%[r], %total_smem_size;"
         : [r] "=r" (-> u32),
     );
+}
+
+pub fn chunkByCta(slice: anytype) @TypeOf(slice) {
+    const chunk_size = std.math.divCeil(usize, slice.len, numCtasX()) catch unreachable;
+    const trailing = slice[chunk_size * ctaIdX() ..];
+
+    return trailing[0..@min(chunk_size, trailing.len)];
+}
+
+pub fn lastTid(n: usize) u32 {
+    if (ctaIdX() == numCtasX() - 1) {
+        return @intCast((n - 1) % numThreadsX());
+    } else {
+        return numThreadsX() - 1;
+    }
 }

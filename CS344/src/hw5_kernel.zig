@@ -4,11 +4,12 @@ const builtin = @import("builtin");
 const ptx = @import("nvptx");
 pub const panic = ptx.panic;
 
-pub fn atomicHistogram(d_data: []u32, d_bins: []u32) callconv(ptx.kernel) void {
-    const gid = ptx.getIdX();
-    if (gid >= d_data.len) return;
+/// Naive histogram: use atomics to update result in global memory.
+pub fn atomicHistogram(d_data: []const u32, d_bins: []u32) callconv(ptx.kernel) void {
+    const id = ptx.getIdX();
+    if (id >= d_data.len) return;
 
-    const bin = d_data[gid];
+    const bin = d_data[id];
     _ = @atomicRmw(u32, &d_bins[bin], .Add, 1, .seq_cst);
 }
 
@@ -16,27 +17,26 @@ pub const bychunkHistogram_step: u32 = 32;
 
 /// Fist accumulate into a shared histogram
 /// then accumulate to the global histogram.
-/// Should decreases contention when doing atomic adds.
-pub fn bychunkHistogram(d_data: []u32, d_bins: []u32) callconv(ptx.kernel) void {
-    const n = d_data.len;
+/// Atomics on shared memory are cheaper.
+pub fn bychunkHistogram(d_data: []const u32, d_bins: []u32) callconv(ptx.kernel) void {
     const num_bins = d_bins.len;
-    const step = bychunkHistogram_step;
-    const s_bins = ptx.sharedMemory(u32);
+    std.debug.assert(num_bins <= ptx.numThreadsX());
+
+    // Note this only work if num_threads >= num_bins
     const tid = ptx.threadIdX();
-    if (tid < num_bins) s_bins[ptx.threadIdX()] = 0;
+    const sh_bins = ptx.sharedMemory(u32)[0..num_bins];
+    if (tid < num_bins) sh_bins[ptx.threadIdX()] = 0;
     ptx.syncThreads();
 
-    var i: u32 = 0;
-    while (i < step) : (i += 1) {
-        const offset = ptx.ctaIdX() * ptx.numThreadsX() * step + i * ptx.numThreadsX() + tid;
-        if (offset < n) {
-            _ = @atomicRmw(u32, &s_bins[d_data[offset]], .Add, 1, .seq_cst);
-        }
+    const cta_chunk = ptx.chunkByCta(d_data);
+    var i: u32 = tid;
+    while (i < cta_chunk.len) : (i += ptx.numThreadsX()) {
+        _ = @atomicRmw(u32, &sh_bins[cta_chunk[i]], .Add, 1, .seq_cst);
     }
 
     ptx.syncThreads();
     if (tid < num_bins) {
-        _ = @atomicRmw(u32, &d_bins[tid], .Add, s_bins[tid], .seq_cst);
+        _ = @atomicRmw(u32, &d_bins[tid], .Add, sh_bins[tid], .seq_cst);
     }
 }
 

@@ -25,7 +25,7 @@ pub fn main() !void {
 
     log.info("***** HW5 ******", .{});
     const num_bins: usize = 64;
-    const num_elems: usize = 10_000 * num_bins;
+    const num_elems: usize = 100_000 * num_bins;
 
     const data = try allocator.alloc(u32, num_elems);
     defer allocator.free(data);
@@ -56,7 +56,12 @@ pub fn main() !void {
     }
 
     {
-        const elapsed = try histogram(k.bychunkHistogram, data, atomic_histo, ref_histo, .init1D(data.len / hw5_kernel.bychunkHistogram_step, 1024));
+        // This kernel performance is pretty sensible to the number of blocks.
+        // * more blocks increase the contention on the global memory,
+        // * not enough block limits concurrency.
+        const warp_size = cuda.getAttr(stream.device, .warp_size);
+        const grid: cuda.Grid = .{ .blocks = ._1D(2048), .threads = ._1D(@max(num_bins, warp_size)) };
+        const elapsed = try histogram(k.bychunkHistogram, data, atomic_histo, ref_histo, grid);
         log.info("bychunkHistogram of {} array took {:.3}ms", .{ num_elems, elapsed });
         log.info("bychunkHistogram bandwith: {:.3}MB/s", .{computeBandwith(elapsed, data) * 1e-6});
     }
@@ -94,7 +99,7 @@ pub fn histogram(kernel: anytype, data: []const u32, histo: []u32, ref_histo: []
     const elapsed = timer.elapsed();
     std.testing.expectEqualSlices(u32, ref_histo, histo) catch {
         if (ref_histo.len < 100) {
-            log.err("Histogram mismatch. Expected: {any}, got {any}", .{ ref_histo, histo });
+            log.err("Histogram mismatch. Expected:\n{any},\ngot\n{any}", .{ ref_histo, histo });
         }
         // return err;
     };
@@ -189,7 +194,7 @@ fn fastHistogramBroken(data: []const u32, histo: []u32, ref_histo: []const u32) 
     const elapsed = timer.elapsed();
     std.testing.expectEqualSlices(u32, ref_histo, histo) catch {
         if (ref_histo.len < 100) {
-            log.err("Histogram mismatch. Expected: {any}, got {any}", .{ ref_histo, histo });
+            log.err("Histogram mismatch. Expected:\n{any}, got\n{any}", .{ ref_histo, histo });
         }
         // return err;
     };
